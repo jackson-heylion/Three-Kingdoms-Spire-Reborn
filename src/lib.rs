@@ -1,6 +1,7 @@
 //! UI-free deterministic game engine. Safe to reuse from Swift/UniFFI and wasm.
 //! Every authoritative mutation goes through Game::apply(Action).
 pub mod content;
+pub mod items;
 
 use content::{Effect, Hero, REWARD_POOL, NEUTRAL_POOL, hero_pool, card_spec, enemy_name};
 use serde::{Deserialize, Serialize};
@@ -316,6 +317,8 @@ impl Game {
         let extra_draw = usize::from(self.relics.iter().any(|r| r == "虎翼"));
         self.draw_cards(5 + extra_draw);
         if let Some(b) = &mut self.battle {
+            if self.relics.iter().any(|r| r == "铁骑") { b.block += 8; }
+            if self.relics.iter().any(|r| r == "璇玑") { b.energy += 1; }
             if self.relics.iter().any(|r| r == "军旗") { b.block += 4; }
             if self.relics.iter().any(|r| r == "虎符") { b.strength += 1; }
             if self.relics.iter().any(|r| r == "兵书") { b.scheme += 1; }
@@ -327,6 +330,7 @@ impl Game {
         self.last_node = None;
         self.rewards.clear();
         self.market.clear();
+        self.shop_relic = None;
         self.refresh_route();
     }
     fn choose_route(&mut self, index: usize) -> Result<String, String> {
@@ -340,6 +344,7 @@ impl Game {
             Node::Camp => self.stage = Stage::Camp,
             Node::Market => {
                 self.market = self.pick_reward_cards();
+                self.shop_relic = self.select_relic();
                 self.stage = Stage::Market;
             }
             Node::Story => {
@@ -371,6 +376,22 @@ impl Game {
     fn defeated(&self) -> bool {
         self.battle.as_ref().is_some_and(|b| b.foes.iter().all(|f| f.hp <= 0))
     }
+
+    fn select_relic(&mut self) -> Option<String> {
+        let available: Vec<&str> = items::RELICS.iter().map(|(id, _)| *id)
+            .filter(|id| !self.relic_history.iter().any(|r| r == *id)).collect();
+        if available.is_empty() { None }
+        else { Some(available[self.random(available.len())].to_string()) }
+    }
+    fn grant_relic(&mut self) {
+        if let Some(id) = self.select_relic() {
+            if id == "厚甲" { self.max_hp += 8; self.hp += 8; }
+            self.relic_history.push(id.clone());
+            self.relics.push(id);
+        } else {
+            self.gold += 50;
+        }
+    }
     fn win_battle(&mut self) -> String {
         let node = self.last_node.unwrap_or(Node::Battle);
         self.battle = None;
@@ -380,6 +401,9 @@ impl Game {
         if self.relics.iter().any(|r| r == "神医") {
             self.hp = (self.hp + 6).min(self.max_hp);
         }
+        if self.relics.iter().any(|r| r == "百草") {
+            self.hp = (self.hp + 2).min(self.max_hp);
+        }
         if node == Node::Elite || node == Node::Boss {
             self.grant_relic();
             if node == Node::Boss {
@@ -387,8 +411,9 @@ impl Game {
                 self.hp = (self.hp + 5).min(self.max_hp);
             }
         }
-        if self.potions < 3 && self.random(100) < 32 {
-            let pool = ["healing", "fire", "shield", "energy", "poison", "strength", "insight"];
+        let chance = if self.relics.iter().any(|r| r == "药囊") { 60 } else { 32 };
+        if self.potions < 3 && self.random(100) < chance {
+            let pool = ["healing", "fire", "shield", "energy", "poison", "strength", "insight", "weak", "cleanse", "blood"];
             let potion = pool[self.random(pool.len())];
             self.potion_bag.push(potion.into());
             self.potions = self.potion_bag.len() as u8;
@@ -434,9 +459,10 @@ impl Game {
             }
             Effect::All(n) => {
                 let count = self.battle.as_ref().expect("battle").foes.len();
+                let extra = if self.relics.iter().any(|r| r == "朱雀") { 3 } else { 0 };
                 for i in 0..count {
                     if self.battle.as_ref().expect("battle").foes[i].hp > 0 {
-                        self.damage_enemy(i, n + bonus);
+                        self.damage_enemy(i, n + bonus + extra);
                     }
                 }
             }
@@ -581,11 +607,15 @@ impl Game {
             }
         }
         if self.defeated() { return Ok(self.win_battle()); }
+        if let Some(b) = self.battle.as_mut() {
+            for f in &mut b.foes { f.block = 0; }
+        }
         let intents: Vec<(usize, Intent)> = self.battle.as_ref().expect("battle").foes.iter()
             .enumerate().filter(|(_, f)| f.hp > 0)
             .map(|(i, f)| (i, f.intent.clone())).collect();
         let mut messages = vec![];
         for (i, intent) in intents {
+            if self.battle.as_ref().is_some_and(|b| b.foes[i].hp == 0) { continue; }
             let name = self.battle.as_ref().expect("battle").foes[i].name().to_string();
             match intent {
                 Intent::Attack(power) => {
@@ -627,7 +657,6 @@ impl Game {
             for foe in &mut b.foes {
                 foe.vulnerable = foe.vulnerable.saturating_sub(1);
                 foe.weak = foe.weak.saturating_sub(1);
-                foe.block = 0;
             }
         }
         self.roll_intents();
