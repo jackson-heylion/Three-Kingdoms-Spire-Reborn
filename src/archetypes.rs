@@ -1,7 +1,7 @@
 //! Voluntary archetype drafting. Original game content; no forced card grants.
 //! IDs are stable across CLI/native/Web snapshots.
 use crate::Card;
-use crate::content::{Hero, hero_pool};
+use crate::content::Hero;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -95,7 +95,7 @@ pub fn inferred(hero: Hero, deck: &[Card]) -> Option<Doctrine> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::content::card_spec;
+    use crate::content::{card_spec,hero_pool};
     #[test]
     fn catalog_is_hero_owned_with_no_cross_doctrine_overlap() {
         for hero in [Hero::GuanYu,Hero::ZhugeLiang,Hero::SunShangxiang,Hero::CaoCao,Hero::LuBu] {
