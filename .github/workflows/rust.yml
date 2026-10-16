@@ -116,3 +116,24 @@ jobs:
           path: ${{ runner.temp }}/tks-balance.json
           retention-days: 30
 
+
+  compare-balance:
+    name: Verify portable deterministic balance
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: tks-balance-*
+          path: balance
+      - name: Compare macOS and Linux paired sample byte-for-byte
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          base=Path('balance')
+          linux=base/'tks-balance-ubuntu-latest'/'tks-balance.json'
+          mac=base/'tks-balance-macos-14'/'tks-balance.json'
+          assert linux.exists() and mac.exists(),(linux,mac)
+          assert linux.read_bytes()==mac.read_bytes(), 'OS-specific RNG or rules divergence in balance report'
+          print('Portable balance report reproducible byte-for-byte across Linux and macOS')
+          PY
