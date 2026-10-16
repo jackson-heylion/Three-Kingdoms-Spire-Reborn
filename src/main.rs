@@ -126,8 +126,10 @@ impl App {
                 Stage::Map => {
                     println!(" 【征战路线】选择下一站：");
                     for (i, node) in g.route.iter().enumerate() {
-                        println!("   {}. {}", i + 1, node.name());
+                        let lane = g.route_lanes.get(i).map_or(i + 1, |n| usize::from(*n)+1);
+                        println!("   {}. {}（路径{}）", i + 1, node.name(),lane);
                     }
+                    println!(" 输入 map 查看本幕七层完整路线图");
                     println!(" 输入 choose <编号>");
                 }
                 Stage::Combat => {
@@ -210,7 +212,7 @@ impl App {
         };
         let result: Result<String, String> = match args[0].to_ascii_lowercase().as_str() {
             "quit" | "exit" | "q" => { let _ = self.save(); return false; }
-            "help" | "h" => Ok("new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 在出征前指定三幕变体；daily YYYY-MM-DD；load/save；choose N；play N [目标]；discard N 弃换；end；use [药剂号] [目标]；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；relics；chronicle；theme dark|light；status；quit。".into()),
+            "help" | "h" => Ok("new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 在出征前指定三幕变体；daily YYYY-MM-DD；load/save；choose N；play N [目标]；discard N 弃换；end；use [药剂号] [目标]；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看连通路线；relics；chronicle；theme dark|light；status；quit。".into()),
             "new" | "custom" => {
                 let mode = if args[0] == "custom" {RunMode::Custom} else {RunMode::Standard};
                 let hero = args.get(1).and_then(|s| Hero::parse(s)).unwrap_or(Hero::GuanYu);
@@ -256,6 +258,19 @@ impl App {
             "status" => Ok(self.game.as_ref().map_or("尚未开局".into(), |g| {
                 format!("{}，第{}层，体力{}/{}，{}金，{}张卡牌，版本{}。",
                     g.hero.name(), g.floor, g.hp, g.max_hp, g.gold, g.deck.len(), g.version)
+            })),
+            "map" => Ok(self.game.as_ref().map_or("尚未开局".into(),|g| {
+                g.act_map.as_ref().map_or("当前存档没有已生成的地图".into(),|graph| {
+                    graph.rows.iter().enumerate().map(|(r,row)| {
+                        let cells = row.iter().enumerate().map(|(lane,n)| {
+                            let current = g.floor == graph.act*7 + r as u8 + 1
+                                && g.map_lane == Some(lane as u8);
+                            format!("{}{}{}",if current {"["} else {""},
+                                n.name(),if current {"]"} else {""})
+                        }).collect::<Vec<_>>().join("  ─  ");
+                        format!("第{:02}层  {}",graph.act*7+r as u8+1,cells)
+                    }).collect::<Vec<_>>().join("\n")
+                })
             })),
             "deck" => Ok(self.game.as_ref().map_or("尚未开局".into(), |g| {
                 g.deck.iter().enumerate().map(|(i,c)| format!("{}. {}", i+1, card_label(c))).collect::<Vec<_>>().join("\n")
