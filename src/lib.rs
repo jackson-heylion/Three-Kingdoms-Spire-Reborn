@@ -427,6 +427,7 @@ impl Game {
             };
         }
     }
+
     fn draw_cards(&mut self, count: usize) {
         for _ in 0..count {
             if self.battle.as_ref().expect("battle").hand.len() >= 10 { return; }
@@ -436,8 +437,15 @@ impl Game {
                 self.shuffle(&mut discard);
                 self.battle.as_mut().expect("battle").draw = discard;
             }
-            let b = self.battle.as_mut().expect("battle");
-            if let Some(card) = b.draw.pop() { b.hand.push(card); }
+            let drawn = {
+                let b = self.battle.as_mut().expect("battle");
+                let card = b.draw.pop();
+                if let Some(card) = &card { b.hand.push(card.clone()); }
+                card
+            };
+            if let Some(card) = drawn {
+                self.combat_event(EventKind::CardDrawn,&card.id,1,Some("hero".into()));
+            }
         }
     }
     fn start_battle(&mut self, node: Node) {
@@ -695,20 +703,58 @@ impl Game {
         }
     }
 
+
+    fn apply_foe_status(&mut self, idx: usize, status: &str, amount: i32) {
+        if amount <= 0 { return; }
+        let actual = {
+            let b = self.battle.as_mut().expect("battle");
+            let Some(foe) = b.foes.get_mut(idx) else { return };
+            if foe.hp <= 0 { return; }
+            match status {
+                "poison" => {
+                    let old = foe.poison;
+                    foe.poison = foe.poison.saturating_add(amount).min(9999);
+                    foe.poison-old
+                }
+                "weak" => {
+                    let old = foe.weak;
+                    foe.weak = foe.weak.saturating_add(amount.min(255) as u8);
+                    i32::from(foe.weak-old)
+                }
+                "vulnerable" => {
+                    let old = foe.vulnerable;
+                    foe.vulnerable = foe.vulnerable.saturating_add(amount.min(255) as u8);
+                    i32::from(foe.vulnerable-old)
+                }
+                _ => return,
+            }
+        };
+        if actual > 0 {
+            self.combat_event(EventKind::StatusApplied,status,actual,Some(format!("foe:{idx}")));
+        }
+    }
+
+
     fn damage_enemy(&mut self, idx: usize, base: i32) {
-        let b = self.battle.as_mut().expect("battle");
-        let raw = base + b.strength
-            + if self.hero == Hero::GuanYu { b.momentum / 3 } else { 0 }
-            + if self.hero == Hero::LuBu { b.fury / 4 } else { 0 };
-        let foe = &mut b.foes[idx];
-        if foe.hp == 0 { return; }
-        let raw = if b.weak > 0 { raw.max(0) * 3 / 4 } else { raw.max(0) };
-        let damage = if foe.vulnerable > 0 { raw * 3 / 2 } else { raw };
-        let blocked = damage.min(foe.block);
-        foe.block -= blocked;
-        let actual = (foe.hp).min((damage-blocked).max(0));
-        foe.hp -= actual;
-        self.combat_event(EventKind::DamageDealt, "hero", actual, Some(format!("foe:{idx}")));
+        let (actual,killed) = {
+            let b = self.battle.as_mut().expect("battle");
+            let raw = base + b.strength
+                + if self.hero == Hero::GuanYu { b.momentum / 3 } else { 0 }
+                + if self.hero == Hero::LuBu { b.fury / 4 } else { 0 };
+            let foe = &mut b.foes[idx];
+            if foe.hp == 0 { return; }
+            let raw = if b.weak > 0 { raw.max(0) * 3 / 4 } else { raw.max(0) };
+            let damage = if foe.vulnerable > 0 { raw * 3 / 2 } else { raw };
+            let blocked = damage.min(foe.block);
+            foe.block -= blocked;
+            let actual = foe.hp.min((damage-blocked).max(0));
+            foe.hp -= actual;
+            (actual,actual>0 && foe.hp==0)
+        };
+        self.combat_event(EventKind::DamageDealt,"hero",actual,Some(format!("foe:{idx}")));
+        if killed {
+            self.combat_event(EventKind::FoeDefeated,"hero",1,Some(format!("foe:{idx}")));
+        }
     }
     fn defeated(&self) -> bool {
         self.battle.as_ref().is_some_and(|b| b.foes.iter().all(|f| f.hp <= 0))
@@ -819,31 +865,28 @@ impl Game {
                 b.block += n + bonus;
                 b.energy += 1;
             }
-            Effect::Poison(n) => {
-                self.battle.as_mut().expect("battle").foes[target_idx.expect("target")].poison += n + bonus;
-            }
+            Effect::Poison(n) =>
+                self.apply_foe_status(target_idx.expect("target"),"poison",n+bonus),
             Effect::Draw(n) => self.draw_cards(n + usize::from(card.upgraded)),
             Effect::Strength(n) => self.battle.as_mut().expect("battle").strength += n + i32::from(card.upgraded),
             Effect::Heal(n) => self.hp = (self.hp + n + bonus).min(self.max_hp),
             Effect::HitWeak(n, turns) => {
                 let idx = target_idx.expect("target");
                 self.damage_enemy(idx, n + bonus);
-                self.battle.as_mut().expect("battle").foes[idx].weak += turns;
+                self.apply_foe_status(idx,"weak",i32::from(turns));
             }
             Effect::HitVulnerable(n, turns) => {
                 let idx = target_idx.expect("target");
                 self.damage_enemy(idx, n + bonus);
-                self.battle.as_mut().expect("battle").foes[idx].vulnerable += turns;
+                self.apply_foe_status(idx,"vulnerable",i32::from(turns));
             }
             Effect::WeakAll(turns) => {
-                for foe in &mut self.battle.as_mut().expect("battle").foes {
-                    if foe.hp > 0 { foe.weak += turns; }
-                }
+                let count = self.battle.as_ref().expect("battle").foes.len();
+                for i in 0..count { self.apply_foe_status(i,"weak",i32::from(turns)); }
             }
             Effect::ApplyVulnerable(turns) => {
-                for foe in &mut self.battle.as_mut().expect("battle").foes {
-                    if foe.hp > 0 { foe.vulnerable += turns; }
-                }
+                let count = self.battle.as_ref().expect("battle").foes.len();
+                for i in 0..count { self.apply_foe_status(i,"vulnerable",i32::from(turns)); }
             }
             Effect::GainMomentum(n) => self.battle.as_mut().expect("battle").momentum += n + bonus,
             Effect::MomentumStrike(n) => {
@@ -874,8 +917,12 @@ impl Game {
                 self.battle.as_mut().expect("battle").fury = 0;
             }
             Effect::BloodPrice(loss, power) => {
-                self.hp = (self.hp - loss).max(1);
-                self.battle.as_mut().expect("battle").fury += loss;
+                let actual = loss.min((self.hp-1).max(0));
+                self.hp -= actual;
+                self.battle.as_mut().expect("battle").fury += actual;
+                if actual > 0 {
+                    self.combat_event(EventKind::DamageReceived,"blood_price",actual,Some("hero".into()));
+                }
                 self.damage_enemy(target_idx.expect("target"), power + bonus);
             }
             Effect::Thorns(n) => self.battle.as_mut().expect("battle").thorns += n + bonus,
@@ -889,12 +936,20 @@ impl Game {
             Effect::HitPoison(n, poison) => {
                 let idx = target_idx.expect("target");
                 self.damage_enemy(idx, n + bonus);
-                self.battle.as_mut().expect("battle").foes[idx].poison += poison;
+                self.apply_foe_status(idx,"poison",poison);
             }
             Effect::Pierce(n) => {
-                let b = self.battle.as_mut().expect("battle");
-                let foe = &mut b.foes[target_idx.expect("target")];
-                foe.hp = (foe.hp - n - bonus).max(0);
+                let idx = target_idx.expect("target");
+                let (actual,killed) = {
+                    let foe = &mut self.battle.as_mut().expect("battle").foes[idx];
+                    let actual = foe.hp.min((n+bonus).max(0));
+                    foe.hp -= actual;
+                    (actual,actual>0 && foe.hp==0)
+                };
+                self.combat_event(EventKind::DamageDealt,"pierce",actual,Some(format!("foe:{idx}")));
+                if killed {
+                    self.combat_event(EventKind::FoeDefeated,"pierce",1,Some(format!("foe:{idx}")));
+                }
             }
             Effect::DrawEnergy(n, energy) => {
                 self.battle.as_mut().expect("battle").energy += energy;
@@ -951,9 +1006,10 @@ impl Game {
         if self.relics.iter().any(|r| r == "百战") && attack {
             self.battle.as_mut().expect("battle").strength += 1;
         }
-        self.trigger_card_powers(attack);
+        self.combat_event(EventKind::CardResolved,&card.id,0,None);
         let msg = format!("使用了【{}】。", card.name());
         if spec.exhaust {
+            self.combat_event(EventKind::CardExhausted,&card.id,1,None);
             self.battle.as_mut().expect("battle").exhausted.push(card);
         } else {
             self.battle.as_mut().expect("battle").discard.push(card);
@@ -982,7 +1038,6 @@ impl Game {
                 .iter().position(|foe| foe.hp > 0);
             if let Some(target) = target { self.damage_enemy(target, 7); }
         }
-        self.trigger_discard_powers();
         self.draw_cards(1);
         if self.defeated() { Ok(format!("{msg}。{}", self.win_battle())) }
         else { Ok(msg) }
