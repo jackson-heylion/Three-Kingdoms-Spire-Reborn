@@ -229,6 +229,13 @@ impl World {
             b.foes[0].max_hp = 200;
             b.foes[0].hp = 200;
             b.foes[0].block = 0;
+        } else if step.starts_with("battle troops attack equals ") {
+            let expected:i32=parse_after(step,"battle troops attack equals ")?
+                .parse().map_err(|_|"invalid troop attack")?;
+            let actual=self.game()?.battle.as_ref().ok_or("not in combat")?.troops_attack;
+            if actual!=expected {
+                return Err(format!("troop attack {actual} differs from expected {expected}"));
+            }
         } else if step.starts_with("battle energy equals ") {
             let expected: i32 = parse_after(step,"battle energy equals ")?
                 .parse().map_err(|_|"bad energy assertion")?;
@@ -499,13 +506,14 @@ fn gherkin_bdd_acceptance_suite() {
         ("features/advanced_combat.feature", include_str!("../features/advanced_combat.feature")),
         ("features/advanced_cards.feature", include_str!("../features/advanced_cards.feature")),
         ("features/boss_tactics.feature", include_str!("../features/boss_tactics.feature")),
+        ("features/balance_guards.feature", include_str!("../features/balance_guards.feature")),
         ("features/lore.feature", include_str!("../features/lore.feature")),
         ("features/save_resume.feature", include_str!("../features/save_resume.feature")),
         ("features/novel_provenance.feature", include_str!("../features/novel_provenance.feature")),
     ];
     let scenarios: usize = documents.iter().map(|(name,text)|
         run_feature(text,name).unwrap_or_else(|error|panic!("{error}"))).sum();
-    assert!(scenarios >= 41, "BDD suite lost scenarios: {scenarios}");
+    assert!(scenarios >= 44, "BDD suite lost scenarios: {scenarios}");
     println!("Verified {scenarios} executable Given/When/Then acceptance scenarios");
 }
 
