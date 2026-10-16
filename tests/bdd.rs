@@ -87,6 +87,22 @@ impl World {
                     || game.rewards.iter().skip(idx+1).any(|other|other.id==card.id)
                 {return Err("duplicate or nonexistent reward card".into());}
             }
+        } else if step == "the map has valid explicit connected routes" {
+            let map=self.game()?.act_map.as_ref().ok_or("missing act map")?;
+            if !map.is_valid() || map.edges.len()!=three_kingdoms_spire_reborn::map::ROWS-1 {
+                return Err("act map is disconnected or still uses legacy topology".into());
+            }
+        } else if step.starts_with("the full action replay verifies ") {
+            let count:usize=parse_after(step,"the full action replay verifies ")?
+                .trim_end_matches(" steps").parse().map_err(|_|"invalid replay count")?;
+            let actual=self.game()?.verify_action_replay()?;
+            if actual!=count {return Err(format!("expected replay count {count}, got {actual}"));}
+        } else if step == "I tamper with non-action gold" {
+            self.game_mut()?.gold+=1;
+        } else if step == "the full replay rejects the drift" {
+            if self.game()?.verify_action_replay().is_ok() {
+                return Err("mutated run unexpectedly passed seed/action replay".into());
+            }
         } else if step == "I remember the current snapshot" {
             self.before = Some(self.game()?.to_json()?);
         } else if step == "I save and restore" {
@@ -568,13 +584,14 @@ fn gherkin_bdd_acceptance_suite() {
         ("features/balance_guards.feature", include_str!("../features/balance_guards.feature")),
         ("features/combat_telemetry.feature", include_str!("../features/combat_telemetry.feature")),
         ("features/doctrine_drafting.feature", include_str!("../features/doctrine_drafting.feature")),
+        ("features/p1_replay_map.feature", include_str!("../features/p1_replay_map.feature")),
         ("features/lore.feature", include_str!("../features/lore.feature")),
         ("features/save_resume.feature", include_str!("../features/save_resume.feature")),
         ("features/novel_provenance.feature", include_str!("../features/novel_provenance.feature")),
     ];
     let scenarios: usize = documents.iter().map(|(name,text)|
         run_feature(text,name).unwrap_or_else(|error|panic!("{error}"))).sum();
-    assert!(scenarios >= 53, "BDD suite lost scenarios: {scenarios}");
+    assert!(scenarios >= 58, "BDD suite lost scenarios: {scenarios}");
     println!("Verified {scenarios} executable Given/When/Then acceptance scenarios");
 }
 
