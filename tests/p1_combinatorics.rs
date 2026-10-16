@@ -43,7 +43,7 @@ fn every_relic_boon_and_potion_combination_is_atomic_saveable_and_event_ordered(
             }
         }
     }
-    assert_eq!(cases,16*12*10);
+    assert_eq!(cases,17*12*10);
 }
 
 #[test]
