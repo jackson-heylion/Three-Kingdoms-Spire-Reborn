@@ -1249,14 +1249,16 @@ impl Game {
                 self.damage_enemy(target_idx.expect("target"), amount + bonus);
             }
             Effect::XHit(per_energy) => {
-                if cost > 0 {
+                let invested=cost+i32::from(self.relics.iter().any(|r|r=="玄机炉"));
+                if invested>0 {
                     self.damage_enemy(target_idx.expect("target"),
-                        (per_energy + 2*i32::from(card.upgraded))*cost
+                        (per_energy + 2*i32::from(card.upgraded))*invested
                         + if card.enchantment.as_deref() == Some("锐锋") { 3 } else { 0 });
                 }
             }
             Effect::XGuard(per_energy) => {
-                let amount = (per_energy + 2*i32::from(card.upgraded))*cost;
+                let invested=cost+i32::from(self.relics.iter().any(|r|r=="玄机炉"));
+                let amount = (per_energy + 2*i32::from(card.upgraded))*invested;
                 self.battle.as_mut().expect("battle").block += amount;
             }
             Effect::TutorAttack => {
@@ -3202,6 +3204,29 @@ mod tests {
         };MAX_RECENT_TURN_METRICS+1];
         assert!(Game::from_json(&bad.to_json().unwrap()).is_err());
         assert_eq!(migrated.to_json().unwrap(),g.to_json().unwrap());
+    }
+    #[test]
+    fn x_multiplier_relic_adds_virtual_energy_without_spending_it() {
+        let mut g=Game::new(Hero::GuanYu,994321);
+        g.relics.push("玄机炉".into());
+        g.relic_history.push("玄机炉".into());
+        g.apply(Action::Choose{index:1}).unwrap();
+        let b=g.battle.as_mut().unwrap();
+        b.energy=0;
+        b.hand=vec![Card::new("yidao_x"),Card::new("x_bulwark")];
+        b.foes[0].hp=100;
+        b.foes[0].max_hp=100;
+        b.foes[0].block=0;
+        let hp=g.battle.as_ref().unwrap().foes[0].hp;
+        let armor=g.battle.as_ref().unwrap().block;
+        g.apply(Action::Play{index:1,target:1}).unwrap();
+        assert_eq!(g.battle.as_ref().unwrap().foes[0].hp,hp-6);
+        assert_eq!(g.battle.as_ref().unwrap().energy,0);
+        g.apply(Action::Play{index:1,target:1}).unwrap();
+        assert_eq!(g.battle.as_ref().unwrap().block,armor+5);
+        assert_eq!(g.battle.as_ref().unwrap().energy,0);
+        let s=g.to_json().unwrap();
+        assert_eq!(Game::from_json(&s).unwrap().to_json().unwrap(),s);
     }
     #[test]
     fn full_action_replay_reconstructs_seeded_combat_route_and_saves() {
