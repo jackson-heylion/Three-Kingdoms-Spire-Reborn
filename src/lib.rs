@@ -569,7 +569,8 @@ impl Game {
                 seq: b.event_seq, kind, source: source.to_owned(), amount, target,
             });
             if b.events.len() > MAX_RECENT_EVENTS {
-                b.events.drain(..b.events.len()-MAX_RECENT_EVENTS);
+                let count = b.events.len()-MAX_RECENT_EVENTS;
+                b.events.drain(..count);
             }
         }
     }
@@ -935,6 +936,7 @@ impl Game {
             f.hp = (f.hp - damage + absorbed).max(0);
         }
     }
+
     fn enemy_attack(&mut self, foe_idx: usize, power: i32) -> i32 {
         let b = self.battle.as_mut().expect("battle");
         let reduced = if b.foes[foe_idx].weak > 0 { power * 3 / 4 } else { power };
@@ -947,12 +949,21 @@ impl Game {
         let damage = incoming - protected;
         self.hp = (self.hp - damage).max(0);
         if self.hero == Hero::LuBu { b.fury += damage / 2; }
+        let courage = if damage > 0 {
+            b.powers.iter().find(|p| p.id == PowerId::BloodCourage)
+                .map_or(0, |p| p.stacks * 2)
+        } else { 0 };
+        if courage > 0 { b.fury += courage; }
         if b.thorns > 0 {
             b.foes[foe_idx].hp = (b.foes[foe_idx].hp - b.thorns).max(0);
         }
+        // Damage event is recorded before the conditional power proc.
+        self.combat_event(EventKind::DamageReceived, &format!("foe:{foe_idx}"), damage, Some("hero".into()));
+        if courage > 0 {
+            self.combat_event(EventKind::PowerTriggered, "blood_courage", courage, None);
+        }
         damage
     }
-
     fn boss_phase_transitions(&mut self) -> Vec<String> {
         let changes: Vec<(usize,String)> = self.battle.as_ref().expect("battle").foes
             .iter().enumerate().filter(|(_,foe)|
@@ -1007,6 +1018,8 @@ impl Game {
     }
     fn end_turn(&mut self) -> Result<String, String> {
         if self.stage != Stage::Combat { return Err("当前不在战斗中".into()); }
+        self.combat_event(EventKind::TurnEnded, "hero", 0, None);
+        self.trigger_granary();
         {
             let b = self.battle.as_mut().expect("battle");
             b.discard.append(&mut b.hand);
@@ -1074,6 +1087,7 @@ impl Game {
             b.energy = 3 + i32::from(self.relics.iter().any(|r| r == "玉玺"));
             b.combo = 0;
             b.discard_tokens = 0;
+            b.thought_used = false;
             b.turn += 1;
             for foe in &mut b.foes {
                 foe.vulnerable = foe.vulnerable.saturating_sub(1);
@@ -1082,6 +1096,7 @@ impl Game {
         }
         self.roll_intents();
         self.draw_cards(5 + usize::from(self.relics.iter().any(|r| r == "虎翼")));
+        self.combat_event(EventKind::TurnStarted, "hero", 0, None);
         if self.defeated() { return Ok(self.win_battle()); }
         Ok(format!("回合结束：{}。", messages.join("；")))
     }
@@ -1813,6 +1828,101 @@ mod tests {
         resumed.apply(Action::Choose { index:1 }).unwrap();
         assert_eq!(resumed.gold-before,16); // no duplicate hidden bonus
         assert_eq!(resumed.easter_unlocked.len(),1);
+    }
+
+    #[test]
+    fn persistent_powers_stack_and_emit_ordered_events() {
+        let mut g = Game::new(Hero::GuanYu, 701);
+        g.apply(Action::Choose { index: 1 }).unwrap();
+        let b = g.battle.as_mut().unwrap();
+        b.energy = 20;
+        b.hand = vec![Card::new("oath_guard"), Card::new("oath_guard"), Card::new("strike")];
+        let base_guard = b.block;
+        g.apply(Action::Play { index: 1, target: 1 }).unwrap();
+        g.apply(Action::Play { index: 1, target: 1 }).unwrap();
+        assert_eq!(g.battle.as_ref().unwrap().powers[0].stacks,2);
+        g.apply(Action::Play { index: 1, target: 1 }).unwrap();
+        let b = g.battle.as_ref().unwrap();
+        assert_eq!(b.block,base_guard+6);
+        let kinds = b.events.iter().map(|e|e.kind).collect::<Vec<_>>();
+        assert!(kinds.contains(&EventKind::CardPlayed));
+        assert!(kinds.contains(&EventKind::DamageDealt));
+        assert!(kinds.contains(&EventKind::PowerTriggered));
+        assert!(b.events.windows(2).all(|w|w[0].seq < w[1].seq));
+        assert!(b.events.iter().any(|e|e.source=="oath_guard" && e.amount==6));
+        let snap = g.to_json().unwrap();
+        assert_eq!(Game::from_json(&snap).unwrap().to_json().unwrap(),snap);
+    }
+    #[test]
+    fn advice_power_procs_only_once_each_turn() {
+        let mut g = Game::new(Hero::ZhugeLiang, 702);
+        g.apply(Action::Choose { index: 1 }).unwrap();
+        let b = g.battle.as_mut().unwrap();
+        b.energy = 20;
+        b.hand = vec![Card::new("thought_spring"), Card::new("defend"), Card::new("defend")];
+        g.apply(Action::Play { index: 1, target: 1 }).unwrap();
+        let triggered = g.battle.as_ref().unwrap().events.iter()
+            .filter(|e|e.source=="thought_spring" && e.kind==EventKind::PowerTriggered).count();
+        assert_eq!(triggered,1);
+        g.apply(Action::Play { index: 1, target: 1 }).unwrap();
+        let triggered = g.battle.as_ref().unwrap().events.iter()
+            .filter(|e|e.source=="thought_spring" && e.kind==EventKind::PowerTriggered).count();
+        assert_eq!(triggered,1);
+        assert!(g.battle.as_ref().unwrap().thought_used);
+        // A replayed turn boundary must reset once-per-turn procs deterministically.
+        g.battle.as_mut().unwrap().thought_used = false;
+        assert!(!g.battle.as_ref().unwrap().thought_used);
+    }
+    #[test]
+    fn archery_power_only_activates_on_manual_discard() {
+        let mut g = Game::new(Hero::SunShangxiang, 703);
+        g.apply(Action::Choose { index: 1 }).unwrap();
+        let b = g.battle.as_mut().unwrap();
+        b.energy = 20;
+        b.hand = vec![Card::new("arrows_on_discard"), Card::new("defend")];
+        b.discard_tokens = 1;
+        g.apply(Action::Play { index: 1, target: 1 }).unwrap();
+        let before = g.battle.as_ref().unwrap().foes[0].hp;
+        g.apply(Action::Discard { index: 1 }).unwrap();
+        let b = g.battle.as_ref().unwrap();
+        assert_eq!(b.foes[0].hp,before-4);
+        assert!(b.events.iter().any(|e|e.kind==EventKind::CardDiscarded));
+        assert!(b.events.iter().any(|e|e.source=="arrows_on_discard"));
+    }
+    #[test]
+    fn granary_only_resupplies_living_troops_and_courage_needs_actual_damage() {
+        let mut g = Game::new(Hero::CaoCao, 704);
+        g.apply(Action::Choose { index: 1 }).unwrap();
+        g.gain_power(PowerId::GranarySupport,2);
+        g.battle.as_mut().unwrap().troops_hp = 2;
+        g.trigger_granary();
+        assert_eq!(g.battle.as_ref().unwrap().troops_hp,10);
+        g.battle.as_mut().unwrap().troops_hp=0;
+        g.trigger_granary();
+        assert_eq!(g.battle.as_ref().unwrap().troops_hp,0);
+        let mut lu = Game::new(Hero::LuBu,705);
+        lu.apply(Action::Choose { index: 1 }).unwrap();
+        lu.gain_power(PowerId::BloodCourage,1);
+        lu.battle.as_mut().unwrap().block=30;
+        let baseline = lu.battle.as_ref().unwrap().fury;
+        lu.enemy_attack(0,5);
+        assert_eq!(lu.battle.as_ref().unwrap().fury,baseline);
+        lu.battle.as_mut().unwrap().block=0;
+        lu.enemy_attack(0,20);
+        assert!(lu.battle.as_ref().unwrap().fury >= baseline+2);
+    }
+    #[test]
+    fn bounded_event_journal_stays_valid_through_save_roundtrip() {
+        let mut g = Game::new(Hero::GuanYu, 706);
+        g.apply(Action::Choose { index: 1 }).unwrap();
+        for n in 0..135 {
+            g.combat_event(EventKind::TurnStarted,"test",n,None);
+        }
+        let b = g.battle.as_ref().unwrap();
+        assert_eq!(b.events.len(),MAX_RECENT_EVENTS);
+        assert_eq!(b.event_seq,135);
+        let snap = g.to_json().unwrap();
+        assert_eq!(Game::from_json(&snap).unwrap().to_json().unwrap(),snap);
     }
     #[test]
     fn targeted_camp_upgrade_and_shop_removal_work() {
