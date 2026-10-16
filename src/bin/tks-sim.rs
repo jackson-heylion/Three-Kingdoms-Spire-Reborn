@@ -81,12 +81,16 @@ fn main() {
     let mut victories = 0_u64;
     let mut deepest = 0_u8;
     let mut total_actions = 0_u64;
+    let mut snapshot_bytes = 0_usize;
     for n in 0..count {
         let hero = HEROES[n % HEROES.len()];
         let seed = (n as u64 + 1).wrapping_mul(0x9E3779B97F4A7C15);
         let difficulty = ((n/5) % 11) as u8;
         match simulate(hero,seed,difficulty) {
             Ok(outcome) => {
+                assert_eq!(outcome.hero, hero);
+                assert_eq!(outcome.seed, seed);
+                snapshot_bytes += outcome.snapshot.len();
                 victories += u64::from(outcome.won);
                 deepest = deepest.max(outcome.floor);
                 total_actions += u64::from(outcome.actions);
@@ -97,8 +101,8 @@ fn main() {
             }
         }
     }
-    println!("Simulation OK: {} runs, {} wins, maximum floor {}, {} actions",
-        count,victories,deepest,total_actions);
+    println!("Simulation OK: {} runs, {} wins, maximum floor {}, {} actions, {} snapshot bytes",
+        count,victories,deepest,total_actions,snapshot_bytes);
 }
 
 #[cfg(test)]
