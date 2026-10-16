@@ -48,7 +48,11 @@ fn default_dir() -> PathBuf {
 }
 fn card_label(card: &Card) -> String {
     match card_spec(&card.id) {
-        Some(spec) => format!("{} [费{}] {}", card.name(), spec.cost, spec.description),
+        Some(spec) => format!("{} [费{}] {}{}",
+            card.name(),
+            if card.enchantment.as_deref() == Some("迅捷") { (spec.cost - 1).max(0) } else { spec.cost },
+            spec.description,
+            if card.id == "quest_tulu" { format!("，进度{}/3", card.quest_progress) } else { String::new() }),
         None => format!("未知卡牌 {}", card.id),
     }
 }
@@ -148,7 +152,8 @@ impl App {
                     println!(" 输入 choose <编号> 购买，remove <牌组序号> 定向移牌，choose 0 离开");
                 }
                 Stage::Camp => {
-                    println!(" 【营寨】choose 1 休整；choose 2 升级首张可升级牌；choose 3 操练+2生命上限；upgrade <牌组序号> 定向升级");
+                    println!(" 【营寨】choose 1 休整；choose 2 升级首张牌；choose 3 操练+2生命上限");
+                    println!(" upgrade N 定向升级；enchant N 迅捷|锐锋|护身|明悟（35金）");
                 }
                 Stage::Story => {
                     println!(" 【驿道奇遇】{}", g.story_options());
@@ -177,7 +182,7 @@ impl App {
         };
         let result: Result<String, String> = match args[0].to_ascii_lowercase().as_str() {
             "quit" | "exit" | "q" => { let _ = self.save(); return false; }
-            "help" | "h" => Ok("new [武将] [seed] [难度0-10]；daily YYYY-MM-DD 每日挑战；load / save；choose N；play N [目标]；end；use [药剂号] [目标]；upgrade N；remove N；deck；relics；chronicle；theme dark|light；status；quit。".into()),
+            "help" | "h" => Ok("new [武将] [seed] [难度0-10]；daily YYYY-MM-DD；load/save；choose N；play N [目标]；end；use [药剂号] [目标]；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；relics；chronicle；theme dark|light；status；quit。".into()),
             "new" => {
                 let hero = args.get(1).and_then(|s| Hero::parse(s)).unwrap_or(Hero::GuanYu);
                 let seed = args.get(2).and_then(|s| s.parse::<u64>().ok()).unwrap_or_else(|| {
@@ -231,7 +236,7 @@ impl App {
             "relics" => Ok(self.game.as_ref().map_or("尚未开局".into(), |g| {
                 g.relics.iter().map(|r| format!("{}：{}",r, three_kingdoms_spire_reborn::items::relic_name(r))).collect::<Vec<_>>().join("\n")
             })),
-            "choose" | "c" | "play" | "p" | "end" | "use" | "upgrade" | "remove" => {
+            "choose" | "c" | "play" | "p" | "end" | "use" | "upgrade" | "remove" | "enchant" => {
                 let action = match args[0] {
                     "choose" | "c" => parsed(1, 0).map(|index| Action::Choose { index }),
                     "play" | "p" => parsed(1, 0).and_then(|index| parsed(2, 1)
@@ -239,6 +244,9 @@ impl App {
                     "end" => Ok(Action::EndTurn),
                     "upgrade" => parsed(1, 0).map(|index| Action::Upgrade { index }),
                     "remove" => parsed(1, 0).map(|index| Action::Remove { index }),
+                    "enchant" => parsed(1, 0).and_then(|index|
+                        args.get(2).map_or(Err("请指定附魔类型".into()),|kind|
+                            Ok(Action::Enchant { index, kind: (*kind).to_owned() }))),
                     _ => parsed(1, 1).and_then(|slot| parsed(2, 1)
                         .map(|target| Action::UsePotionAt { slot, target })),
                 };
