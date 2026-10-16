@@ -2,11 +2,11 @@
 
 ## 可执行契约
 
-- 场景文件：`features/lore.feature`、`features/save_resume.feature`、`features/novel_provenance.feature`、`features/combat_powers.feature`
+- 场景文件：`features/lore.feature`、`features/save_resume.feature`、`features/novel_provenance.feature`、`features/combat_powers.feature`、`features/advanced_combat.feature`
 - 运行器：`tests/bdd.rs`，执行单一、严格的 Given / When / Then / And / But 子集。不是完整通用 Gherkin 解析器；不支持 Scenario Outline、Examples、Rule、Background、标签和数据表。遇到不认识的步骤，必须失败，不能自动跳过。
 - CI：`cargo test --test bdd -- --nocapture`，`cargo test --all-targets` 也会执行 BDD 验收。
 - 辅助质量门：Rust 单元测试、Clippy `-D warnings`、Release 构建、终端进度持久化冒烟、两平台各 1000 局种子模拟。
-- 本轮新增5个职业持久能力BDD：关羽攻击触发一次护阵，诸葛计策触发恢复，孙尚香主动弃换触发伤害，曹操后勤随存档，吕布浴血随存档；现有合计22个Gherkin场景。
+- 本轮新增5个职业持久能力BDD：关羽攻击触发一次护阵，诸葛计策触发恢复，孙尚香主动弃换触发伤害，曹操后勤随存档，吕布浴血随存档；现在合计27个Gherkin场景；新增5个高级战斗案例覆盖保留/虚无、抽牌护甲、施毒增强、击杀回复、非法动作无副作用。
 - 内容审查：必须有小说回目 provenance；游戏虚构、小说演义、史实评价分开，不能写成已验证史实。
 
 ## 行为覆盖目录
@@ -57,3 +57,12 @@ cargo run --release --bin tks-sim -- 1000
 - 最近80条日志有严格递增序号，不能接受重复或倒序伪造；
 - 任何失败行动不修改事件日志或任何游戏数据；
 - `cargo test --test bdd -- --nocapture` 以及全平台 CI 都必须绿色才将功能标为通过。
+
+## 新一轮规则覆盖
+
+- 保留牌在回合边界不进入弃牌堆；未打出的虚无牌进消耗堆，且只记录一次 `CardExhausted`；
+- `CardDrawn` 只在真正进入手牌时触发（手牌上限10张，空牌堆且弃牌堆也空不得触发）；
+- `StatusApplied` 再触发额外中毒，但增强效果不再次发出同类事件，以防无限递归；
+- 每个敌人第一次归零时产生一次 `FoeDefeated`；重复攻击阵亡目标没有再次奖励；
+- 卡牌被打出且完成效果后产生 `CardResolved`，随后触发依赖完整卡牌结算的持续能力；
+- 事件触发、敌方意图、卡牌生命周期必须在保存和恢复后保持确定性与严格单调序号。
