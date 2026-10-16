@@ -72,3 +72,13 @@ Feature: Choices in Romance of the Three Kingdoms have consequences
   Scenario: Past history without its prerequisite must not unlock a future chapter
     Given a "zhuge" campaign with seed 161
     Then act 1 has no available lore scene
+
+Scenario: Guan Yu's debt and mercy reveal a once-only hidden ending
+    Given a "guanyu" campaign with seed 231
+    And the flag "baima_debt" was earned earlier
+    And the lore scene "huarong"
+    When I choose 1
+    Then the flag "huarong_mercy" is present
+    And the hidden conclusion "sword_debt" is unlocked
+    When I save and restore
+    Then the hidden conclusion "sword_debt" is unlocked
