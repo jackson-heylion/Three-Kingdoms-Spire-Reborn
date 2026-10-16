@@ -7,7 +7,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use three_kingdoms_spire_reborn::{
-    Action, Card, Game, Stage,
+    Action, Card, Game, RunMode, Stage,
     content::{Hero, card_spec},
     items::potion_name,
     progression::Profile,
@@ -99,7 +99,8 @@ impl App {
             println!(" 幕：{}  层：{}/21  牌组：{}  遗物：{}  存档修订：{}",
                 (g.floor.saturating_sub(1) / 7 + 1).min(3), g.floor, g.deck.len(),
                 g.relics.join("、"), g.revision);
-            println!(" 飞升难度：{}  已完成战役：{}  存档协议：V{}", g.ascension, g.victories, g.version);
+            println!(" 模式：{:?}  飞升难度：{}  已完成战役：{}  存档协议：V{}",
+                g.mode, g.ascension, g.victories, g.version);
             println!(" 章节：{}；变体：{}",
                 g.act_name(),
                 g.variants.map_or("随种子".into(),|choices| format!("{}/{}/{}",choices[0],choices[1],choices[2])));
@@ -202,18 +203,24 @@ impl App {
         };
         let result: Result<String, String> = match args[0].to_ascii_lowercase().as_str() {
             "quit" | "exit" | "q" => { let _ = self.save(); return false; }
-            "help" | "h" => Ok("new [武将] [seed] [难度0-10]；variant 0|1 0|1 0|1 在出征前指定三幕变体；daily YYYY-MM-DD；load/save；choose N；play N [目标]；discard N 弃换；end；use [药剂号] [目标]；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；relics；chronicle；theme dark|light；status；quit。".into()),
-            "new" => {
+            "help" | "h" => Ok("new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 在出征前指定三幕变体；daily YYYY-MM-DD；load/save；choose N；play N [目标]；discard N 弃换；end；use [药剂号] [目标]；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；relics；chronicle；theme dark|light；status；quit。".into()),
+            "new" | "custom" => {
+                let mode = if args[0] == "custom" {RunMode::Custom} else {RunMode::Standard};
                 let hero = args.get(1).and_then(|s| Hero::parse(s)).unwrap_or(Hero::GuanYu);
                 let seed = args.get(2).and_then(|s| s.parse::<u64>().ok()).unwrap_or_else(|| {
                     SystemTime::now().duration_since(UNIX_EPOCH).map_or(1, |t| t.as_secs().max(1))
                 });
                 let ascension = args.get(3).and_then(|s| s.parse::<u8>().ok()).unwrap_or(0).min(10);
-                self.game = Some(Game::new_with_ascension(hero, seed, ascension));
-                let g = self.game.as_ref().expect("just created");
-                self.profile.on_start(g);
-                self.save().and_then(|_| self.save_profile())
-                    .map(|_| format!("以 {} 开始新征程，种子 {seed}，难度 {ascension}。", hero.name()))
+                let unlocked = self.profile.next_ascension(hero);
+                if mode == RunMode::Standard && ascension > unlocked {
+                    Err(format!("{}目前标准战役仅解锁飞升0~{unlocked}；通关该武将当前难度可解锁下一级。测试自由档请用 custom。",hero.name()))
+                } else {
+                    self.game = Some(Game::new_with_mode(hero,seed,ascension,mode));
+                    let g = self.game.as_ref().expect("just created");
+                    self.profile.on_start(g);
+                    self.save().and_then(|_| self.save_profile())
+                        .map(|_| format!("以 {} 开始{:?}征程，种子 {seed}，难度 {ascension}。", hero.name(),mode))
+                }
             }
             "daily" => {
                 match args.get(1).copied() {
@@ -223,7 +230,7 @@ impl App {
                             (h ^ u64::from(c)).wrapping_mul(0x100000001b3));
                         let heroes = [Hero::GuanYu,Hero::ZhugeLiang,Hero::SunShangxiang,Hero::CaoCao,Hero::LuBu];
                         let hero = heroes[(seed % heroes.len() as u64) as usize];
-                        self.game = Some(Game::new_with_ascension(hero,seed,3));
+                        self.game = Some(Game::new_with_mode(hero,seed,3,RunMode::Daily));
                         let g = self.game.as_ref().expect("just created");
                         self.profile.on_start(g);
                         self.save().and_then(|_| self.save_profile())
