@@ -3,7 +3,7 @@
 pub mod content;
 pub mod items;
 
-use content::{Effect, Hero, REWARD_POOL, NEUTRAL_POOL, hero_pool, card_spec, enemy_name};
+use content::{Effect, Hero, REWARD_POOL, NEUTRAL_POOL, hero_pool, card_spec, enemy_name, enemy_hp};
 use serde::{Deserialize, Serialize};
 
 pub const SAVE_VERSION: u32 = 2;
@@ -42,11 +42,20 @@ impl Node {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum Intent { Attack(i32), Guard(i32), Rally(i32) }
+pub enum Intent {
+    Attack(i32),
+    MultiAttack(i32, u8),
+    Hex(u8, u8),
+    Guard(i32),
+    Rally(i32),
+}
 impl Intent {
     pub fn label(&self) -> String {
         match self {
-            Self::Attack(n) => format!("进攻 {n}"), Self::Guard(n) => format!("防御 {n}"),
+            Self::Attack(n) => format!("进攻 {n}"),
+            Self::MultiAttack(n, hits) => format!("连击 {n}×{hits}"),
+            Self::Hex(weak, vuln) => format!("诡计 虚弱{weak}/易伤{vuln}"),
+            Self::Guard(n) => format!("防御 {n}"),
             Self::Rally(n) => format!("聚势 +{n}"),
         }
     }
@@ -244,25 +253,46 @@ impl Game {
         }
         choices
     }
+
+    pub fn act_name(&self) -> &'static str {
+        let act = self.floor.saturating_sub(1) / 7;
+        match (act.min(2), self.seed.rotate_right(act as u32 * 11) & 1) {
+            (0, 0) => "黄巾乱世", (0, _) => "江东烽烟",
+            (1, 0) => "关中风云", (1, _) => "群雄会盟",
+            (2, 0) => "冢虎之谋", _ => "奇门斗法",
+        }
+    }
     fn generate_foes(&mut self, node: Node) -> Vec<Foe> {
-        let act = (self.floor - 1) / 7;
+        let act = self.floor.saturating_sub(1) / 7;
+        let branch = self.seed.rotate_right(act as u32 * 11) & 1;
         let ids: Vec<&str> = match node {
-            Node::Boss => vec![match act { 0 => "zhangjiao", 1 => "dongzhuo", _ => "simayi" }],
-            Node::Elite => vec!["elite"],
+            Node::Boss => vec![match (act, branch) {
+                (0,0) => "zhangjiao", (0,_) => "sunjian",
+                (1,0) => "dongzhuo", (1,_) => "yuanshao",
+                (2,0) => "simayi", _ => "zuoci",
+            }],
+            Node::Elite => {
+                let elites = ["elite", "war_elephant", "royal_guard", "tiger_general", "sacred_beast"];
+                vec![elites[self.random(elites.len())]]
+            }
             _ => {
-                let first = if act == 0 { "bandit" } else if act == 1 { "officer" } else { "shaman" };
-                if self.floor > 2 && self.random(100) < 35 {
-                    vec![first, "archer"]
+                let band = match (act, branch) {
+                    (0,0) => ["bandit", "archer", "yellow_turban", "pyromancer", "spearman"],
+                    (0,_) => ["archer", "cuirass", "sling", "raider", "crossbowman"],
+                    (1,0) => ["officer", "raider", "wolf", "horse_archer", "cuirass"],
+                    (1,_) => ["officer", "crossbowman", "tactician", "assassin", "iron_guard"],
+                    (2,0) => ["shaman", "tomb_guard", "tactician", "witch", "panther"],
+                    _ => ["shaman", "firelancer", "assassin", "witch", "iron_guard"],
+                };
+                let first = band[self.random(band.len())];
+                if self.floor > 2 && self.random(100) < 40 {
+                    let second = band[self.random(band.len())];
+                    vec![first, second]
                 } else { vec![first] }
             }
         };
         ids.into_iter().map(|id| {
-            let hp = match id {
-                "zhangjiao" => 75, "dongzhuo" => 106, "simayi" => 142,
-                "elite" => 58 + act as i32 * 14, "bandit" => 32,
-                "archer" => 23 + act as i32 * 8,
-                "officer" => 43, "shaman" => 53, _ => 30,
-            };
+            let hp = enemy_hp(id);
             Foe {
                 id: id.to_string(), hp, max_hp: hp, block: 0, strength: 0,
                 poison: 0, vulnerable: 0, weak: 0, intent: Intent::Attack(6),
@@ -270,18 +300,34 @@ impl Game {
         }).collect()
     }
     fn roll_intents(&mut self) {
-        let n = self.battle.as_ref().map_or(0, |b| b.foes.len());
-        for i in 0..n {
+        let count = self.battle.as_ref().map_or(0, |b| b.foes.len());
+        for i in 0..count {
             let roll = self.random(100);
-            let foe = &mut self.battle.as_mut().expect("battle").foes[i];
-            if foe.hp <= 0 { continue; }
-            let act = ((self.floor - 1) / 7) as i32;
-            foe.intent = if roll < 65 {
-                Intent::Attack(7 + act * 3 + foe.strength + if foe.id == "simayi" { 5 } else { 0 } + self.ascension as i32 / 3)
+            let b = self.battle.as_mut().expect("battle");
+            let turn = b.turn;
+            let foe = &mut b.foes[i];
+            if foe.hp == 0 { continue; }
+            let act = (self.floor.saturating_sub(1) / 7) as i32;
+            let attack = 6 + act * 3 + foe.strength + self.ascension as i32 / 3
+                + match foe.id.as_str() {
+                    "dongzhuo" => 7, "simayi" => 6, "zuoci" => 5, "tiger_general" => 5,
+                    "archer" | "assassin" => 1, _ => 0,
+                };
+            let spellcaster = matches!(foe.id.as_str(),
+                "shaman" | "pyromancer" | "tactician" | "witch"
+                | "zhangjiao" | "simayi" | "zuoci");
+            let swift = matches!(foe.id.as_str(),
+                "archer" | "crossbowman" | "horse_archer" | "assassin" | "panther");
+            foe.intent = if spellcaster && (roll < 26 || turn.is_multiple_of(4)) {
+                Intent::Hex(1 + u8::from(act > 0), u8::from(act > 0))
+            } else if swift && roll < 45 {
+                Intent::MultiAttack((attack / 2).max(2), 2 + u8::from(act > 0))
+            } else if roll < 68 {
+                Intent::Attack(attack)
             } else if roll < 86 {
-                Intent::Guard(6 + act * 4)
+                Intent::Guard(6 + act * 4 + self.ascension as i32 / 2)
             } else {
-                Intent::Rally(2)
+                Intent::Rally(2 + i32::from(act > 0))
             };
         }
     }
@@ -594,6 +640,20 @@ impl Game {
         }
         if self.defeated() { Ok(format!("{msg} {}", self.win_battle())) } else { Ok(msg) }
     }
+    fn enemy_attack(&mut self, foe_idx: usize, power: i32) -> i32 {
+        let b = self.battle.as_mut().expect("battle");
+        let reduced = if b.foes[foe_idx].weak > 0 { power * 3 / 4 } else { power };
+        let modified = if b.vulnerable > 0 { reduced * 3 / 2 } else { reduced };
+        let blocked = modified.min(b.block);
+        b.block -= blocked;
+        let damage = (modified - blocked).max(0);
+        self.hp = (self.hp - damage).max(0);
+        if self.hero == Hero::LuBu { b.fury += damage / 2; }
+        if b.thorns > 0 {
+            b.foes[foe_idx].hp = (b.foes[foe_idx].hp - b.thorns).max(0);
+        }
+        damage
+    }
     fn end_turn(&mut self) -> Result<String, String> {
         if self.stage != Stage::Combat { return Err("当前不在战斗中".into()); }
         {
@@ -617,19 +677,25 @@ impl Game {
         for (i, intent) in intents {
             if self.battle.as_ref().is_some_and(|b| b.foes[i].hp == 0) { continue; }
             let name = self.battle.as_ref().expect("battle").foes[i].name().to_string();
+
             match intent {
                 Intent::Attack(power) => {
-                    let b = self.battle.as_mut().expect("battle");
-                    let foe = &b.foes[i];
-                    let reduced = if foe.weak > 0 { power * 3 / 4 } else { power };
-                    let modified = if b.vulnerable > 0 { reduced * 3 / 2 } else { reduced };
-                    let blocked = modified.min(b.block);
-                    b.block -= blocked;
-                    let damage = (modified - blocked).max(0);
-                    self.hp = (self.hp - damage).max(0);
-                    if self.hero == Hero::LuBu { b.fury += damage / 2; }
-                    if b.thorns > 0 { b.foes[i].hp = (b.foes[i].hp - b.thorns).max(0); }
+                    let damage = self.enemy_attack(i, power);
                     messages.push(format!("{name}进攻，受到{damage}点伤害"));
+                }
+                Intent::MultiAttack(power, hits) => {
+                    let mut total = 0;
+                    for _ in 0..hits {
+                        if self.hp == 0 { break; }
+                        total += self.enemy_attack(i, power);
+                    }
+                    messages.push(format!("{name}连续进攻{hits}次，受到{total}点伤害"));
+                }
+                Intent::Hex(weak, vulnerable) => {
+                    let b = self.battle.as_mut().expect("battle");
+                    b.weak += weak;
+                    b.vulnerable += vulnerable;
+                    messages.push(format!("{name}施放诡计：虚弱{weak}/易伤{vulnerable}"));
                 }
                 Intent::Guard(amount) => {
                     self.battle.as_mut().expect("battle").foes[i].block += amount;
