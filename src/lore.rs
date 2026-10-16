@@ -115,6 +115,58 @@ pub const BEATS: &[Beat] = &[
     Beat {id:"jin_unification",title:"三分归一",chapter:120,act:2,hero:None,prerequisite:Some("jade_whisper"),flag:"jin_epilogue",character:"杜预、孙皓、司马炎",premise:"一方古玺的传闻走到末章，权柄终归新姓。英雄们的誓愿是否还有继承者？",vow:"藏起史书以待后人",bargain:"送旧玺入新府",reward_card:"zonghenggong",reward_gold:40,reward_heal:4},
 ];
 
+#[derive(Clone, Copy, Debug)]
+pub struct EasterEgg {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub hero: Option<Hero>,
+    pub chapters: &'static [u8],
+    pub flags: &'static [&'static str],
+    pub reward_gold: i32,
+    pub reward_heal: i32,
+    pub hint: &'static str,
+}
+
+/// Hidden conclusions are only awarded after the *entire* flag chain.
+/// Alternate monetary choices never plant a prerequisite, so they cannot
+/// claim the same narrative ending accidentally.
+pub const EASTER_EGGS: &[EasterEgg] = &[
+    EasterEgg {id:"sword_debt",name:"青龙旧债",hero:Some(Hero::GuanYu),chapters:&[25,50],
+        flags:&["baima_debt","huarong_mercy"],reward_gold:35,reward_heal:8,
+        hint:"青龙刀刃上的旧日刀痕，终于不再指向那条泥泞的山道。"},
+    EasterEgg {id:"brothers_return",name:"义旗归故城",hero:Some(Hero::GuanYu),chapters:&[1,28],
+        flags:&["taoyuan_oath","ancient_reunion"],reward_gold:15,reward_heal:12,
+        hint:"风吹义字旗，无人再问旧主是否还认得故人。"},
+    EasterEgg {id:"after_wind",name:"东风遗灯",hero:Some(Hero::ZhugeLiang),chapters:&[37,49,104],
+        flags:&["longzhong_plan","redcliff_wind","star_lantern"],reward_gold:20,reward_heal:16,
+        hint:"昔日借风之人，将最后一盏灯留给了未能归来的春天。"},
+    EasterEgg {id:"phoenix_legacy",name:"卧龙凤雏",hero:Some(Hero::ZhugeLiang),chapters:&[37,57],
+        flags:&["longzhong_plan","phoenix_letter"],reward_gold:28,reward_heal:5,
+        hint:"一纸旧书不能使凤雏再来，却能让后世记住两位谋士。"},
+    EasterEgg {id:"rivers_two",name:"江水两岸",hero:Some(Hero::SunShangxiang),chapters:&[54,61,84],
+        flags:&["jiangdong_covenant","river_divide","yiling_ashes"],reward_gold:18,reward_heal:15,
+        hint:"江水自东流，棋盘上终于摆下两国百姓的位置。"},
+    EasterEgg {id:"grain_book",name:"乌巢遗策",hero:Some(Hero::CaoCao),chapters:&[14,30,33],
+        flags:&["xu_capital","guandu_grain","liaodong_letter"],reward_gold:70,reward_heal:0,
+        hint:"郭嘉不在，粮道与旧书却仍替曹营作答。"},
+    EasterEgg {id:"redhare_returns",name:"赤兔无主",hero:Some(Hero::LuBu),chapters:&[3,8,16,19],
+        flags:&["red_hare","phoenix_pavilion","halberd_shot","white_gate"],reward_gold:30,reward_heal:10,
+        hint:"赤兔不再认旧旗，马蹄声却仍追问那一次背盟。"},
+    EasterEgg {id:"dynasty_cycle",name:"玉玺归尘",hero:None,chapters:&[6,120],
+        flags:&["jade_whisper","jin_epilogue"],reward_gold:120,reward_heal:0,
+        hint:"从井中玉匣到晋朝新诏，金印从来不会替人回答得失。"},
+];
+
+pub fn newly_completed_eggs<'a>(
+    hero: Hero, flags: &[String], already: &'a [String]
+) -> Vec<&'static EasterEgg> {
+    EASTER_EGGS.iter().filter(|e|
+        e.hero.is_none_or(|owner| owner == hero)
+            && !already.iter().any(|unlocked| unlocked == e.id)
+            && e.flags.iter().all(|flag| flags.iter().any(|known| known == flag))
+    ).collect()
+}
+
 pub fn beat(id: &str) -> Option<&'static Beat> { BEATS.iter().find(|b| b.id == id) }
 
 /// For deterministic scenario selection: favor a hero-specific prerequisite payoff,
@@ -170,6 +222,21 @@ mod tests {
             assert!(BEATS.iter().any(|b| b.flag == bond.flag),
                 "bond missing storyline: {}",bond.companion);
         }
+    }
+    #[test]
+    fn all_easter_eggs_have_real_and_reachable_source_chains() {
+        let mut ids = std::collections::BTreeSet::new();
+        for egg in EASTER_EGGS {
+            assert!(ids.insert(egg.id), "duplicate easter egg");
+            assert!(egg.chapters.iter().all(|ch| (1..=120).contains(ch)));
+            for flag in egg.flags {
+                assert!(BEATS.iter().any(|beat| beat.flag == *flag), "unreachable {}",egg.id);
+            }
+        }
+        let flags = vec!["baima_debt".into(),"huarong_mercy".into()];
+        assert_eq!(newly_completed_eggs(Hero::GuanYu,&flags,&[])[0].id, "sword_debt");
+        assert!(newly_completed_eggs(Hero::ZhugeLiang,&flags,&[]).is_empty());
+        assert!(newly_completed_eggs(Hero::GuanYu,&flags,&["sword_debt".into()]).is_empty());
     }
     #[test]
     fn without_an_earlier_choice_its_payoff_is_not_selected() {
