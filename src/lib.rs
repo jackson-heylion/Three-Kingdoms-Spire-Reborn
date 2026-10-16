@@ -676,38 +676,87 @@ impl Game {
         self.finish_scene();
         Ok(result)
     }
+
+    fn upgrade_card(&mut self, index: usize) -> Result<String, String> {
+        if self.stage != Stage::Camp { return Err("只能在营寨升级卡牌".into()); }
+        let idx = index.checked_sub(1).ok_or("卡牌编号从1开始")?;
+        let card = self.deck.get_mut(idx).ok_or("无效卡牌编号")?;
+        if card.upgraded || card.id == "cursed" { return Err("此卡不可升级".into()); }
+        card.upgraded = true;
+        let msg = format!("升级【{}】。", card.name());
+        self.finish_scene();
+        Ok(msg)
+    }
+    fn remove_card(&mut self, index: usize) -> Result<String, String> {
+        if self.stage != Stage::Market { return Err("只能在军市移除卡牌".into()); }
+        if self.deck.len() <= 1 { return Err("至少保留一张卡牌".into()); }
+        let idx = index.checked_sub(1).ok_or("卡牌编号从1开始")?;
+        if idx >= self.deck.len() { return Err("无效卡牌编号".into()); }
+        if self.gold < 75 { return Err("移牌需要75金".into()); }
+        self.gold -= 75;
+        let card = self.deck.remove(idx);
+        Ok(format!("消耗75金移除【{}】。", card.name()))
+    }
     fn choose_camp(&mut self, index: usize) -> Result<String, String> {
-        let message = match index {
+        let msg = match index {
             1 => {
-                let heal = (self.max_hp * 30 / 100).max(1);
+                let extra = if self.relics.iter().any(|r| r == "军粮") { 8 } else { 0 };
+                let heal = (self.max_hp * 30 / 100).max(1) + extra;
                 let actual = heal.min(self.max_hp - self.hp);
                 self.hp += actual;
-                format!("休整恢复{actual}点体力。")
+                format!("休整回复{actual}点体力。")
             }
             2 => {
-                let card = self.deck.iter_mut().find(|c| !c.upgraded && c.id != "cursed")
-                    .ok_or("没有可升级的卡牌")?;
-                card.upgraded = true;
-                format!("磨砺兵器：升级【{}】。", card.name())
+                let index = self.deck.iter().position(|c| !c.upgraded && c.id != "cursed")
+                    .ok_or("没有可升级的卡牌")? + 1;
+                return self.upgrade_card(index);
             }
-            _ => return Err("营寨：choose 1 休整，choose 2 升级一张未升级卡牌".into()),
+            3 => {
+                self.max_hp += 2; self.hp += 2;
+                "操练兵卒：最大体力+2。".into()
+            }
+            _ => return Err("营寨：choose 1 休整、choose 2 升级首张可升级牌、choose 3 操练；升级指定牌用 upgrade N".into()),
         };
         self.finish_scene();
-        Ok(message)
+        Ok(msg)
     }
     fn choose_market(&mut self, index: usize) -> Result<String, String> {
-        if index == 0 {
-            self.finish_scene();
-            return Ok("离开军市。".into());
+        if index == 0 { self.finish_scene(); return Ok("离开军市。".into()); }
+        if (1..=3).contains(&index) {
+            let idx = index - 1;
+            let cost = 45 + idx as i32 * 15;
+            if self.gold < cost { return Err(format!("需要{cost}金")); }
+            let card = self.market.get(idx).ok_or("该商品已售出")?.clone();
+            self.gold -= cost;
+            self.market.remove(idx);
+            return Ok(format!("购得【{}】，花费{cost}金。", card.name()));
         }
-        let idx = index - 1;
-        let cost = 45 + idx as i32 * 15;
-        let card = self.market.get(idx).ok_or("无效商品编号")?.clone();
-        if self.gold < cost { return Err(format!("金不足，需要{cost}。")); }
-        self.gold -= cost;
-        self.market.remove(idx);
-        let msg = format!("花费{cost}金购买【{}】。", card.name());
-        Ok(msg)
+        match index {
+            4 => {
+                if self.gold < 55 || self.potions >= 3 { return Err("药剂55金；最多携带3瓶".into()); }
+                self.gold -= 55;
+                let id = items::POTIONS[self.random(items::POTIONS.len())].0;
+                self.potion_bag.push(id.to_owned());
+                self.potions = self.potion_bag.len() as u8;
+                Ok(format!("购得药剂：{}", items::potion_name(id)))
+            }
+            5 => {
+                let id = self.shop_relic.as_ref().ok_or("遗物已售罄")?.clone();
+                if self.gold < 155 { return Err("遗物价格155金".into()); }
+                self.gold -= 155;
+                if id == "厚甲" { self.max_hp += 8; self.hp += 8; }
+                self.relics.push(id.clone()); self.relic_history.push(id.clone());
+                self.shop_relic = None;
+                Ok(format!("购得遗物【{}】：{}", id, items::relic_name(&id)))
+            }
+            6 => {
+                let idx = self.deck.iter().position(|c| c.id == "cursed")
+                    .or_else(|| self.deck.iter().position(|c| c.id == "strike"))
+                    .ok_or("无可快捷移除卡牌，用 remove N 指定其他卡牌")? + 1;
+                self.remove_card(idx)
+            }
+            _ => Err("军市选项不存在".into()),
+        }
     }
     fn choose_story(&mut self, index: usize) -> Result<String, String> {
         let msg = match index {
@@ -744,6 +793,9 @@ impl Game {
             },
             Action::Play { index, target } => self.play(index, target)?,
             Action::EndTurn => self.end_turn()?,
+            Action::Upgrade { index } => self.upgrade_card(index)?,
+            Action::Remove { index } => self.remove_card(index)?,
+            Action::UsePotionAt { slot, target } => self.use_potion(slot, target)?,
             Action::UsePotion => {
                 if self.stage != Stage::Combat { return Err("仅战斗中可使用药剂".into()); }
                 if self.potions == 0 { return Err("没有药剂".into()); }
