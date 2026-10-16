@@ -59,6 +59,19 @@ impl World {
                 return Err("save roundtrip changed game state".into());
             }
             self.game = Some(game);
+        } else if step == "I travel to a story node" {
+            let game = self.game_mut()?;
+            if game.stage != Stage::Map { return Err("must be on map before story".into()); }
+            let index = game.route.iter().position(|node|
+                *node == three_kingdoms_spire_reborn::Node::Story)
+                .ok_or("no reachable story lane")? + 1;
+            game.apply(Action::Choose { index })?;
+            if game.stage != Stage::Story { return Err("story node failed to enter event".into()); }
+        } else if step.starts_with("the current literary chapter is \"") {
+            let id = quoted(step)?;
+            if self.game()?.lore_current.as_deref() != Some(id) {
+                return Err(format!("expected novel beat {id}, got {:?}",self.game()?.lore_current));
+            }
         } else if step == "I start a battle" {
             let game = self.game_mut()?;
             if game.stage != Stage::Map { return Err("start battle requires Map".into()); }
