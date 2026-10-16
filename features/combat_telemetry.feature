@@ -13,7 +13,7 @@ Feature: Run-scoped measured combat telemetry is deterministic and save-portable
     Given a "cao" campaign with seed 60202
     When I start a battle
     And I replace hand with "defend"
-    And I set command to two
+    And I set command to three
     And I play the last card
     Then run command energy refunds equal one
     When I save and restore
