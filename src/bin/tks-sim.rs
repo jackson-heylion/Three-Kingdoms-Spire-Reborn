@@ -140,7 +140,12 @@ fn tactical_reward(game:&Game)->usize {
             let novelty= if game.deck.iter().any(|owned|owned.id==card.id){-10}else{10};
             let is_power=card_spec(&card.id)
                 .is_some_and(|s|matches!(s.effect,Effect::Power(_,_)));
-            (novelty+if is_power{14}else{0}
+            let sun_synergy=if game.hero==Hero::SunShangxiang &&
+                card_spec(&card.id).is_some_and(|spec|matches!(spec.effect,
+                    Effect::Tactics(_) | Effect::DiscardStrike(_) |
+                    Effect::Power(three_kingdoms_spire_reborn::combat::PowerId::ArrowsOnDiscard,_)))
+                {20}else{0};
+            (novelty+if is_power{14}else{0}+sun_synergy
                 +tactical_card_value(game,card,14),-(*idx as i32))
         })
         .map_or(0,|(i,card)|if card_spec(&card.id).is_some_and(|s|matches!(s.effect,Effect::Unplayable)){0}else{i+1})
@@ -181,6 +186,20 @@ fn tactical_action(game:&Game)->Result<Action,String> {
         Stage::Combat => {
             let b=game.battle.as_ref().ok_or("missing tactical battle")?;
             let threat=next_enemy_damage(game);
+            // Discard is a separately-paid action and matters especially for
+            // Sun Shangxiang's combo. A no-discard bot badly understates her
+            // power when it rewards cards granting discard tokens.
+            if b.discard_tokens > 0 {
+                if let Some((index,_))=b.hand.iter().enumerate()
+                    .find(|(_,card)|card_spec(&card.id)
+                        .is_some_and(|spec|matches!(spec.effect,Effect::Unplayable)))
+                {
+                    return Ok(Action::Discard{index:index+1});
+                }
+                if b.energy==0 && !b.hand.is_empty() {
+                    return Ok(Action::Discard{index:b.hand.len()});
+                }
+            }
             let target=b.foes.iter().enumerate().filter(|(_,f)|f.hp>0)
                 .min_by_key(|(_,f)|f.hp+f.block)
                 .map_or(1,|(idx,_)|idx+1);
@@ -412,6 +431,21 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn tactical_bot_uses_discard_tokens_instead_of_ignoring_sun_mechanics() {
+        let mut game=Game::new(Hero::SunShangxiang,5151);
+        game.apply(Action::Choose{index:1}).unwrap();
+        let b=game.battle.as_mut().unwrap();
+        b.energy=0;
+        b.discard_tokens=2;
+        b.hand=vec![Card::new("strike")];
+        assert!(matches!(tactical_action(&game).unwrap(),
+            Action::Discard{index:1}));
+        let snapshot=game.to_json().unwrap();
+        game.apply(tactical_action(&game).unwrap()).unwrap();
+        assert_ne!(game.to_json().unwrap(),snapshot);
+        assert_eq!(game.battle.as_ref().unwrap().discard_tokens,1);
+    }
     #[test]
     fn two_policies_replay_to_identical_snapshots() {
         for hero in HEROES {
