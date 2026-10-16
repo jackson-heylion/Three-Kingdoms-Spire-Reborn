@@ -28,15 +28,17 @@ pub struct Card {
     pub upgraded: bool,
     #[serde(default)] pub enchantment: Option<String>,
     #[serde(default)] pub quest_progress: u8,
+    #[serde(default)] pub temporary: bool,
 }
 impl Card {
     pub fn new(id: &str) -> Self {
-        Self { id: id.into(), upgraded: false, enchantment: None, quest_progress: 0 }
+        Self { id: id.into(), upgraded: false, enchantment: None, quest_progress: 0, temporary: false }
     }
     pub fn name(&self) -> String {
         let base = card_spec(&self.id).map_or("未知牌", |s| s.name);
         format!("{base}{}{}", if self.upgraded { "+" } else { "" },
-            self.enchantment.as_ref().map_or(String::new(), |kind| format!("·{kind}")))
+            format!("{}{}",self.enchantment.as_ref().map_or(String::new(), |kind| format!("·{kind}")),
+                if self.temporary { "·临时" } else { "" }))
     }
 }
 
@@ -170,6 +172,7 @@ pub struct Game {
 pub enum Action {
     Choose { index: usize },
     Play { index: usize, target: usize },
+    PlaySelected { index: usize, target: usize, selection: usize },
     EndTurn,
     UsePotion,
     UsePotionAt { slot: usize, target: usize },
@@ -267,6 +270,7 @@ impl Game {
             if !items::BOONS.iter().any(|(id,_)| id == boon) { return Err(format!("未知赐福: {boon}")); }
         }
         for c in self.deck.iter().chain(self.rewards.iter()).chain(self.market.iter()) {
+            if c.temporary { return Err("永久卡牌不能携带临时标志".into()); }
             if card_spec(&c.id).is_none() { return Err(format!("未知卡牌: {}", c.id)); }
             if c.enchantment.as_deref().is_some_and(|id|
                 !matches!(id, "迅捷" | "锐锋" | "护身" | "明悟")) {
@@ -596,7 +600,7 @@ impl Game {
             | Effect::MomentumStrike(_) | Effect::SchemeStrike(_) | Effect::ComboStrike(_)
             | Effect::CommandStrike(_) | Effect::FuryStrike(_) | Effect::BloodPrice(_,_)
             | Effect::Leech(_) | Effect::HitPoison(_,_) | Effect::Pierce(_)
-            | Effect::DiscardStrike(_)
+            | Effect::DiscardStrike(_) | Effect::XHit(_)
         )
     }
 
@@ -814,13 +818,14 @@ impl Game {
         self.stage = Stage::Reward;
         format!("战斗胜利！获得{payout}金，选择一张战利品，或输入 choose 0 跳过。")
     }
-    fn play(&mut self, index: usize, target: usize) -> Result<String, String> {
+    fn play(&mut self, index: usize, target: usize, selection: Option<usize>) -> Result<String, String> {
         let b = self.battle.as_ref().ok_or("当前不在战斗中")?;
         let hand_idx = index.checked_sub(1).ok_or("手牌编号从1开始")?;
         let card = b.hand.get(hand_idx).ok_or("无效手牌编号")?.clone();
         let spec = card_spec(&card.id).ok_or("未知卡牌")?;
         if matches!(spec.effect, Effect::Unplayable) { return Err("这张牌无法打出".into()); }
-        let cost = if card.enchantment.as_deref() == Some("迅捷") {
+        // X cards spend all available energy. Swift never discounts an X cost.
+        let cost = if spec.cost == -1 { b.energy } else if card.enchantment.as_deref() == Some("迅捷") {
             (spec.cost - 1).max(0)
         } else { spec.cost };
         if b.energy < cost { return Err("军令不足".into()); }
@@ -830,8 +835,17 @@ impl Game {
                 | Effect::MomentumStrike(_) | Effect::SchemeStrike(_) | Effect::ComboStrike(_)
                 | Effect::CommandStrike(_) | Effect::FuryStrike(_) | Effect::BloodPrice(_, _)
                 | Effect::Leech(_) | Effect::HitPoison(_, _) | Effect::Pierce(_)
-                | Effect::DiscardStrike(_)
+                | Effect::DiscardStrike(_) | Effect::XHit(_)
         );
+        // A failed pile choice never spends energy or consumes a card.
+        let chosen = match spec.effect {
+            Effect::TutorAttack => Self::choose_pile_card(&b.draw, selection, true)?,
+            Effect::CopyDiscard => Self::choose_pile_card(&b.discard, selection, false)?,
+            _ => {
+                if selection.is_some() { return Err("此卡牌不需要副选项编号".into()); }
+                None
+            }
+        };
         let target_idx = if requires_target { Some(self.target_index(target)?) } else { None };
         {
             let b = self.battle.as_mut().expect("battle");
@@ -1009,7 +1023,7 @@ impl Game {
         }
         self.combat_event(EventKind::CardResolved,&card.id,0,None);
         let msg = format!("使用了【{}】。", card.name());
-        if spec.exhaust {
+        if spec.exhaust || card.temporary {
             self.combat_event(EventKind::CardExhausted,&card.id,1,None);
             self.battle.as_mut().expect("battle").exhausted.push(card);
         } else {
@@ -1158,7 +1172,7 @@ impl Game {
             for card in std::mem::take(&mut b.hand) {
                 if card_spec(&card.id).is_some_and(|spec| spec.retain) {
                     retained.push(card);
-                } else if card_spec(&card.id).is_some_and(|spec| spec.ethereal) {
+                } else if card.temporary || card_spec(&card.id).is_some_and(|spec| spec.ethereal) {
                     exhausted.push(card.id.clone());
                     b.exhausted.push(card);
                 } else {
@@ -1619,7 +1633,9 @@ impl Game {
                 Stage::Ancient => self.choose_boon(index)?,
                 _ => return Err("当前场景无法选择".into()),
             },
-            Action::Play { index, target } => self.play(index, target)?,
+            Action::Play { index, target } => self.play(index, target, None)?,
+            Action::PlaySelected { index, target, selection } =>
+                self.play(index, target, Some(selection))?,
             Action::EndTurn => self.end_turn()?,
             Action::Upgrade { index } => self.upgrade_card(index)?,
             Action::Enchant { index, kind } => self.enchant_card(index, &kind)?,
