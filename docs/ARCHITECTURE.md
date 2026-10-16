@@ -76,3 +76,13 @@ Snapshot: {version:2,revision:42,seed:...,rng_state:...,stage:"combat",battle:{.
 事件入口是 `Game::combat_event`，先把事件写入 Battle 的有界记录，再运行 `dispatch_combat_event` 中对八项具体持续能力的规则订阅。可触发场景包括 CardResolved（攻击后护阵、非攻击后首次计策恢复）、CardDiscarded（主动弃换飞羽）、TurnEnded（存活亲兵补给）、DamageReceived（实损怒气）、CardDrawn（额外护甲）、StatusApplied（额外毒层）、FoeDefeated（击败回复军令）。后续 PowerTriggered 是记录而不会再触发自身监听；施毒增强只记录触发数值而不再次派发 StatusApplied；阵亡只在 HP 首次过零时产出事件，因此没有循环递归或重复结算。卡牌普通抽弃流程仍遵守 `Game::apply` 的事务提交。
 
 `CardSpec` 增加 `retain` 与 `ethereal` 属性，按回合结算区分手牌保留、回合末消耗、普通弃牌。用户在 CLI 使用 `events` 可查看近期日志。当前仍是静态规则订阅表，**不等于**可以动态插入规则或原子反制的通用事件栈。
+
+### 高级选牌命令和临时牌（2026-10-16）
+
+新动作 `Action::PlaySelected { index, target, selection }` 增量兼容现有 `Action::Play`。副选择 `selection` 是 1-based，从目标牌堆顶部向下编号；`TutorAttack` 查询抽牌堆合法攻击牌，`CopyDiscard` 查询弃牌堆合法非复制牌。未提供 `selection` 时确定性地取顶部第一张合法卡。无效编号和非法卡会在移除手牌或扣能量前拒绝，并由 `Game::apply` 事务回滚。界面用 `piles` 看抽牌/弃牌堆编号，用 `play N TARGET SELECTION` 执行明确选择。
+
+`Effect::XHit` / `Effect::XGuard` 的卡面费用为 -1 哨兵（仅静态卡牌目录使用，实扣能量非负），自动以当前能量总额作为 X；迅捷折扣不会改变 X 投入，升级提升每点军令的效果。零能量X合法，但基础效果为零。模拟器基于 X 实扣量决定当前动作能否打出。
+
+`Card.temporary` 经 `#[serde(default)]` 加入旧 V2 快照而无需迁移，非战斗牌组禁止携带临时标志。临时牌生成/复制仅进入当前 `Battle.hand`；打出、手动弃换、回合末都进入消耗堆，不会改变 `Game.deck`；生成超过十张手牌上限的部分直接丢弃且不生成事件。
+
+检索、复制、生成分别产生强类型 `CardTutored`、`CardCopied`、`CardGenerated`，只有真正正常抽牌时才产生 `CardDrawn`，避免诸葛亮抽牌护甲等持续能力因检索虚增。近期事件簿含全部这16类事件，但仍不是完整事件源重放。
