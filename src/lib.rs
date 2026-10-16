@@ -2110,6 +2110,110 @@ mod tests {
         b.events.push(b.events[0].clone());
         assert!(Game::from_json(&g.to_json().unwrap()).is_err());
     }
+
+    #[test]
+    fn retain_and_ethereal_cards_take_distinct_end_turn_paths() {
+        let mut g = Game::new(Hero::GuanYu, 709);
+        g.apply(Action::Choose { index: 1 }).unwrap();
+        let b = g.battle.as_mut().unwrap();
+        b.hand = vec![Card::new("hold_line"),Card::new("fleeting_blade"),Card::new("strike")];
+        b.foes[0].intent = Intent::Guard(1);
+        g.apply(Action::EndTurn).unwrap();
+        let b = g.battle.as_ref().unwrap();
+        assert!(b.hand.iter().any(|c|c.id=="hold_line"),"保留牌必须跨越回合边界");
+        assert!(b.exhausted.iter().any(|c|c.id=="fleeting_blade"),"虚无牌回合末消耗");
+        assert!(!b.discard.iter().any(|c|c.id=="fleeting_blade"));
+        assert_eq!(b.events.iter().filter(|e|
+            e.kind==EventKind::CardExhausted && e.source=="fleeting_blade").count(),1);
+        let snap=g.to_json().unwrap();
+        assert_eq!(Game::from_json(&snap).unwrap().to_json().unwrap(),snap);
+    }
+    #[test]
+    fn wisdom_shields_exactly_one_per_draw_per_stack() {
+        let mut g = Game::new(Hero::ZhugeLiang, 710);
+        g.apply(Action::Choose { index: 1 }).unwrap();
+        g.gain_power(PowerId::WisdomOnDraw,2);
+        let b = g.battle.as_mut().unwrap();
+        b.draw = vec![Card::new("defend"),Card::new("strike")];
+        b.discard.clear();
+        let before=b.block;
+        g.draw_cards(2);
+        let b=g.battle.as_ref().unwrap();
+        assert_eq!(b.block,before+4);
+        assert_eq!(b.events.iter().filter(|e|e.kind==EventKind::CardDrawn).count(),7);
+        assert!(b.events.windows(2).all(|w|w[0].seq<w[1].seq));
+        let snap=g.to_json().unwrap();
+        assert_eq!(Game::from_json(&snap).unwrap().to_json().unwrap(),snap);
+    }
+    #[test]
+    fn poison_reversal_stacks_without_recursive_status_dispatch() {
+        let mut g=Game::new(Hero::ZhugeLiang,711);
+        g.apply(Action::Choose {index:1}).unwrap();
+        g.gain_power(PowerId::ToxicReversal,2);
+        g.apply_foe_status(0,"poison",3);
+        let b=g.battle.as_ref().unwrap();
+        assert_eq!(b.foes[0].poison,5);
+        let statuses=b.events.iter().filter(|e|e.kind==EventKind::StatusApplied
+            && e.source=="poison").count();
+        assert_eq!(statuses,1);
+        assert_eq!(b.events.iter().filter(|e|e.kind==EventKind::PowerTriggered
+            && e.source=="toxic_reversal").count(),1);
+        let first= b.events.len();
+        g.apply_foe_status(0,"weak",2);
+        assert_eq!(g.battle.as_ref().unwrap().events.len(),first+1);
+    }
+    #[test]
+    fn defeat_drum_triggers_once_for_each_enemy_not_each_hit() {
+        let mut g=Game::new(Hero::GuanYu,712);
+        g.apply(Action::Choose {index:1}).unwrap();
+        g.gain_power(PowerId::VictoryDrum,2);
+        let b=g.battle.as_mut().unwrap();
+        b.foes.push(b.foes[0].clone());
+        b.foes[0].hp=1;
+        b.foes[0].block=0;
+        let energy=b.energy;
+        g.damage_enemy(0,20);
+        assert_eq!(g.battle.as_ref().unwrap().energy,energy+2);
+        let events=g.battle.as_ref().unwrap().events.iter()
+            .filter(|e|e.kind==EventKind::FoeDefeated).count();
+        assert_eq!(events,1);
+        g.damage_enemy(0,20);
+        assert_eq!(g.battle.as_ref().unwrap().energy,energy+2);
+        assert_eq!(g.battle.as_ref().unwrap().events.iter()
+            .filter(|e|e.kind==EventKind::FoeDefeated).count(),1);
+    }
+    #[test]
+    fn thorns_poison_and_direct_pierce_record_single_defeat_event() {
+        let mut g=Game::new(Hero::GuanYu,713);
+        g.apply(Action::Choose {index:1}).unwrap();
+        let b=g.battle.as_mut().unwrap();
+        b.foes.push(b.foes[0].clone());
+        b.foes[0].hp=2;
+        b.foes[0].block=30;
+        b.thorns=3;
+        g.enemy_attack(0,5);
+        assert_eq!(g.battle.as_ref().unwrap().foes[0].hp,0);
+        assert_eq!(g.battle.as_ref().unwrap().events.iter().filter(|e|
+            e.kind==EventKind::FoeDefeated && e.source=="thorns").count(),1);
+        let b=g.battle.as_mut().unwrap();
+        b.foes[1].hp=2;
+        b.foes[1].block=30;
+        g.apply_foe_status(1,"poison",3);
+        let poison=g.battle.as_ref().unwrap().foes[1].poison;
+        assert_eq!(poison,3);
+        g.apply(Action::EndTurn).unwrap();
+        assert!(g.battle.as_ref().unwrap().events.iter().any(|e|
+            e.kind==EventKind::FoeDefeated && e.source=="poison"));
+    }
+    #[test]
+    fn event_reactions_cannot_mutate_rejected_action_or_rng() {
+        let mut g=Game::new(Hero::ZhugeLiang,714);
+        g.apply(Action::Choose {index:1}).unwrap();
+        g.gain_power(PowerId::WisdomOnDraw,1);
+        let snap=g.to_json().unwrap();
+        assert!(g.apply(Action::Play {index:999,target:1}).is_err());
+        assert_eq!(g.to_json().unwrap(),snap);
+    }
     #[test]
     fn targeted_camp_upgrade_and_shop_removal_work() {
         let mut g = Game::new(Hero::ZhugeLiang, 8);
