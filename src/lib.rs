@@ -2,6 +2,7 @@
 //! Every authoritative mutation goes through Game::apply(Action).
 pub mod content;
 pub mod items;
+pub mod map;
 pub mod progression;
 
 use content::{Effect, Hero, REWARD_POOL, NEUTRAL_POOL, hero_pool, card_spec, enemy_name, enemy_hp};
@@ -148,6 +149,9 @@ pub struct Game {
     #[serde(default)] pub variants: Option<[u8; 3]>,
     #[serde(default)] pub mode: RunMode,
     #[serde(default)] pub run_id: String,
+    #[serde(default)] pub act_map: Option<map::ActMap>,
+    #[serde(default)] pub map_lane: Option<u8>,
+    #[serde(default)] pub route_lanes: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -193,6 +197,7 @@ impl Game {
             relic_history: vec!["军旗".into()], victories: 0,
             boons: vec![], boon_choices: vec![], variants: None,
             mode: RunMode::Standard, run_id: String::new(),
+            act_map: None, map_lane: None, route_lanes: Vec::new(),
         };
         game.refresh_route();
         game
@@ -228,6 +233,13 @@ impl Game {
         }
         if self.variants.is_some_and(|settings| settings.iter().any(|n| *n > 1)) {
             return Err("章节变体必须为0或1".into());
+        }
+        if self.map_lane.is_some_and(|lane| lane >= map::LANES)
+            || self.route_lanes.iter().any(|lane| *lane >= map::LANES)
+            || self.act_map.as_ref().is_some_and(|graph| !graph.is_valid())
+        { return Err("非法战役地图状态".into()); }
+        if !self.route_lanes.is_empty() && self.route_lanes.len() != self.route.len() {
+            return Err("地图显示路线与可达车道数量不一致".into());
         }
         for boon in self.boons.iter().chain(self.boon_choices.iter()) {
             if !items::BOONS.iter().any(|(id,_)| id == boon) { return Err(format!("未知赐福: {boon}")); }
@@ -268,27 +280,21 @@ impl Game {
     }
     fn refresh_route(&mut self) {
         let next = self.floor + 1;
-        if next.is_multiple_of(7) {
-            self.route = vec![Node::Boss];
+        if next > MAX_FLOOR {
+            self.route.clear();
+            self.route_lanes.clear();
             return;
         }
-        let phases: &[Node] = if next % 7 == 1 {
-            &[Node::Battle, Node::Story, Node::Camp]
-        } else if next % 7 == 3 {
-            &[Node::Battle, Node::Elite, Node::Market]
-        } else if next % 7 == 5 {
-            &[Node::Battle, Node::Camp, Node::Market]
-        } else {
-            &[Node::Battle, Node::Story, Node::Market, Node::Elite, Node::Camp]
-        };
-        // Consume the saved RNG only at floor transitions. This preserves
-        // deterministic branching after resuming on another frontend.
-        let offset = self.random(phases.len());
-        self.route = vec![
-            Node::Battle,
-            phases[(offset + 1) % phases.len()],
-            phases[(offset + 2) % phases.len()],
-        ];
+        let act = self.floor / 7;
+        if self.act_map.as_ref().is_none_or(|map| map.act != act) {
+            let generated = map::ActMap::generate(|bound| self.random(bound),act);
+            self.act_map = Some(generated);
+            self.map_lane = None;
+        }
+        let row = usize::from((next - 1) % 7);
+        let choices = self.act_map.as_ref().expect("generated").routes(row,self.map_lane);
+        self.route_lanes = choices.iter().map(|(lane,_)| *lane).collect();
+        self.route = choices.iter().map(|(_,node)| *node).collect();
     }
     fn pick_reward_cards(&mut self) -> Vec<Card> {
         let own = hero_pool(self.hero);
@@ -454,6 +460,9 @@ impl Game {
     fn choose_route(&mut self, index: usize) -> Result<String, String> {
         let node = *self.route.get(index.checked_sub(1).ok_or("路线编号从1开始")?)
             .ok_or("无效路线编号")?;
+        if let Some(lane) = self.route_lanes.get(index - 1) {
+            self.map_lane = Some(*lane);
+        }
         self.floor += 1;
         self.last_node = Some(node);
         let msg = format!("第{}层：{}", self.floor, node.name());
@@ -1293,7 +1302,8 @@ mod tests {
         for floor in 1..=MAX_FLOOR {
             game.floor = floor - 1;
             game.refresh_route();
-            assert_eq!(game.route == vec![Node::Boss], floor.is_multiple_of(7));
+            assert_eq!(game.route.iter().all(|node| *node == Node::Boss),
+                floor.is_multiple_of(7));
         }
     }
     #[test]
@@ -1536,6 +1546,23 @@ mod tests {
             let snapshot = g.to_json().unwrap();
             assert_eq!(Game::from_json(&snapshot).unwrap().to_json().unwrap(),snapshot);
         }
+    }
+
+    #[test]
+    fn connected_map_lanes_reject_nonadjacent_moves_and_resume() {
+        let mut g = Game::new(Hero::GuanYu,111);
+        assert_eq!(g.route.len(),3);
+        assert!(g.act_map.as_ref().is_some_and(|m| m.is_valid()));
+        assert_eq!(g.route_lanes,vec![0,1,2]);
+        let next = g.act_map.as_ref().unwrap().rows[1];
+        g.apply(Action::Choose { index: 1 }).unwrap();
+        // Simulate completing the scene without modifying the next row topology.
+        g.battle = None;
+        g.finish_scene();
+        assert_eq!(g.route_lanes,vec![0,1]);
+        assert_eq!(g.route,vec![next[0],next[1]]);
+        let json = g.to_json().unwrap();
+        assert_eq!(Game::from_json(&json).unwrap().to_json().unwrap(),json);
     }
     #[test]
     fn targeted_camp_upgrade_and_shop_removal_work() {
