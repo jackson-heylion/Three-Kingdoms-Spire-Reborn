@@ -190,7 +190,11 @@ impl Game {
         Ok(g)
     }
     pub fn validate(&self) -> Result<(), String> {
-        if self.hp < 0 || self.hp > self.max_hp || self.max_hp <= 0 || self.floor > MAX_FLOOR || self.ascension > 10 || self.potions > 3 || self.potion_bag.len() > 3 {
+        if self.hp < 0 || self.hp > self.max_hp || self.max_hp <= 0 || self.floor > MAX_FLOOR
+            || self.ascension > 10 || self.potions > 3 || self.potion_bag.len() > 3
+            || usize::from(self.potions) != self.potion_bag.len()
+            || self.potion_bag.iter().any(|id| !items::POTIONS.iter().any(|(valid,_)| valid == id))
+        {
             return Err("存档属性无效".into());
         }
         if (self.stage == Stage::Combat) != self.battle.is_some() {
@@ -1063,7 +1067,16 @@ impl Game {
         if self.defeated() { Ok(format!("{label}。{}", self.win_battle())) }
         else { Ok(format!("使用药剂：{label}。")) }
     }
+    /// Atomic command boundary: rejected actions never mutate the live game, RNG,
+    /// revision, deck or potion slots. Frontends can perform CAS on revision.
     pub fn apply(&mut self, action: Action) -> Result<Vec<String>, String> {
+        let mut draft = self.clone();
+        let messages = draft.apply_unchecked(action)?;
+        draft.validate()?;
+        *self = draft;
+        Ok(messages)
+    }
+    fn apply_unchecked(&mut self, action: Action) -> Result<Vec<String>, String> {
         let msg = match action {
             Action::Choose { index } => match self.stage {
                 Stage::Map => self.choose_route(index)?,
@@ -1287,6 +1300,24 @@ mod tests {
         g.apply(Action::Discard { index: 1 }).unwrap();
         assert!(g.battle.as_ref().is_some_and(|b| b.foes[0].hp < before));
         assert!(Game::from_json(&g.to_json().unwrap()).is_ok());
+    }
+
+    #[test]
+    fn rejected_actions_rollback_all_mutations_including_rng() {
+        let mut g = Game::new(Hero::SunShangxiang, 15);
+        g.stage = Stage::Market;
+        g.market = g.pick_reward_cards();
+        g.gold = 0;
+        let before = g.to_json().unwrap();
+        assert!(g.apply(Action::Choose { index: 4 }).is_err());
+        assert_eq!(g.to_json().unwrap(), before);
+        g.stage = Stage::Combat;
+        g.start_battle(Node::Battle);
+        g.potion_bag = vec!["unknown".into()];
+        g.potions = 1;
+        let before = g.to_json().unwrap();
+        assert!(g.apply(Action::UsePotionAt { slot: 1, target: 1 }).is_err());
+        assert_eq!(g.to_json().unwrap(), before);
     }
     #[test]
     fn targeted_camp_upgrade_and_shop_removal_work() {
