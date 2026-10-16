@@ -1102,14 +1102,19 @@ impl Game {
         if idx >= battle.hand.len() { return Err("无效手牌编号".into()); }
         let card = self.battle.as_mut().expect("battle").hand.remove(idx);
         let auto = card.id == "feishi";
+        let temporary = card.temporary;
+        let card_id = card.id.clone();
         self.combat_event(EventKind::CardDiscarded, &card.id, 1, None);
         let msg = if auto { format!("弃换【{}】：触发策应攻击", card.name()) }
                   else { format!("弃换【{}】", card.name()) };
         {
             let b = self.battle.as_mut().expect("battle");
             b.discard_tokens -= 1;
-            b.discard.push(card);
+            if temporary { b.exhausted.push(card); } else { b.discard.push(card); }
             if self.hero == Hero::SunShangxiang { b.combo += 1; }
+        }
+        if temporary {
+            self.combat_event(EventKind::CardExhausted,&card_id,1,None);
         }
         if auto {
             let target = self.battle.as_ref().expect("battle").foes
@@ -1233,11 +1238,11 @@ impl Game {
             let mut retained = Vec::new();
             let mut exhausted = Vec::new();
             for card in std::mem::take(&mut b.hand) {
-                if card_spec(&card.id).is_some_and(|spec| spec.retain) {
-                    retained.push(card);
-                } else if card.temporary || card_spec(&card.id).is_some_and(|spec| spec.ethereal) {
+                if card.temporary || card_spec(&card.id).is_some_and(|spec| spec.ethereal) {
                     exhausted.push(card.id.clone());
                     b.exhausted.push(card);
+                } else if card_spec(&card.id).is_some_and(|spec| spec.retain) {
+                    retained.push(card);
                 } else {
                     b.discard.push(card);
                 }
