@@ -75,6 +75,19 @@ impl World {
             if self.game()?.to_json()? != previous {
                 return Err("invalid action mutated the game".into());
             }
+        } else if step.starts_with("the flag \"") && step.ends_with(" was earned earlier") {
+            let key = quoted(step)?;
+            if !lore::BEATS.iter().any(|beat| beat.flag == key) {
+                return Err(format!("unknown history flag: {key}"));
+            }
+            if !self.game()?.lore_flags.iter().any(|old| old == key) {
+                self.game_mut()?.lore_flags.push(key.into());
+            }
+        } else if step.starts_with("the hidden conclusion \"") {
+            let id = quoted(step)?;
+            if !self.game()?.easter_unlocked.iter().any(|egg| egg == id) {
+                return Err(format!("hidden storyline conclusion {id} was not unlocked"));
+            }
         } else if step.starts_with("the flag \"") {
             let key = quoted(step)?;
             let present = self.game()?.lore_flags.iter().any(|flag| flag == key);
@@ -127,6 +140,21 @@ impl World {
         } else if step == "the current scene is combat" {
             if self.game()?.stage != Stage::Combat {
                 return Err(format!("expected combat, got {:?}",self.game()?.stage));
+            }
+        } else if step == "novel index contains all 120 numbered chapters" {
+            let mut chapters = Vec::new();
+            for raw in include_str!("../data/novel_chapters.tsv").lines() {
+                if raw.starts_with('#') || raw.starts_with("chapter") || raw.is_empty() { continue; }
+                let columns = raw.split('\t').collect::<Vec<_>>();
+                if columns.len() != 3 { return Err(format!("bad novel index row: {raw}")); }
+                let number = columns[0].parse::<usize>().map_err(|_| "invalid chapter number")?;
+                if columns[1].is_empty() || !columns[2].contains("三國演義/第") {
+                    return Err(format!("bad source for chapter {number}"));
+                }
+                chapters.push(number);
+            }
+            if chapters != (1..=120).collect::<Vec<_>>() {
+                return Err(format!("expected contiguous 120 chapters, got {}",chapters.len()));
             }
         } else if step == "every literary scene references a chapter from 1 to 120" {
             if !lore::BEATS.iter().all(|beat| (1..=120).contains(&beat.chapter)) {
