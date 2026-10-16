@@ -2610,6 +2610,171 @@ mod tests {
         assert!(!b.hand.iter().any(|c|c.temporary && c.id=="hold_line"));
         assert!(b.exhausted.iter().any(|c|c.temporary && c.id=="hold_line"));
     }
+
+    fn test_boss(id: &str) -> Game {
+        let mut g = Game::new(Hero::GuanYu, 951);
+        g.apply(Action::Choose { index: 1 }).unwrap();
+        g.floor = match id {
+            "zhangjiao" | "sunjian" => 7,
+            "dongzhuo" | "yuanshao" => 14,
+            _ => 21,
+        };
+        let b = g.battle.as_mut().unwrap();
+        let hp = enemy_hp(id);
+        let foe = &mut b.foes[0];
+        foe.id = id.into();
+        foe.hp = hp;
+        foe.max_hp = hp;
+        foe.block = 0;
+        foe.weak = 0;
+        foe.vulnerable = 0;
+        foe.phase = 0;
+        b.foes.truncate(1);
+        b.block = 0;
+        g.roll_intents();
+        g
+    }
+    #[test]
+    fn all_six_bosses_telegraph_unique_serializable_moves() {
+        let bosses = ["zhangjiao","sunjian","dongzhuo","yuanshao","simayi","zuoci"];
+        for id in bosses {
+            let g = test_boss(id);
+            let move_id = match &g.battle.as_ref().unwrap().foes[0].intent {
+                Intent::Boss(move_id) => move_id,
+                other => panic!("{id} must telegraph a unique BossMove, got {other:?}"),
+            };
+            assert!(matches!((id,move_id),
+                ("zhangjiao",BossMove::Thunder(_))
+                | ("sunjian",BossMove::TigerRush(_))
+                | ("dongzhuo",BossMove::TyrantLevy(_))
+                | ("yuanshao",BossMove::GrandAlliance(_))
+                | ("simayi",BossMove::HiddenScheme(_))
+                | ("zuoci",BossMove::Mirage(_))),"{id}");
+            let saved = g.to_json().unwrap();
+            let mut restored = Game::from_json(&saved).unwrap();
+            assert_eq!(saved,restored.to_json().unwrap());
+            let mut original = g;
+            original.apply(Action::EndTurn).unwrap();
+            restored.apply(Action::EndTurn).unwrap();
+            assert_eq!(original.to_json().unwrap(),restored.to_json().unwrap(),
+                "boss turn diverged after restoring {id}");
+        }
+    }
+    #[test]
+    fn zhangjiao_thunder_applies_weak_only_after_real_health_damage() {
+        let mut g = test_boss("zhangjiao");
+        g.battle.as_mut().unwrap().block=200;
+        let hp = g.hp;
+        g.apply(Action::EndTurn).unwrap();
+        let b = g.battle.as_ref().unwrap();
+        assert_eq!(g.hp,hp);
+        assert_eq!(b.weak,0);
+        let mut g=test_boss("zhangjiao");
+        let hp=g.hp;
+        g.apply(Action::EndTurn).unwrap();
+        assert!(g.hp<hp);
+        let b=g.battle.as_ref().unwrap();
+        assert!(b.weak>0);
+        assert!(b.events.iter().any(|e|e.kind==EventKind::StatusApplied
+            && e.source=="weak" && e.target.as_deref()==Some("hero")));
+    }
+    #[test]
+    fn sunjian_rush_hits_multiple_times_and_dongzhuo_levies_actual_gold() {
+        let mut tiger=test_boss("sunjian");
+        tiger.apply(Action::EndTurn).unwrap();
+        assert!(tiger.battle.as_ref().unwrap().events.iter()
+            .filter(|e|e.kind==EventKind::DamageReceived && e.source=="foe:0").count()>=2);
+        let mut tyrant=test_boss("dongzhuo");
+        tyrant.gold=7;
+        tyrant.apply(Action::EndTurn).unwrap();
+        assert_eq!(tyrant.gold,0);
+        assert!(tyrant.battle.as_ref().unwrap().events.iter()
+            .any(|e|e.kind==EventKind::EnemyTechnique && e.source=="dongzhuo"));
+    }
+    #[test]
+    fn yuan_shao_alliance_grants_persistent_shield_to_living_allies() {
+        let mut g=test_boss("yuanshao");
+        let hp=enemy_hp("officer");
+        g.battle.as_mut().unwrap().foes.push(Foe {
+            id:"officer".into(), hp, max_hp:hp,block:0,strength:0,
+            poison:0,vulnerable:0,weak:0,phase:0,intent:Intent::Attack(1),
+        });
+        g.apply(Action::EndTurn).unwrap();
+        let b=g.battle.as_ref().unwrap();
+        assert!(b.foes[0].block>=9 && b.foes[1].block>=9);
+        assert!(b.events.iter().any(|e|e.kind==EventKind::EnemyTechnique && e.source=="yuanshao"));
+        // Killing the ally must not prevent the boss from shielding itself.
+        g.battle.as_mut().unwrap().foes[1].hp=0;
+        g.battle.as_mut().unwrap().foes[0].intent=Intent::Boss(BossMove::GrandAlliance(4));
+        g.apply(Action::EndTurn).unwrap();
+        assert!(g.battle.as_ref().unwrap().foes[0].block>=4);
+        assert_eq!(g.battle.as_ref().unwrap().foes[1].block,0);
+    }
+    #[test]
+    fn simayi_scheme_is_applied_on_next_turn_and_card_pressure_retriggers() {
+        let mut g=test_boss("simayi");
+        g.apply(Action::EndTurn).unwrap();
+        let b=g.battle.as_ref().unwrap();
+        assert_eq!(b.energy,2);
+        assert_eq!(b.next_turn_energy_penalty,0);
+        assert!(b.draw.iter().chain(b.hand.iter()).chain(b.discard.iter())
+            .any(|c|c.id=="cursed"));
+        // Next turn: a high-card turn forces the schemer to telegraph sabotage
+        // again rather than using random intents. Saved intent survives restore.
+        let b=g.battle.as_mut().unwrap();
+        b.last_turn_cards=4;
+        g.roll_intents();
+        assert!(matches!(g.battle.as_ref().unwrap().foes[0].intent,
+            Intent::Boss(BossMove::HiddenScheme(_))));
+        let json=g.to_json().unwrap();
+        assert_eq!(Game::from_json(&json).unwrap().to_json().unwrap(),json);
+    }
+    #[test]
+    fn zuoci_mirage_heals_without_exceeding_maximum() {
+        let mut g=test_boss("zuoci");
+        let b=g.battle.as_mut().unwrap();
+        b.foes[0].hp-=8;
+        let original=b.foes[0].hp;
+        g.apply(Action::EndTurn).unwrap();
+        let b=g.battle.as_ref().unwrap();
+        assert!(b.foes[0].hp>original);
+        assert_eq!(b.foes[0].hp,b.foes[0].max_hp);
+        assert!(b.foes[0].block>0);
+    }
+    #[test]
+    fn officers_coordinate_only_with_living_partners() {
+        let mut g=Game::new(Hero::GuanYu, 952);
+        g.apply(Action::Choose {index:1}).unwrap();
+        let b=g.battle.as_mut().unwrap();
+        let hp=enemy_hp("officer");
+        b.foes = vec![
+            Foe {id:"officer".into(),hp,max_hp:hp,block:0,strength:0,poison:0,
+                vulnerable:0,weak:0,intent:Intent::Attack(1),phase:0},
+            Foe {id:"bandit".into(),hp:32,max_hp:32,block:0,strength:0,poison:0,
+                vulnerable:0,weak:0,intent:Intent::Attack(1),phase:0}
+        ];
+        b.turn=2;
+        g.roll_intents();
+        assert!(matches!(g.battle.as_ref().unwrap().foes[0].intent,Intent::Assist(4)));
+        g.apply(Action::EndTurn).unwrap();
+        let b=g.battle.as_ref().unwrap();
+        assert!(b.foes[1].block>=4);
+        assert!(b.events.iter().any(|e|e.source=="officer" && e.kind==EventKind::EnemyTechnique));
+    }
+    #[test]
+    fn half_health_boss_transitions_only_once_and_retains_fresh_phase_armor() {
+        let mut g=test_boss("sunjian");
+        let b=g.battle.as_mut().unwrap();
+        b.foes[0].hp=b.foes[0].max_hp/2;
+        g.apply(Action::EndTurn).unwrap();
+        let b=g.battle.as_ref().unwrap();
+        assert_eq!(b.foes[0].phase,1);
+        assert!(b.foes[0].strength>=4);
+        assert!(b.foes[0].block>=8);
+        let strength=b.foes[0].strength;
+        g.apply(Action::EndTurn).unwrap();
+        assert_eq!(g.battle.as_ref().unwrap().foes[0].strength,strength);
+    }
     #[test]
     fn targeted_camp_upgrade_and_shop_removal_work() {
         let mut g = Game::new(Hero::ZhugeLiang, 8);
