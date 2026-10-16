@@ -2,13 +2,17 @@
 //! Intentionally supports a small strict Gherkin subset (Feature/Scenario/Given/When/Then/And).
 //! Every .feature step must be recognized; unknown steps FAIL instead of being silently skipped.
 //! No additional runtime/test dependency is required for CLI, macOS native, or WASM builds.
-use three_kingdoms_spire_reborn::{Action, Game, Stage, content::Hero, lore};
+use three_kingdoms_spire_reborn::{
+    Action, Card, Game, Stage, content::Hero, lore,
+    combat::{EventKind, PowerId},
+};
 
 #[derive(Default)]
 struct World {
     game: Option<Game>,
     before: Option<String>,
     error: Option<String>,
+    foe_hp: Option<i32>,
 }
 
 fn quoted(step: &str) -> Result<&str, String> {
@@ -33,6 +37,7 @@ impl World {
             self.game = Some(Game::new(hero, seed));
             self.before = None;
             self.error = None;
+            self.foe_hp = None;
         } else if step.starts_with("the lore scene \"") {
             let id = quoted(step)?;
             if lore::beat(id).is_none() { return Err(format!("unknown lore beat: {id}")); }
@@ -79,6 +84,73 @@ impl World {
                 *node == three_kingdoms_spire_reborn::Node::Battle)
                 .ok_or("first map has no combat")? + 1;
             game.apply(Action::Choose { index })?;
+        } else if step.starts_with("I put card \"") && step.ends_with(" in hand") {
+            let id = quoted(step)?;
+            if three_kingdoms_spire_reborn::content::card_spec(id).is_none() {
+                return Err(format!("unknown test card {id}"));
+            }
+            let b = self.game_mut()?.battle.as_mut().ok_or("not in combat")?;
+            b.hand.push(Card::new(id));
+            b.energy = b.energy.max(10);
+        } else if step == "I play the last card" {
+            let game = self.game_mut()?;
+            let idx = game.battle.as_ref().ok_or("no battle")?.hand.len();
+            game.apply(Action::Play { index: idx, target: 1 })?;
+        } else if step == "I gain one manual discard token" {
+            self.game_mut()?.battle.as_mut().ok_or("not in combat")?.discard_tokens += 1;
+        } else if step == "I remember the first enemy health" {
+            self.foe_hp = Some(self.game()?.battle.as_ref().ok_or("not in battle")?.foes[0].hp);
+        } else if step.starts_with("the first enemy loses at least ") {
+            let expected: i32 = parse_after(step,"the first enemy loses at least ")?
+                .parse().map_err(|_|"bad enemy damage expected")?;
+            let prior = self.foe_hp.ok_or("prior foe health not remembered")?;
+            let remaining = self.game()?.battle.as_ref().ok_or("not in combat")?.foes[0].hp;
+            if prior-remaining < expected {
+                return Err(format!("expected damage >= {expected}, got {}",prior-remaining));
+            }
+        } else if step == "I manually discard the last card" {
+            let game = self.game_mut()?;
+            let idx = game.battle.as_ref().ok_or("no battle")?.hand.len();
+            game.apply(Action::Discard { index: idx })?;
+        } else if step.starts_with("the power \"") && step.contains(" has at least ") {
+            let id = quoted(step)?;
+            let power = match id {
+                "oath_guard" => PowerId::OathGuard,
+                "thought_spring" => PowerId::ThoughtSpring,
+                "arrows_on_discard" => PowerId::ArrowsOnDiscard,
+                "granary_support" => PowerId::GranarySupport,
+                "blood_courage" => PowerId::BloodCourage,
+                _ => return Err(format!("unrecognized power id {id}")),
+            };
+            let expected: i32 = step.split(" has at least ").nth(1)
+                .and_then(|suffix| suffix.split_whitespace().next()).ok_or("missing power threshold")?
+                .parse().map_err(|_|"invalid power count")?;
+            let actual = self.game()?.battle.as_ref().ok_or("not in combat")?
+                .powers.iter().find(|stack|stack.id==power).map_or(0,|stack|stack.stacks);
+            if actual < expected { return Err(format!("power {id} stacks {actual} below {expected}")); }
+        } else if step.starts_with("combat event \"") && step.contains(" from \"") {
+            let pieces = step.split('"').collect::<Vec<_>>();
+            let kind = *pieces.get(1).ok_or("missing event type")?;
+            let source = *pieces.get(3).ok_or("missing event source")?;
+            let event = match kind {
+                "card_played" => EventKind::CardPlayed,
+                "card_discarded" => EventKind::CardDiscarded,
+                "damage_dealt" => EventKind::DamageDealt,
+                "damage_received" => EventKind::DamageReceived,
+                "power_gained" => EventKind::PowerGained,
+                "power_triggered" => EventKind::PowerTriggered,
+                "turn_started" => EventKind::TurnStarted,
+                "turn_ended" => EventKind::TurnEnded,
+                _ => return Err(format!("unknown event kind {kind}")),
+            };
+            let found = self.game()?.battle.as_ref().ok_or("not in combat")?
+                .events.iter().any(|evt|evt.kind == event && evt.source == source);
+            if !found { return Err(format!("event {kind}/{source} absent")); }
+        } else if step == "the event sequence strictly increases" {
+            let events = &self.game()?.battle.as_ref().ok_or("not in combat")?.events;
+            if !events.windows(2).all(|w|w[0].seq<w[1].seq) {
+                return Err("events were reordered or duplicated".into());
+            }
         } else if step == "I end turn" {
             self.game_mut()?.apply(Action::EndTurn)?;
         } else if step == "the action is rejected" {
