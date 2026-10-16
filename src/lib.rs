@@ -3140,6 +3140,98 @@ mod tests {
         assert_eq!(migrated.to_json().unwrap(),g.to_json().unwrap());
     }
     #[test]
+    fn doctrine_is_user_controlled_transactional_and_save_portable() {
+        use archetypes::Doctrine;
+        let mut g=Game::new(Hero::SunShangxiang,8001);
+        assert_eq!(g.effective_doctrine(),None);
+        let saved=g.to_json().unwrap();
+        assert!(!saved.contains("\\"doctrine\\""));
+        assert!(g.apply(Action::SetDoctrine{id:"cao_troops".into()}).is_err());
+        assert!(g.apply(Action::SetDoctrine{id:"unknown".into()}).is_err());
+        assert_eq!(g.to_json().unwrap(),saved);
+        g.apply(Action::SetDoctrine{id:"sun_discard".into()}).unwrap();
+        assert_eq!(g.effective_doctrine(),Some(Doctrine::SunDiscard));
+        let snapshot=g.to_json().unwrap();
+        assert_eq!(Game::from_json(&snapshot).unwrap().to_json().unwrap(),snapshot);
+        g.apply(Action::Choose{index:1}).unwrap();
+        assert!(g.apply(Action::SetDoctrine{id:"sun_combo".into()}).is_err());
+        let combat=g.to_json().unwrap();
+        assert_eq!(g.to_json().unwrap(),combat);
+        // Reversion to automatic detection does not destroy the current deck.
+        g.stage=Stage::Map;
+        g.battle=None;
+        g.apply(Action::SetDoctrine{id:"auto".into()}).unwrap();
+        assert_eq!(g.doctrine,None);
+    }
+    #[test]
+    fn doctrine_default_rng_and_reward_selection_match_original_without_focus() {
+        let mut g=Game::new(Hero::SunShangxiang,8101);
+        let mut reference=g.clone();
+        let hero=hero_pool(reference.hero);
+        let mut expected:Vec<Card>=Vec::new();
+        while expected.len()<3 {
+            let roll=reference.random(100);
+            let id=if roll<62 {hero[reference.random(hero.len())]}
+                else if roll<85 {NEUTRAL_POOL[reference.random(NEUTRAL_POOL.len())]}
+                else {REWARD_POOL[reference.random(REWARD_POOL.len())]};
+            if !expected.iter().any(|c|c.id==id) {expected.push(Card::new(id));}
+        }
+        let selected=g.pick_reward_cards();
+        assert_eq!(selected.iter().map(|c|c.id.as_str()).collect::<Vec<_>>(),
+            expected.iter().map(|c|c.id.as_str()).collect::<Vec<_>>());
+        assert_eq!(g.rng_state,reference.rng_state);
+    }
+    #[test]
+    fn doctrine_guidance_is_probabilistic_duplicate_free_and_no_starting_card_grant() {
+        use archetypes::Doctrine;
+        let mut g=Game::new(Hero::SunShangxiang,8102);
+        let deck=g.deck.len();
+        g.apply(Action::SetDoctrine{id:"sun_discard".into()}).unwrap();
+        let mut compatible=0;
+        let mut incompatible=0;
+        for _ in 0..160 {
+            let choices=g.pick_reward_cards();
+            assert_eq!(choices.len(),3);
+            assert!(choices.iter().enumerate().all(|(i,c)|
+                choices.iter().skip(i+1).all(|other|c.id!=other.id)));
+            if choices.iter().any(|card|Doctrine::SunDiscard.contains(&card.id)) {
+                compatible+=1;
+            } else {incompatible+=1;}
+            assert_eq!(g.deck.len(),deck,"Reward offer must not grant cards");
+        }
+        assert!(compatible>70,"reward guidance should occur, observed {compatible}");
+        assert!(incompatible>10,"reward guidance must not force every screen");
+    }
+    #[test]
+    fn inferred_doctrine_requires_two_distinct_owned_synergies() {
+        use archetypes::Doctrine;
+        let mut g=Game::new(Hero::SunShangxiang,8103);
+        g.deck.push(Card::new("huanshe"));
+        assert_eq!(g.effective_doctrine(),None);
+        g.deck.push(Card::new("huanshe"));
+        assert_eq!(g.effective_doctrine(),None);
+        g.deck.push(Card::new("feishi"));
+        assert_eq!(g.effective_doctrine(),Some(Doctrine::SunDiscard));
+        g.deck.push(Card::new("liandao"));
+        g.deck.push(Card::new("gonglian"));
+        assert_eq!(g.effective_doctrine(),None);
+        g.apply(Action::SetDoctrine{id:"sun_combo".into()}).unwrap();
+        assert_eq!(g.effective_doctrine(),Some(Doctrine::SunCombo));
+    }
+    #[test]
+    fn doctrine_select_during_reward_cannot_reroll_existing_three_choices() {
+        let mut g=Game::new(Hero::SunShangxiang,8104);
+        g.apply(Action::Choose{index:1}).unwrap();
+        g.battle.as_mut().unwrap().foes[0].hp=1;
+        g.battle.as_mut().unwrap().foes[0].block=0;
+        g.battle.as_mut().unwrap().hand=vec![Card::new("strike")];
+        g.apply(Action::Play{index:1,target:1}).unwrap();
+        assert_eq!(g.stage,Stage::Reward);
+        let previous=g.to_json().unwrap();
+        assert!(g.apply(Action::SetDoctrine{id:"sun_discard".into()}).is_err());
+        assert_eq!(g.to_json().unwrap(),previous);
+    }
+    #[test]
     fn targeted_camp_upgrade_and_shop_removal_work() {
         let mut g = Game::new(Hero::ZhugeLiang, 8);
         g.stage = Stage::Camp;
