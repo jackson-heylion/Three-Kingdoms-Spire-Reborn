@@ -113,7 +113,7 @@ pub(super) fn render(app:&App,columns:usize,rows:usize,target:usize,
             panel(&mut out,"最近战报",
                 &[g.log.last().cloned().unwrap_or_else(||"暂无战报".into())],columns);
         }
-        if response {panel(&mut out,"操作反馈",&[app.message.clone()],columns);}
+        if response {panel(&mut out,"操作反馈",std::slice::from_ref(&app.message),columns);}
     }else{
         panel(&mut out,&title,&["尚未出征 · 选择一名武将开始新战役".into()],columns);
         let reserved=1+usize::from(!app.message.is_empty())*3;
@@ -122,7 +122,7 @@ pub(super) fn render(app:&App,columns:usize,rows:usize,target:usize,
             .map(|(i,(label,_))|format!("{} {:>2}. {}",
                 if i==cursor {"▶"}else{" "},i+1,label)).collect::<Vec<_>>();
         panel(&mut out,"选将",&menu,columns);
-        if !app.message.is_empty(){panel(&mut out,"操作反馈",&[app.message.clone()],columns);}
+        if !app.message.is_empty(){panel(&mut out,"操作反馈",std::slice::from_ref(&app.message),columns);}
     }
     let help=fit("↑↓/jk 选择  Enter确认  1-9快捷  t目标  :命令  ?帮助  q退出",columns);
     if out.len()>=rows {out.truncate(rows-1);}
