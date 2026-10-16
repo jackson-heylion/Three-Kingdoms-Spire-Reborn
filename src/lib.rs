@@ -1043,12 +1043,13 @@ impl Game {
         else { Ok(msg) }
     }
 
+
     fn troop_attack(&mut self) {
         let b = self.battle.as_ref().expect("battle");
         if b.troops_hp <= 0 || b.troops_attack <= 0 { return; }
         let target = b.foes.iter().position(|f|f.hp>0);
         if let Some(idx) = target {
-            let damage = {
+            let (damage,killed) = {
                 let b = self.battle.as_mut().expect("battle");
                 let attack = b.troops_attack;
                 let foe = &mut b.foes[idx];
@@ -1056,13 +1057,17 @@ impl Game {
                 foe.block -= blocked;
                 let actual = foe.hp.min((attack-blocked).max(0));
                 foe.hp -= actual;
-                actual
+                (actual, actual>0 && foe.hp==0)
             };
             self.combat_event(EventKind::DamageDealt,"troops",damage,Some(format!("foe:{idx}")));
+            if killed {
+                self.combat_event(EventKind::FoeDefeated,"troops",1,Some(format!("foe:{idx}")));
+            }
         }
     }
+
     fn enemy_attack(&mut self, foe_idx: usize, power: i32) -> i32 {
-        let (damage, courage, reflected) = {
+        let (damage,reflected,killed) = {
             let b = self.battle.as_mut().expect("battle");
             let reduced = if b.foes[foe_idx].weak > 0 { power * 3 / 4 } else { power };
             let modified = if b.vulnerable > 0 { reduced * 3 / 2 } else { reduced };
@@ -1071,24 +1076,20 @@ impl Game {
             let incoming = (modified - blocked).max(0);
             let protected = incoming.min(b.troops_hp);
             b.troops_hp -= protected;
-            let damage = self.hp.min(incoming - protected);
+            let damage = self.hp.min(incoming-protected);
             self.hp -= damage;
-            if self.hero == Hero::LuBu { b.fury += damage / 2; }
-            let courage = if damage > 0 {
-                b.powers.iter().find(|p| p.id == PowerId::BloodCourage)
-                    .map_or(0, |p| p.stacks * 2)
-            } else { 0 };
-            b.fury += courage;
+            if self.hero == Hero::LuBu { b.fury += damage/2; }
             let reflected = b.thorns.min(b.foes[foe_idx].hp);
             b.foes[foe_idx].hp -= reflected;
-            (damage,courage,reflected)
+            (damage,reflected,reflected>0 && b.foes[foe_idx].hp==0)
         };
-        self.combat_event(EventKind::DamageReceived,&format!("foe:{foe_idx}"),damage,Some("hero".into()));
-        if courage > 0 {
-            self.combat_event(EventKind::PowerTriggered,"blood_courage",courage,None);
-        }
+        self.combat_event(EventKind::DamageReceived,&format!("foe:{foe_idx}"),
+            damage,Some("hero".into()));
         if reflected > 0 {
             self.combat_event(EventKind::DamageDealt,"thorns",reflected,Some(format!("foe:{foe_idx}")));
+        }
+        if killed {
+            self.combat_event(EventKind::FoeDefeated,"thorns",1,Some(format!("foe:{foe_idx}")));
         }
         damage
     }
@@ -1147,24 +1148,47 @@ impl Game {
     fn end_turn(&mut self) -> Result<String, String> {
         if self.stage != Stage::Combat { return Err("当前不在战斗中".into()); }
         self.combat_event(EventKind::TurnEnded, "hero", 0, None);
-        self.trigger_granary();
+        // Retain stays in hand. Ethereal cards that were not played are exhausted;
+        // other unplayed cards go to discard. Exhaust and discard are distinct events.
+        let expirations = {
+            let b = self.battle.as_mut().expect("battle");
+            let mut retained = Vec::new();
+            let mut exhausted = Vec::new();
+            for card in std::mem::take(&mut b.hand) {
+                if card_spec(&card.id).is_some_and(|spec| spec.retain) {
+                    retained.push(card);
+                } else if card_spec(&card.id).is_some_and(|spec| spec.ethereal) {
+                    exhausted.push(card.id.clone());
+                    b.exhausted.push(card);
+                } else {
+                    b.discard.push(card);
+                }
+            }
+            b.hand = retained;
+            exhausted
+        };
+        for card_id in expirations {
+            self.combat_event(EventKind::CardExhausted,&card_id,1,None);
+        }
 
         let poison_events = {
             let b = self.battle.as_mut().expect("battle");
-            b.discard.append(&mut b.hand);
             let mut pending = Vec::new();
             for (idx,foe) in b.foes.iter_mut().enumerate() {
                 if foe.hp > 0 && foe.poison > 0 {
                     let damage = foe.hp.min(foe.poison);
                     foe.hp -= damage;
                     foe.poison = (foe.poison - 1).max(0);
-                    pending.push((idx,damage));
+                    pending.push((idx,damage,foe.hp==0));
                 }
             }
             pending
         };
-        for (idx,damage) in poison_events {
+        for (idx,damage,killed) in poison_events {
             self.combat_event(EventKind::DamageDealt,"poison",damage,Some(format!("foe:{idx}")));
+            if killed {
+                self.combat_event(EventKind::FoeDefeated,"poison",1,Some(format!("foe:{idx}")));
+            }
         }
         if self.defeated() { return Ok(self.win_battle()); }
         self.troop_attack();
@@ -1195,9 +1219,17 @@ impl Game {
                     messages.push(format!("{name}连续进攻{hits}次，受到{total}点伤害"));
                 }
                 Intent::Hex(weak, vulnerable) => {
-                    let b = self.battle.as_mut().expect("battle");
-                    b.weak += weak;
-                    b.vulnerable += vulnerable;
+                    {
+                        let b = self.battle.as_mut().expect("battle");
+                        b.weak = b.weak.saturating_add(weak);
+                        b.vulnerable = b.vulnerable.saturating_add(vulnerable);
+                    }
+                    if weak>0 {
+                        self.combat_event(EventKind::StatusApplied,"weak",i32::from(weak),Some("hero".into()));
+                    }
+                    if vulnerable>0 {
+                        self.combat_event(EventKind::StatusApplied,"vulnerable",i32::from(vulnerable),Some("hero".into()));
+                    }
                     messages.push(format!("{name}施放诡计：虚弱{weak}/易伤{vulnerable}"));
                 }
                 Intent::Guard(amount) => {
