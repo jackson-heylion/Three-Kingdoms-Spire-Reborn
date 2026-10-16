@@ -24,7 +24,7 @@
 | 多人合作（1–4） | **未实现** | 后续需独立战斗归属、多人回合同步和 UI/网络机制 |
 | 键盘 TUI / macOS GUI / HTML | **仅基础 CLI** | 亮/暗色文字；全键盘 TUI、SwiftUI/HTML 尚未开发 |
 | 三端存档互通 | **协议预留** | Rust Game 快照 + revision；无会话服务、CAS、原生GUI或WASM |
-| 自动质量验证 | **已建立持续测试** | macOS/Linux CI、Clippy、单测、16个BDD Given/When/Then验收场景、快照恢复、`tks-sim` 每平台1000局种子对局 |
+| 自动质量验证 | **已建立持续测试** | macOS/Linux CI、Clippy、单测、17个BDD Given/When/Then验收场景、快照恢复、`tks-sim` 每平台1000局种子对局 |
 
 ## 验收缺口与发布定义
 
