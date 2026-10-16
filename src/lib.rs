@@ -175,7 +175,7 @@ impl Game {
     }
     fn refresh_route(&mut self) {
         let next = self.floor + 1;
-        self.route = if next % 7 == 0 {
+        self.route = if next.is_multiple_of(7) {
             vec![Node::Boss]
         } else if next % 7 == 1 {
             vec![Node::Battle, Node::Story, Node::Camp]
@@ -569,7 +569,7 @@ mod tests {
         for floor in 1..=MAX_FLOOR {
             game.floor = floor - 1;
             game.refresh_route();
-            assert_eq!(game.route == vec![Node::Boss], floor % 7 == 0);
+            assert_eq!(game.route == vec![Node::Boss], floor.is_multiple_of(7));
         }
     }
     #[test]
