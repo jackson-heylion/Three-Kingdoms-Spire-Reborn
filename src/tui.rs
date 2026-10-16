@@ -262,6 +262,7 @@ mod tests {
 #[cfg(test)]
 mod p1_accessibility_tests {
     use super::*;
+    use crate::{Profile, Theme};
     use three_kingdoms_spire_reborn::{Action, Game, RunMode, content::Hero};
 
     #[test]
