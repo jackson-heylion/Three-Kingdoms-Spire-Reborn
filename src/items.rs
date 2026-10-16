@@ -35,3 +35,21 @@ pub fn potion_name(id: &str) -> &'static str {
 pub fn relic_name(id: &str) -> &'static str {
     RELICS.iter().find(|(key, _)| *key == id).map_or("未知遗物", |(_, text)| text)
 }
+
+pub const BOONS: &[(&str, &str)] = &[
+    ("imperial_seal", "帝王敕令：最大体力+12并回复12"),
+    ("war_drum", "擂鼓进军：每场战斗首回合+1军令"),
+    ("strategist", "卧龙馈赠：每场战斗首回合额外抽2张牌"),
+    ("blood_oath", "歃血为盟：最大体力-8、每场战斗武勇+2"),
+    ("caravan", "粮道畅通：立刻获得140金"),
+    ("arsenal", "百炼成钢：随机升级牌组中最多3张可升级牌"),
+    ("veteran", "百战雄兵：每场战斗获得6护甲"),
+    ("renewal", "济世仁心：战斗胜利回复8点体力"),
+    ("flaming_sky", "火烧连营：群攻牌额外造成4点伤害"),
+    ("herb_garden", "千金良方：药剂栏容量增至3并补充2瓶药"),
+    ("founder", "开疆拓土：立即获得一件遗物"),
+    ("formation", "连环阵法：每场战斗获得2点统御"),
+];
+pub fn boon_name(id: &str) -> &'static str {
+    BOONS.iter().find(|(key,_)| *key == id).map_or("未知赐福", |(_,text)| text)
+}
