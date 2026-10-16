@@ -69,7 +69,7 @@ fn invalid_actions_rollback_all_hero_and_ascension_variations() {
                 let battle=g.to_json().unwrap();
                 for action in [
                     Action::Play{index:999,target:1},
-                    Action::Play{index:1,target:999},
+                    Action::UsePotionAt{slot:999,target:1},
                     Action::Choose{index:999},
                     Action::SetDoctrine{id:"auto".into()},
                 ] {
