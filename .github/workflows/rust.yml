@@ -23,3 +23,22 @@ jobs:
         run: cargo test --all-targets
       - name: Release build
         run: cargo build --release
+
+      - name: CLI save and resume smoke test
+        shell: bash
+        run: |
+          SAVE_DIR="$RUNNER_TEMP/tks-smoke"
+          printf 'new guanyu 777\nchoose 1\nend\nquit\n' | cargo run --quiet -- --plain --save-dir "$SAVE_DIR" > "$RUNNER_TEMP/tks-first.log"
+          printf 'status\ntheme light\nquit\n' | cargo run --quiet -- --plain --save-dir "$SAVE_DIR" > "$RUNNER_TEMP/tks-second.log"
+          python3 - <<'PY'
+          import json, os, pathlib
+          directory = pathlib.Path(os.environ['RUNNER_TEMP']) / 'tks-smoke'
+          game = json.loads((directory / 'save.json').read_text())
+          prefs = json.loads((directory / 'settings.json').read_text())
+          assert game['version'] == 1 and game['revision'] == 2
+          assert game['stage'] == 'combat' and game['floor'] == 1
+          assert len(game['battle']['hand']) > 0 and game['rng_state']
+          assert prefs['theme'] == 'light'
+          assert '读取进度成功' in (pathlib.Path(os.environ['RUNNER_TEMP']) / 'tks-second.log').read_text()
+          print('CLI mid-combat save/theme/resume smoke test passed')
+          PY
