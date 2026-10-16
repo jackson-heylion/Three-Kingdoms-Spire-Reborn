@@ -273,7 +273,7 @@ fn main() {
         .map_or(Theme::Dark, |settings| settings.theme);
     let profile = fs::read_to_string(profile_path(&dir)).ok()
         .and_then(|s| Profile::from_json(&s).ok())
-        .unwrap_or_else(Profile::new);
+        .unwrap_or_default();
     let mut app = App {
         game: None, profile, theme, dir,
         use_ansi: io::stdout().is_terminal() && !args.iter().any(|a| a == "--plain"),
