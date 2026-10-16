@@ -1,6 +1,6 @@
 //! Campaign progression independent of terminal, files and frontends.
 //! Stored separately from in-progress snapshots so the same state model works over FFI/WASM.
-use crate::{Game, Node, RunMode, Stage, content::Hero};
+use crate::{Game, Node, RunMode, Stage, content::Hero, challenges::ChallengeModifier};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -43,6 +43,8 @@ pub struct Profile {
     /// Unlocked permanent achievements; compatible with old V1 profiles.
     pub achievements: BTreeSet<String>,
     pub longest_campaign: u8,
+    /// Permanent custom-run challenge collectibles; old profiles deserialize empty.
+    pub challenge_trophies: BTreeSet<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -57,6 +59,8 @@ pub struct RunRecord {
     #[serde(default)] pub mode: RunMode,
     pub deck_size: usize,
     pub relics: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub modifiers: Vec<ChallengeModifier>,
 }
 
 impl Default for Profile {
@@ -67,7 +71,7 @@ impl Default for Profile {
             hero_wins: BTreeMap::new(), seen_cards: BTreeSet::new(),
             seen_enemies: BTreeSet::new(), discovered_relics: BTreeSet::new(),
             recorded_results: BTreeSet::new(), records: Vec::new(),
-            achievements: BTreeSet::new(), longest_campaign: 0,
+            achievements: BTreeSet::new(), longest_campaign: 0, challenge_trophies: BTreeSet::new(),
         }
     }
 }
@@ -79,6 +83,9 @@ impl Profile {
         if result.version != PROFILE_VERSION { return Err(format!("战功簿版本不兼容: {}", result.version)); }
         if result.achievements.iter().any(|id|!ACHIEVEMENTS.iter().any(|(known,_,_)|known==id)) {
             return Err("战功簿包含未知成就代码".into());
+        }
+        if result.challenge_trophies.iter().any(|id|ChallengeModifier::parse(id).is_none()) {
+            return Err("战功簿包含未知挑战藏品".into());
         }
         result.refresh_achievements();
         Ok(result)
@@ -95,6 +102,14 @@ impl Profile {
     pub fn achievement_progress(&self)->Vec<(&'static str,&'static str,&'static str,bool)> {
         ACHIEVEMENTS.iter().map(|(id,name,desc)|
             (*id,*name,*desc,self.achievements.contains(*id))).collect()
+    }
+    /// Unlock levels are monotonic and derived from existing persistent facts.
+    pub fn can_use_modifier(&self, modifier: ChallengeModifier) -> bool {
+        match modifier {
+            ChallengeModifier::NoRest => self.achievements.contains("first_battle"),
+            ChallengeModifier::IronLegion => self.achievements.contains("first_clear"),
+            ChallengeModifier::ThinSupplies => self.wins >= 3,
+        }
     }
     fn refresh_achievements(&mut self) {
         let mut unlocked=Vec::new();
@@ -138,6 +153,11 @@ impl Profile {
         let won = game.stage == Stage::Won;
         let score = score(game);
         if won {
+            if game.mode == RunMode::Custom {
+                for modifier in &game.modifiers {
+                    self.challenge_trophies.insert(modifier.id().to_owned());
+                }
+            }
             self.wins += 1;
             let key = game.hero.name().to_string();
             *self.hero_wins.entry(key.clone()).or_default() += 1;
@@ -150,7 +170,7 @@ impl Profile {
         self.records.push(RunRecord {
             identity, hero: game.hero, seed: game.seed, ascension: game.ascension,
             floor: game.floor, score, won, mode: game.mode, deck_size: game.deck.len(),
-            relics: game.relics.clone(),
+            relics: game.relics.clone(), modifiers: game.modifiers.clone(),
         });
         if self.records.len() > 100 { self.records.remove(0); }
         self.refresh_achievements();
@@ -235,5 +255,46 @@ mod tests {
         let mut profile = Profile::new();
         let game = Game::new(Hero::GuanYu, 1);
         assert!(profile.record(&game, "x".into()).is_err());
+    }
+}
+
+#[cfg(test)]
+mod challenge_progression_tests {
+    use super::*;
+
+    #[test]
+    fn timeline_is_persistent_and_custom_victories_grant_collectibles_once() {
+        let mut profile = Profile::new();
+        assert!(!profile.can_use_modifier(ChallengeModifier::NoRest));
+        let mut game = Game::new_with_mode(Hero::GuanYu, 5, 0, RunMode::Custom);
+        game.telemetry.totals.battles_won = 1;
+        profile.observe(&game);
+        assert!(profile.can_use_modifier(ChallengeModifier::NoRest));
+        assert!(!profile.can_use_modifier(ChallengeModifier::IronLegion));
+
+        game.modifiers = vec![ChallengeModifier::NoRest];
+        game.stage = Stage::Won;
+        assert_eq!(profile.record(&game, "first".into()), Ok(true));
+        assert_eq!(profile.record(&game, "first".into()), Ok(false));
+        assert!(profile.challenge_trophies.contains("no_rest"));
+        assert!(profile.can_use_modifier(ChallengeModifier::IronLegion));
+        assert!(!profile.can_use_modifier(ChallengeModifier::ThinSupplies));
+        profile.record(&game, "second".into()).unwrap();
+        profile.record(&game, "third".into()).unwrap();
+        assert!(profile.can_use_modifier(ChallengeModifier::ThinSupplies));
+
+        let saved = profile.to_json().unwrap();
+        let loaded = Profile::from_json(&saved).unwrap();
+        assert_eq!(loaded.challenge_trophies, profile.challenge_trophies);
+        assert_eq!(loaded.records[0].modifiers, game.modifiers);
+
+        let mut legacy: serde_json::Value = serde_json::from_str(&saved).unwrap();
+        legacy.as_object_mut().unwrap().remove("challenge_trophies");
+        for record in legacy["records"].as_array_mut().unwrap() {
+            record.as_object_mut().unwrap().remove("modifiers");
+        }
+        let migrated = Profile::from_json(&legacy.to_string()).unwrap();
+        assert!(migrated.challenge_trophies.is_empty());
+        assert!(migrated.records[0].modifiers.is_empty());
     }
 }
