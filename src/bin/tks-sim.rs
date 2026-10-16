@@ -186,6 +186,12 @@ fn tactical_action(game:&Game)->Result<Action,String> {
         Stage::Story => Ok(Action::Choose{index:if game.lore_current.is_some(){1}else{3}}),
         Stage::Combat => {
             let b=game.battle.as_ref().ok_or("missing tactical battle")?;
+            // Build-focused draw/energy cycles can yield unbounded optional plays.
+            // Human players can press "end"; the bot must not interpret such
+            // positive-energy loops as a hard game-engine softlock.
+            if b.played_this_turn >= 36 {
+                return Ok(Action::EndTurn);
+            }
             let threat=next_enemy_damage(game);
             // Discard is a separately-paid action and matters especially for
             // Sun Shangxiang's combo. A no-discard bot badly understates her
@@ -309,8 +315,10 @@ fn simulate_policy_package(hero:Hero,seed:u64,ascension:u8,policy:Policy,package
             }
         }
     }
-    Err(format!("suspected softlock: {} seed={} exceeded {} actions",
-        hero.name(),seed,MAX_ACTIONS))
+    Err(format!("suspected softlock: {} seed={} exceeded {} actions at floor={} stage={:?} hp={}/{} current_turn={:?}",
+        hero.name(),seed,MAX_ACTIONS,game.floor,game.stage,game.hp,game.max_hp,
+        game.battle.as_ref().map(|b|(b.turn,b.played_this_turn,b.energy,
+            b.foes.iter().map(|f|(&f.id,f.hp)).collect::<Vec<_>>()))))
 }
 
 
