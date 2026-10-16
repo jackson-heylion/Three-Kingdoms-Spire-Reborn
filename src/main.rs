@@ -42,6 +42,11 @@ fn atomic_write(path: &std::path::Path, data: &str) -> io::Result<()> {
     fs::rename(temporary, path)?;
     Ok(())
 }
+fn new_run_id() -> String {
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_nanos());
+    format!("cli-{}-{nanos}",std::process::id())
+}
 fn default_dir() -> PathBuf {
     let home = env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
     home.join("Library/Application Support/ThreeKingdomsSpireReborn")
@@ -76,7 +81,9 @@ impl App {
         let g = self.game.as_ref().ok_or("请先开局")?;
         self.profile.observe(g);
         if matches!(g.stage, Stage::Won | Stage::Lost) {
-            let key = format!("{}:{}:{}:{}:{:?}", g.hero.name(),g.seed,g.floor,g.revision,g.stage);
+            let key = if g.run_id.is_empty() {
+                format!("legacy:{}:{}:{}:{}:{:?}",g.hero.name(),g.seed,g.floor,g.revision,g.stage)
+            } else { g.run_id.clone() };
             self.profile.record(g,key)?;
         }
         self.save_profile()
@@ -215,7 +222,7 @@ impl App {
                 if mode == RunMode::Standard && ascension > unlocked {
                     Err(format!("{}目前标准战役仅解锁飞升0~{unlocked}；通关该武将当前难度可解锁下一级。测试自由档请用 custom。",hero.name()))
                 } else {
-                    self.game = Some(Game::new_with_mode(hero,seed,ascension,mode));
+                    self.game = Some(Game::new_with_identity(hero,seed,ascension,mode,new_run_id()));
                     let g = self.game.as_ref().expect("just created");
                     self.profile.on_start(g);
                     self.save().and_then(|_| self.save_profile())
@@ -230,7 +237,7 @@ impl App {
                             (h ^ u64::from(c)).wrapping_mul(0x100000001b3));
                         let heroes = [Hero::GuanYu,Hero::ZhugeLiang,Hero::SunShangxiang,Hero::CaoCao,Hero::LuBu];
                         let hero = heroes[(seed % heroes.len() as u64) as usize];
-                        self.game = Some(Game::new_with_mode(hero,seed,3,RunMode::Daily));
+                        self.game = Some(Game::new_with_identity(hero,seed,3,RunMode::Daily,new_run_id()));
                         let g = self.game.as_ref().expect("just created");
                         self.profile.on_start(g);
                         self.save().and_then(|_| self.save_profile())
