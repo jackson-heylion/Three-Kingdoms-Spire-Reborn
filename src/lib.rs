@@ -234,7 +234,11 @@ impl Game {
         // Consume the saved RNG only at floor transitions. This preserves
         // deterministic branching after resuming on another frontend.
         let offset = self.random(phases.len());
-        self.route = (0..3).map(|i| phases[(offset + i) % phases.len()]).collect();
+        self.route = vec![
+            Node::Battle,
+            phases[(offset + 1) % phases.len()],
+            phases[(offset + 2) % phases.len()],
+        ];
     }
     fn pick_reward_cards(&mut self) -> Vec<Card> {
         let own = hero_pool(self.hero);
