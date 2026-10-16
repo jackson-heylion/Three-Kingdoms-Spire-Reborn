@@ -42,3 +42,6 @@ jobs:
           assert '读取进度成功' in (pathlib.Path(os.environ['RUNNER_TEMP']) / 'tks-second.log').read_text()
           print('CLI mid-combat save/theme/resume smoke test passed')
           PY
+
+      - name: Seeded autoplay and snapshot stability (100 runs)
+        run: cargo run --release --bin tks-sim -- 100
