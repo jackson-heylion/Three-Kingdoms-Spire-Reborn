@@ -212,7 +212,7 @@ impl App {
         };
         let result: Result<String, String> = match args[0].to_ascii_lowercase().as_str() {
             "quit" | "exit" | "q" => { let _ = self.save(); return false; }
-            "help" | "h" => Ok("new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 在出征前指定三幕变体；daily YYYY-MM-DD；load/save；choose N；play N [目标]；discard N 弃换；end；use [药剂号] [目标]；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看连通路线；relics；lore 看纪事；bonds 看人物羁绊；chronicle；theme dark|light；status；quit。".into()),
+            "help" | "h" => Ok("new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 在出征前指定三幕变体；daily YYYY-MM-DD；load/save；choose N；play N [目标]；discard N 弃换；end；use [药剂号] [目标]；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看连通路线；relics；lore 看纪事；bonds 看人物羁绊；chapter 1-120 回目索引；chronicle；theme dark|light；status；quit。".into()),
             "new" | "custom" => {
                 let mode = if args[0] == "custom" {RunMode::Custom} else {RunMode::Standard};
                 let hero = args.get(1).and_then(|s| Hero::parse(s)).unwrap_or(Hero::GuanYu);
@@ -305,9 +305,31 @@ impl App {
                 let hidden = three_kingdoms_spire_reborn::lore::BEATS.iter()
                     .filter(|b| b.prerequisite.is_some_and(|key| g.lore_flags.iter().any(|flag| flag == key))
                         && !g.lore_seen.iter().any(|seen| seen == b.id)).count();
-                out.push_str(&format!("尚有{hidden}项未揭开的因果（不剧透）"));
+                out.push_str(&format!("尚有{hidden}项未揭开的因果（不剧透）\n"));
+                for id in &g.easter_unlocked {
+                    if let Some(egg) = three_kingdoms_spire_reborn::lore::EASTER_EGGS.iter().find(|e| e.id == id) {
+                        out.push_str(&format!("隐藏结局【{}】— {}\n",egg.name,egg.hint));
+                    }
+                }
                 out
             })),
+            "chapter" => match args.get(1).and_then(|raw| raw.parse::<usize>().ok()) {
+                Some(index) if (1..=120).contains(&index) => {
+                    let line = include_str!("../data/novel_chapters.tsv").lines()
+                        .filter(|line| line.chars().next().is_some_and(|ch| ch.is_ascii_digit()))
+                        .nth(index-1).ok_or("章节索引不完整");
+                    line.map(|raw| {
+                        let parts: Vec<_> = raw.split('\t').collect();
+                        let events = three_kingdoms_spire_reborn::lore::BEATS.iter()
+                            .filter(|beat| usize::from(beat.chapter) == index)
+                            .map(|beat| beat.title).collect::<Vec<_>>();
+                        format!("第{index:03}回：{}\n原典：{}\n本游戏关联的演义故事：{}",
+                            parts.get(1).unwrap_or(&""),parts.get(2).unwrap_or(&""),
+                            if events.is_empty() { "尚无已编写场景".into() } else { events.join("、") })
+                    })
+                }
+                _ => Err("用法：chapter 1～120 查看原著回目索引和对应游戏章节".into()),
+            },
             "relics" => Ok(self.game.as_ref().map_or("尚未开局".into(), |g| {
                 g.relics.iter().map(|r| format!("{}：{}",r, three_kingdoms_spire_reborn::items::relic_name(r))).collect::<Vec<_>>().join("\n")
             })),
