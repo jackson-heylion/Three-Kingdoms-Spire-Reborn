@@ -98,7 +98,7 @@ pub(super) fn render(app:&App,columns:usize,rows:usize,target:usize,
         let reserved=usize::from(report)*3+usize::from(response)*3+1;
         let available=rows.saturating_sub(out.len()+reserved+2).max(1);
         let (start,end)=window(options.len(),cursor,available);
-        let menu=options.iter().enumerate().take(end).skip(start).map(|(i,(label,_))|
+        let mut menu=options.iter().enumerate().take(end).skip(start).map(|(i,(label,_))|
             format!("{} {:>2}. {}",if i==cursor {"▶"}else{" "},i+1,label)
         ).collect::<Vec<_>>();
         let head=if let Some(b)=g.battle.as_ref().filter(|_|g.stage==Stage::Combat) {
@@ -107,8 +107,8 @@ pub(super) fn render(app:&App,columns:usize,rows:usize,target:usize,
         } else {
             format!("行动选择 [{}-{} / {}]",start+usize::from(!options.is_empty()),end,options.len())
         };
-        panel(&mut out,&head,
-            if menu.is_empty(){&["没有可选操作；按 : 输入命令".into()]}else{&menu},columns);
+        if menu.is_empty() {menu.push("没有可选操作；按 : 输入命令".into());}
+        panel(&mut out,&head,&menu,columns);
         if report {
             panel(&mut out,"最近战报",
                 &[g.log.last().cloned().unwrap_or_else(||"暂无战报".into())],columns);
