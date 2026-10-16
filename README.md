@@ -1,54 +1,83 @@
 # 三国登塔录 · Three Kingdoms Spire Reborn
 
-使用 Rust 构建的原创三国题材卡组构筑 Roguelike。参考《杀戮尖塔》系列的通用玩法循环，但不复制其专有美术、剧情、文本或原作卡牌数据库。
+以 Rust 1.99.1 Stable 编写的原创三国题材文字版卡组构筑 Roguelike。参考经典爬塔卡牌游戏的通用玩法框架，采用原创角色机制、卡牌命名、敌人、奇遇与背景，不复制《杀戮尖塔 2》专有的成套卡牌文字、故事或美术。
 
-**当前版本：0.1.0 / 可运行文字版核心样机，并非《杀戮尖塔 2》全内容复刻。**
+> **当前状态：增强版单人终端 Alpha。不是《杀戮尖塔 2》全部内容的完成品。**
+> 核心机制与内容已大幅扩展，但仍有地图图谱、完整状态触发、职业流派、合作模式与数值平衡等未达成项目。详见 [功能对照表](docs/FEATURE_MATRIX.md) 和 [开发路线](docs/ROADMAP.md)。
 
-## 环境
+## 安装与运行
 
-- macOS (Apple Silicon / Intel)，终端支持 UTF-8
-- Rust **1.99.1 stable**；根目录 rust-toolchain.toml 自动固定版本
-- 首次编译需要网络下载 serde 和 serde_json
+仅面向 macOS 终端提供正式操作路径（CI 同时检查 Linux）。
 
-安装 Rust：https://rustup.rs/
+```bash
+# 如未安装 Rust，请先访问 https://rustup.rs/
+git clone https://github.com/jackson-heylion/Three-Kingdoms-Spire-Reborn.git
+cd Three-Kingdoms-Spire-Reborn
+cargo run --release --bin tks
+```
 
-## 快速开始
+## 命令
 
-运行以下命令：
+```text
+new guanyu 20261016 0          # 关羽 / 种子 / 飞升难度（0-10）
+new zhuge                    # 诸葛亮
+new sun                      # 孙尚香
+new cao                      # 曹操
+new lubu                     # 吕布
+daily 2026-10-16             # 按日期固定的原创每日挑战
+choose 1                     # 选择路线、奇遇、商店、奖励、先贤赐福
+play 1 1                     # 使用第 1 手牌攻击第 1 名敌军
+discard 2                    # 需先获得弃换次数
+end                          # 结束回合
+use 1 1                      # 使用第 1 瓶药剂，对第 1 敌军（如需目标）
+deck                         # 查看牌组与编号
+upgrade 3                    # 在营寨升级指定卡牌
+enchant 3 迅捷               # 在营寨花35金附魔
+remove 2                     # 在军市花75金移除指定卡牌
+relics                       # 查看遗物
+chronicle                    # 战功簿、解锁、图鉴、最近战局
+theme light                  # 亮色终端
+theme dark                   # 暗色终端
+save / load / status / help / quit
+```
 
-    git clone https://github.com/jackson-heylion/Three-Kingdoms-Spire-Reborn.git
-    cd Three-Kingdoms-Spire-Reborn
-    rustup update stable
-    cargo run --release
+**可玩内容**：五名武将各自的战斗资源与被动体系、95 张原创卡牌、31 类敌人（包含替代精英和六名关底敌军）、10 种药剂、16 种遗物、12 类分支事件、12 种先贤赐福、三幕 21 层战役、敌人意图、单/群体伤害、护甲、虚弱、易伤、中毒、武勇、反击、亲兵扛伤与自动攻击、弃换触发、牌组抽弃/消耗、特殊任务牌探索变形、升级与附魔、军市和营寨、战功簿与每日挑战、飞升难度。
 
-选将：new guanyu、new zhuge、new sun、new cao、new lubu。也可输入 new guanyu 20261016 指定可复现的随机种子。
+每次成功动作保存完整快照，包括手牌、弃牌堆、RNG、职业资源和敌军意图。失败指令会回滚完整状态，不改变随机数或修订号。V1 快照可迁移到 V2。
 
-- choose 1：选择路线、奖励或营寨选项
-- play 1 1：打出第 1 张手牌，目标是第 1 名敌军
-- end：结束回合；use：使用回血药剂
-- theme dark / theme light：暗色／亮色，记住偏好
-- save / load：手动保存／读取（成功操作也自动保存）
-- status / help / quit：状态、帮助、退出
-- cargo run -- --plain：关闭 ANSI 控制符
-- cargo run -- --save-dir ./my-save：使用自定义存档目录
+## 存档
 
-存档路径：~/Library/Application Support/ThreeKingdomsSpireReborn/save.json；主题路径：同目录 settings.json。退出后再次运行会自动恢复，包括战斗中间状态。
+macOS `~/Library/Application Support/ThreeKingdomsSpireReborn/`
 
-## 当前可玩范围
+- `save.json`：当前游戏与回合状态（跨界面共享协议基础）。
+- `chronicle.json`：长期战功、发现记录与难度解锁进度。
+- `settings.json`：明暗主题偏好。
 
-五名三国武将、15 种原创卡牌、随机牌堆和抽弃牌循环、能量、敌方意图、护甲、叠加武勇、中毒、群体攻击、升级牌、消耗牌、回合结算、三幕各七层路线、普通/精英/首领战、三名关底敌人、营寨、军市、奇遇、战利品、遗物基础奖励、药剂、胜负结算、存档校验与自动保存。平衡与内容仍属首版样机。
+```bash
+cargo run --bin tks -- --plain
+cargo run --bin tks -- --save-dir ./custom-saves
+```
 
-核心引擎位于 src/lib.rs，内容位于 src/content.rs，终端仅位于 src/main.rs。所有界面通过 Game::apply(Action) 驱动一致的规则状态，序列化包含 RNG 状态，便于后续复现和跨前端接力。
+**注意**：当前没有多进程写锁，暂时不要同时启动两个终端窗口操作同一存档。原生 App、响应式 HTML 和本机会话协调服务均属二期，尚未实现。
 
-## 二期接口约定
+## 开发与测试
 
-macOS 原生 GUI → SwiftUI + UniFFI/FFI → Rust 核心；响应式 HTML → Rust WASM → Rust 核心。两端传输带版本号和 revision 的同一 JSON Game 快照。跨进程同步由本地协调服务负责，不能让浏览器直接读任意本机文件。**当前尚未实现原生 GUI、HTML、实时跨端同步、多进程写入锁。** 这些模块的 API 和安全边界见 docs/ARCHITECTURE.md。
+```bash
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test --all-targets
+cargo build --release
+cargo run --release --bin tks-sim -- 100
+```
 
-## 开发
+每次更新由 GitHub Actions 在 macOS + Linux 下编译、测试、终端存档恢复与自动模拟上进行验证。CI 状态：[GitHub Actions](https://github.com/jackson-heylion/Three-Kingdoms-Spire-Reborn/actions)。
 
-    cargo fmt --check
-    cargo clippy --all-targets -- -D warnings
-    cargo test
-    cargo build --release
+## 技术边界
 
-项目里程碑和未实现功能见 docs/ROADMAP.md。
+- `src/lib.rs`：唯一权威规则状态机与 `Game::apply(Action)`，含操作事务回滚、随机数和存档。
+- `src/content.rs` / `src/items.rs`：原创卡牌、敌军、遗物、药剂、战役赐福。
+- `src/progression.rs`：长期战功与图鉴。
+- `src/main.rs`：Mac 终端呈现与输入。
+- `src/bin/tks-sim.rs`：自动对局和确定性回归模拟。
+
+二期统一用同一 Rust 核心驱动 SwiftUI 与 WASM/HTML，协调服务保证单写者与修订号冲突检测。详情见 [架构](docs/ARCHITECTURE.md)。
