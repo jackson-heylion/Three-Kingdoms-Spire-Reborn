@@ -279,7 +279,7 @@ impl Game {
             }
             if b.energy < 0 || b.block < 0 || b.troops_hp < 0 || b.troops_attack < 0
                 || b.discard_tokens < 0 || b.foes.is_empty() || b.foes.len() > 4
-                || b.powers.len() > 5 || b.powers.iter().any(|power| power.stacks <= 0 || power.stacks > 99)
+                || b.powers.len() > 8 || b.powers.iter().any(|power| power.stacks <= 0 || power.stacks > 99)
                 || b.powers.iter().enumerate().any(|(idx,p)| b.powers[..idx].iter().any(|prior| prior.id == p.id))
                 || b.events.len() > MAX_RECENT_EVENTS
                 || b.events.iter().any(|event| event.seq == 0 || event.seq > b.event_seq)
@@ -564,16 +564,110 @@ impl Game {
         } else { Ok(idx) }
     }
 
+
     fn combat_event(&mut self, kind: EventKind, source: &str, amount: i32, target: Option<String>) {
-        if let Some(b) = &mut self.battle {
-            b.event_seq = b.event_seq.saturating_add(1);
-            b.events.push(CombatEvent {
-                seq: b.event_seq, kind, source: source.to_owned(), amount, target,
-            });
-            if b.events.len() > MAX_RECENT_EVENTS {
-                let count = b.events.len()-MAX_RECENT_EVENTS;
-                b.events.drain(..count);
+        // One synchronous, bounded trigger pipeline. All observers see the original
+        // event before any subsequent PowerTriggered or CardDrawn events.
+        let Some(b) = &mut self.battle else { return };
+        b.event_seq = b.event_seq.saturating_add(1);
+        let event = CombatEvent {
+            seq: b.event_seq, kind, source: source.to_owned(), amount, target,
+        };
+        b.events.push(event.clone());
+        if b.events.len() > MAX_RECENT_EVENTS {
+            let count = b.events.len() - MAX_RECENT_EVENTS;
+            b.events.drain(..count);
+        }
+        self.dispatch_combat_event(&event);
+    }
+
+    fn attack_effect(effect: Effect) -> bool {
+        matches!(effect,
+            Effect::Hit(_) | Effect::HitDraw(_,_) | Effect::HitTwice(_)
+            | Effect::All(_) | Effect::HitWeak(_,_) | Effect::HitVulnerable(_,_)
+            | Effect::MomentumStrike(_) | Effect::SchemeStrike(_) | Effect::ComboStrike(_)
+            | Effect::CommandStrike(_) | Effect::FuryStrike(_) | Effect::BloodPrice(_,_)
+            | Effect::Leech(_) | Effect::HitPoison(_,_) | Effect::Pierce(_)
+            | Effect::DiscardStrike(_)
+        )
+    }
+
+    fn dispatch_combat_event(&mut self, event: &CombatEvent) {
+        match event.kind {
+            EventKind::CardResolved => {
+                let attack = card_spec(&event.source).is_some_and(|card| Self::attack_effect(card.effect));
+                if attack {
+                    let guard = self.power_stacks(PowerId::OathGuard) * 3;
+                    if guard > 0 {
+                        self.battle.as_mut().expect("battle").block += guard;
+                        self.combat_event(EventKind::PowerTriggered, "oath_guard", guard, None);
+                    }
+                } else {
+                    let stacks = self.power_stacks(PowerId::ThoughtSpring);
+                    let unused = self.battle.as_ref().is_some_and(|b| !b.thought_used);
+                    if stacks > 0 && unused {
+                        let b = self.battle.as_mut().expect("battle");
+                        b.energy += stacks;
+                        b.thought_used = true;
+                        self.combat_event(EventKind::PowerTriggered, "thought_spring", stacks, None);
+                        self.draw_cards(1);
+                    }
+                }
             }
+            EventKind::CardDiscarded => {
+                let amount = self.power_stacks(PowerId::ArrowsOnDiscard) * 4;
+                if amount > 0 {
+                    let target = self.battle.as_ref().expect("battle").foes.iter()
+                        .position(|foe| foe.hp > 0);
+                    if let Some(idx) = target {
+                        self.combat_event(EventKind::PowerTriggered,"arrows_on_discard",
+                            amount,Some(format!("foe:{idx}")));
+                        self.damage_enemy(idx,amount);
+                    }
+                }
+            }
+            EventKind::TurnEnded => self.trigger_granary(),
+            EventKind::DamageReceived if event.amount > 0 => {
+                let stacks = self.power_stacks(PowerId::BloodCourage);
+                let fury = stacks * 2;
+                if fury > 0 {
+                    self.battle.as_mut().expect("battle").fury += fury;
+                    self.combat_event(EventKind::PowerTriggered, "blood_courage", fury, None);
+                }
+            }
+            EventKind::CardDrawn => {
+                let amount = self.power_stacks(PowerId::WisdomOnDraw);
+                if amount > 0 {
+                    self.battle.as_mut().expect("battle").block += amount;
+                    self.combat_event(EventKind::PowerTriggered,"wisdom_on_draw",amount,None);
+                }
+            }
+            EventKind::StatusApplied if event.source == "poison" && event.amount > 0 => {
+                let amount = self.power_stacks(PowerId::ToxicReversal);
+                if amount > 0 {
+                    if let Some(idx) = event.target.as_deref()
+                        .and_then(|text|text.strip_prefix("foe:"))
+                        .and_then(|text|text.parse::<usize>().ok())
+                    {
+                        let b = self.battle.as_mut().expect("battle");
+                        if let Some(foe) = b.foes.get_mut(idx) {
+                            if foe.hp > 0 {
+                                foe.poison += amount;
+                                self.combat_event(EventKind::PowerTriggered,"toxic_reversal",
+                                    amount,Some(format!("foe:{idx}")));
+                            }
+                        }
+                    }
+                }
+            }
+            EventKind::FoeDefeated => {
+                let amount = self.power_stacks(PowerId::VictoryDrum);
+                if amount > 0 {
+                    self.battle.as_mut().expect("battle").energy += amount;
+                    self.combat_event(EventKind::PowerTriggered,"victory_drum",amount,event.target.clone());
+                }
+            }
+            _ => {}
         }
     }
     fn power_stacks(&self, id: PowerId) -> i32 {
@@ -588,38 +682,6 @@ impl Game {
             b.powers.push(PowerStack { id, stacks: stacks.min(99) });
         }
         self.combat_event(EventKind::PowerGained, id.name(), stacks, None);
-    }
-    // Order for resolving one card:
-    // card-played event -> card effect(s) and damage -> class passives ->
-    // persistent powers (once/card) -> card moved into discard/exhaust.
-    fn trigger_card_powers(&mut self, attack: bool) {
-        if attack {
-            let guard = self.power_stacks(PowerId::OathGuard) * 3;
-            if guard > 0 {
-                self.battle.as_mut().expect("battle").block += guard;
-                self.combat_event(EventKind::PowerTriggered, "oath_guard", guard, None);
-            }
-        } else {
-            let stacks = self.power_stacks(PowerId::ThoughtSpring);
-            let eligible = self.battle.as_ref().is_some_and(|b| !b.thought_used);
-            if stacks > 0 && eligible {
-                let b = self.battle.as_mut().expect("battle");
-                b.energy += stacks;
-                b.thought_used = true;
-                self.combat_event(EventKind::PowerTriggered, "thought_spring", stacks, None);
-                self.draw_cards(1);
-            }
-        }
-    }
-    fn trigger_discard_powers(&mut self) {
-        let amount = self.power_stacks(PowerId::ArrowsOnDiscard) * 4;
-        if amount == 0 { return; }
-        let target = self.battle.as_ref().expect("battle").foes
-            .iter().position(|foe| foe.hp > 0);
-        if let Some(idx) = target {
-            self.combat_event(EventKind::PowerTriggered, "arrows_on_discard", amount, Some(format!("foe:{idx}")));
-            self.damage_enemy(idx, amount);
-        }
     }
     fn trigger_granary(&mut self) {
         let stacks = self.power_stacks(PowerId::GranarySupport);
