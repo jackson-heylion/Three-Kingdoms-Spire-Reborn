@@ -14,14 +14,17 @@ pub const MAX_FLOOR: u8 = 21;
 pub struct Card {
     pub id: String,
     pub upgraded: bool,
+    #[serde(default)] pub enchantment: Option<String>,
+    #[serde(default)] pub quest_progress: u8,
 }
 impl Card {
     pub fn new(id: &str) -> Self {
-        Self { id: id.into(), upgraded: false }
+        Self { id: id.into(), upgraded: false, enchantment: None, quest_progress: 0 }
     }
     pub fn name(&self) -> String {
         let base = card_spec(&self.id).map_or("未知牌", |s| s.name);
-        format!("{base}{}", if self.upgraded { "+" } else { "" })
+        format!("{base}{}{}", if self.upgraded { "+" } else { "" },
+            self.enchantment.as_ref().map_or(String::new(), |kind| format!("·{kind}")))
     }
 }
 
@@ -140,6 +143,7 @@ pub enum Action {
     UsePotionAt { slot: usize, target: usize },
     Upgrade { index: usize },
     Remove { index: usize },
+    Enchant { index: usize, kind: String },
 }
 
 impl Game {
@@ -190,6 +194,10 @@ impl Game {
         }
         for c in self.deck.iter().chain(self.rewards.iter()).chain(self.market.iter()) {
             if card_spec(&c.id).is_none() { return Err(format!("未知卡牌: {}", c.id)); }
+            if c.enchantment.as_deref().is_some_and(|id|
+                !matches!(id, "迅捷" | "锐锋" | "护身" | "明悟")) {
+                return Err(format!("未知附魔: {:?}", c.enchantment));
+            }
         }
         if let Some(b) = &self.battle {
             for c in b.draw.iter().chain(b.hand.iter()).chain(b.discard.iter()).chain(b.exhausted.iter()) {
@@ -399,6 +407,15 @@ impl Game {
                 self.stage = Stage::Market;
             }
             Node::Story => {
+                for card in &mut self.deck {
+                    if card.id == "quest_tulu" {
+                        card.quest_progress = card.quest_progress.saturating_add(1);
+                        if card.quest_progress >= 3 {
+                            card.id = "quest_resolved".into();
+                            card.quest_progress = 0;
+                        }
+                    }
+                }
                 self.event_id = self.random(12) as u8;
                 self.stage = Stage::Story;
             },
@@ -484,7 +501,10 @@ impl Game {
         let card = b.hand.get(hand_idx).ok_or("无效手牌编号")?.clone();
         let spec = card_spec(&card.id).ok_or("未知卡牌")?;
         if matches!(spec.effect, Effect::Unplayable) { return Err("这张牌无法打出".into()); }
-        if b.energy < spec.cost { return Err("军令不足".into()); }
+        let cost = if card.enchantment.as_deref() == Some("迅捷") {
+            (spec.cost - 1).max(0)
+        } else { spec.cost };
+        if b.energy < cost { return Err("军令不足".into()); }
         let requires_target = matches!(
             spec.effect, Effect::Hit(_) | Effect::HitDraw(_, _) | Effect::HitTwice(_)
                 | Effect::Poison(_) | Effect::HitWeak(_, _) | Effect::HitVulnerable(_, _)
@@ -495,10 +515,11 @@ impl Game {
         let target_idx = if requires_target { Some(self.target_index(target)?) } else { None };
         {
             let b = self.battle.as_mut().expect("battle");
-            b.energy -= spec.cost;
+            b.energy -= cost;
             b.hand.remove(hand_idx);
         }
-        let bonus = if card.upgraded { 3 } else { 0 };
+        let bonus = if card.upgraded { 3 } else { 0 }
+            + if card.enchantment.as_deref() == Some("锐锋") { 3 } else { 0 };
         match spec.effect {
             Effect::Hit(n) => self.damage_enemy(target_idx.expect("target"), n + bonus),
             Effect::HitDraw(n, draw) => {
@@ -607,6 +628,10 @@ impl Game {
             Effect::Energy(n) => self.battle.as_mut().expect("battle").energy += n + i32::from(card.upgraded),
             Effect::Unplayable => unreachable!(),
         }
+        if card.enchantment.as_deref() == Some("护身") {
+            self.battle.as_mut().expect("battle").block += 4;
+        }
+        if card.enchantment.as_deref() == Some("明悟") { self.draw_cards(1); }
         let attack = requires_target || matches!(spec.effect, Effect::All(_));
         {
             let b = self.battle.as_mut().expect("battle");
@@ -748,6 +773,23 @@ impl Game {
         Ok(result)
     }
 
+    fn enchant_card(&mut self, index: usize, kind: &str) -> Result<String, String> {
+        if self.stage != Stage::Camp { return Err("附魔必须在营寨进行".into()); }
+        if !matches!(kind, "迅捷" | "锐锋" | "护身" | "明悟") {
+            return Err("附魔类型：迅捷 / 锐锋 / 护身 / 明悟".into());
+        }
+        let idx = index.checked_sub(1).ok_or("牌组编号从1开始")?;
+        let card = self.deck.get(idx).ok_or("无效牌组编号")?;
+        if card.enchantment.is_some() || matches!(card.id.as_str(), "cursed" | "quest_tulu") {
+            return Err("此卡无法附魔".into());
+        }
+        if self.gold < 35 { return Err("附魔需要35金".into()); }
+        self.gold -= 35;
+        self.deck[idx].enchantment = Some(kind.to_owned());
+        let message = format!("附魔【{}】，获得{kind}效果。", self.deck[idx].name());
+        self.finish_scene();
+        Ok(message)
+    }
     fn upgrade_card(&mut self, index: usize) -> Result<String, String> {
         if self.stage != Stage::Camp { return Err("只能在营寨升级卡牌".into()); }
         let idx = index.checked_sub(1).ok_or("卡牌编号从1开始")?;
@@ -878,7 +920,12 @@ impl Game {
                 self.hp = (self.hp - 7).max(0); self.gold += 40;
                 "失去7体力，得到40金。"
             }
-            (2,3) | (4,2) | (7,2) | (10,3) => {
+            (4,2) | (7,2) => {
+                self.deck.push(Card::new("quest_tulu"));
+                if event == 7 { self.deck.push(Card::new("cursed")); }
+                "得军情图录：再经历3次奇遇后蜕变为决断之牌。"
+            }
+            (2,3) | (10,3) => {
                 let pool = hero_pool(self.hero);
                 let picked = pool[self.random(pool.len())];
                 self.deck.push(Card::new(picked));
@@ -965,6 +1012,7 @@ impl Game {
             Action::Play { index, target } => self.play(index, target)?,
             Action::EndTurn => self.end_turn()?,
             Action::Upgrade { index } => self.upgrade_card(index)?,
+            Action::Enchant { index, kind } => self.enchant_card(index, &kind)?,
             Action::Remove { index } => self.remove_card(index)?,
             Action::UsePotionAt { slot, target } => self.use_potion(slot, target)?,
             Action::UsePotion => self.use_potion(1, 1)?,
@@ -1114,6 +1162,37 @@ mod tests {
                 assert!(foes[0].max_hp >= 75);
             }
         }
+    }
+
+    #[test]
+    fn card_enchantments_reduce_energy_cost_and_survive_resume() {
+        let mut g = Game::new(Hero::GuanYu, 33);
+        g.stage = Stage::Camp;
+        g.apply(Action::Enchant { index: 1, kind: "迅捷".into() }).unwrap();
+        assert_eq!(g.gold, 55);
+        assert_eq!(g.deck[0].enchantment.as_deref(), Some("迅捷"));
+        let mut restored = Game::from_json(&g.to_json().unwrap()).unwrap();
+        restored.apply(Action::Choose { index: 1 }).unwrap();
+        let b = restored.battle.as_mut().unwrap();
+        b.hand = vec![restored.deck[0].clone()];
+        let prior_energy = b.energy;
+        restored.apply(Action::Play { index: 1, target: 1 }).unwrap();
+        assert_eq!(restored.battle.as_ref().unwrap().energy, prior_energy);
+    }
+    #[test]
+    fn quest_transforms_after_three_story_nodes() {
+        let mut g = Game::new(Hero::ZhugeLiang, 77);
+        g.deck.push(Card::new("quest_tulu"));
+        for progress in 1..=3 {
+            g.route = vec![Node::Story];
+            g.apply(Action::Choose { index: 1 }).unwrap();
+            if progress < 3 {
+                assert_eq!(g.deck.last().unwrap().quest_progress, progress);
+            }
+            g.apply(Action::Choose { index: 3 }).unwrap();
+            assert_ne!(g.stage, Stage::Combat);
+        }
+        assert_eq!(g.deck.last().unwrap().id, "quest_resolved");
     }
     #[test]
     fn targeted_camp_upgrade_and_shop_removal_work() {
