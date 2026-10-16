@@ -136,6 +136,7 @@ pub struct Game {
     #[serde(default)] pub victories: u32,
     #[serde(default)] pub boons: Vec<String>,
     #[serde(default)] pub boon_choices: Vec<String>,
+    #[serde(default)] pub variants: Option<[u8; 3]>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -150,6 +151,7 @@ pub enum Action {
     Remove { index: usize },
     Enchant { index: usize, kind: String },
     Discard { index: usize },
+    SetVariants { act1: u8, act2: u8, act3: u8 },
 }
 
 impl Game {
@@ -169,7 +171,7 @@ impl Game {
             ascension: ascension.min(10), event_id: 0,
             potion_bag: vec!["healing".into()], shop_relic: None,
             relic_history: vec!["军旗".into()], victories: 0,
-            boons: vec![], boon_choices: vec![],
+            boons: vec![], boon_choices: vec![], variants: None,
         };
         game.refresh_route();
         game
@@ -202,6 +204,9 @@ impl Game {
         }
         if (self.stage == Stage::Combat) != self.battle.is_some() {
             return Err("存档战斗阶段与战斗快照不一致".into());
+        }
+        if self.variants.is_some_and(|settings| settings.iter().any(|n| *n > 1)) {
+            return Err("章节变体必须为0或1".into());
         }
         for boon in self.boons.iter().chain(self.boon_choices.iter()) {
             if !items::BOONS.iter().any(|(id,_)| id == boon) { return Err(format!("未知赐福: {boon}")); }
@@ -284,15 +289,22 @@ impl Game {
 
     pub fn act_name(&self) -> &'static str {
         let act = self.floor.saturating_sub(1) / 7;
-        match (act.min(2), self.seed.rotate_right(act as u32 * 11) & 1) {
+        let branch = self.act_variant(act);
+        match (act.min(2), branch) {
             (0, 0) => "黄巾乱世", (0, _) => "江东烽烟",
             (1, 0) => "关中风云", (1, _) => "群雄会盟",
             (2, 0) => "冢虎之谋", _ => "奇门斗法",
         }
     }
+    fn act_variant(&self, act: u8) -> u64 {
+        self.variants.map_or(
+            self.seed.rotate_right(act as u32 * 11) & 1,
+            |v| u64::from(v[usize::from(act.min(2))]),
+        )
+    }
     fn generate_foes(&mut self, node: Node) -> Vec<Foe> {
         let act = self.floor.saturating_sub(1) / 7;
-        let branch = self.seed.rotate_right(act as u32 * 11) & 1;
+        let branch = self.act_variant(act);
         let ids: Vec<&str> = match node {
             Node::Boss => vec![match (act, branch) {
                 (0,0) => "zhangjiao", (0,_) => "sunjian",
@@ -1151,6 +1163,16 @@ impl Game {
             Action::Upgrade { index } => self.upgrade_card(index)?,
             Action::Enchant { index, kind } => self.enchant_card(index, &kind)?,
             Action::Discard { index } => self.discard_card(index)?,
+            Action::SetVariants { act1, act2, act3 } => {
+                if self.floor != 0 || self.stage != Stage::Map {
+                    return Err("只能在进入第一层前设置章节变体".into());
+                }
+                if [act1,act2,act3].iter().any(|n| *n > 1) {
+                    return Err("每幕仅允许变体0或1".into());
+                }
+                self.variants = Some([act1,act2,act3]);
+                format!("自定义章节已选：{act1}/{act2}/{act3}")
+            },
             Action::Remove { index } => self.remove_card(index)?,
             Action::UsePotionAt { slot, target } => self.use_potion(slot, target)?,
             Action::UsePotion => self.use_potion(1, 1)?,
@@ -1397,6 +1419,21 @@ mod tests {
         restored.apply(Action::Choose { index: 1 }).unwrap();
         assert_eq!(restored.stage, Stage::Map);
         assert_eq!(restored.boons.len(), 1);
+    }
+
+    #[test]
+    fn act_variants_select_distinct_bosses_and_save_across_resume() {
+        let mut g = Game::new(Hero::GuanYu, 1);
+        g.apply(Action::SetVariants { act1: 1, act2: 1, act3: 1 }).unwrap();
+        for (floor,id) in [(7,"sunjian"),(14,"yuanshao"),(21,"zuoci")] {
+            g.floor = floor;
+            assert_eq!(g.generate_foes(Node::Boss)[0].id,id);
+        }
+        let before = g.to_json().unwrap();
+        let loaded = Game::from_json(&before).unwrap();
+        assert_eq!(loaded.to_json().unwrap(), before);
+        g.floor = 1;
+        assert!(g.apply(Action::SetVariants { act1:0,act2:0,act3:0 }).is_err());
     }
     #[test]
     fn targeted_camp_upgrade_and_shop_removal_work() {
