@@ -31,7 +31,7 @@ jobs:
         run: |
           SAVE_DIR="$RUNNER_TEMP/tks-smoke"
           printf 'new guanyu 777\nchoose 1\nend\nquit\n' | cargo run --quiet -- --plain --save-dir "$SAVE_DIR" > "$RUNNER_TEMP/tks-first.log"
-          printf 'status\npowers\nevents\npiles\ntheme light\nquit\n' | cargo run --quiet -- --plain --save-dir "$SAVE_DIR" > "$RUNNER_TEMP/tks-second.log"
+          printf 'status\npowers\nevents\nmetrics\npiles\ntheme light\nquit\n' | cargo run --quiet -- --plain --save-dir "$SAVE_DIR" > "$RUNNER_TEMP/tks-second.log"
           python3 - <<'PY'
           import json, os, pathlib
           directory = pathlib.Path(os.environ['RUNNER_TEMP']) / 'tks-smoke'
@@ -50,6 +50,8 @@ jobs:
           assert '读取进度成功' in (pathlib.Path(os.environ['RUNNER_TEMP']) / 'tks-second.log').read_text()
           assert '结算' in (pathlib.Path(os.environ['RUNNER_TEMP']) / 'tks-second.log').read_text()
           assert '抽牌堆' in (pathlib.Path(os.environ['RUNNER_TEMP']) / 'tks-second.log').read_text()
+          assert '亲兵：行动' in (pathlib.Path(os.environ['RUNNER_TEMP']) / 'tks-second.log').read_text()
+          assert game['telemetry']['totals']['battles_started']==1
           print('CLI mid-combat save/theme/resume smoke test passed')
           PY
 
@@ -99,6 +101,13 @@ jobs:
           assert report["schema_version"] == 1
           assert report["samples_per_cell"] == 20
           assert len(report["cells"]) == 55
+          assert all("tactical_telemetry" in x and "baseline_telemetry" in x
+                     for x in report["cells"])
+          assert all(x["tactical_telemetry"]["turns_completed"] >= 0 for x in report["cells"])
+          assert sum(x["tactical_telemetry"]["troop_attacks"] for x in report["cells"]
+                     if x["hero"]=="曹操") > 0
+          assert sum(x["tactical_telemetry"]["sun_combo_procs"] for x in report["cells"]
+                     if x["hero"]=="孙尚香") > 0
           assert sum(x["samples"] for x in report["cells"]) == 1100
           assert len(set((x["hero"],x["ascension"]) for x in report["cells"])) == 55
           assert all(0 <= x["baseline_wins"] <= 20 and
@@ -110,10 +119,30 @@ jobs:
           assert sum(x["deaths"] for x in report["tactical_death_encounters"]) == 1100 - sum(x["tactical_wins"] for x in report["cells"])
           print("Verified deterministic 55-cell paired balance sample, no invented rates")
           PY
+      - name: Sun Shangxiang equal-deck-size archetype study
+        run: cargo run --release --bin tks-sim -- --sun-archetypes 15 "$RUNNER_TEMP/tks-sun.json"
+
+      - name: Verify Sun package study integrity
+        run: |
+          python3 - <<'PY'
+          import json,os,pathlib
+          doc=json.loads((pathlib.Path(os.environ["RUNNER_TEMP"])/"tks-sun.json").read_text())
+          assert doc["schema_version"]==1
+          assert doc["samples_per_cell"]==15
+          assert len(doc["cells"])==33
+          assert set(x["package"] for x in doc["cells"])=={"standard","discard","combo"}
+          assert all(x["samples"]==15 and 0<=x["wins"]<=15 for x in doc["cells"])
+          assert len(set((x["package"],x["ascension"]) for x in doc["cells"]))==33
+          assert sum(x["samples"] for x in doc["cells"])==495
+          print("Sun archetype fixtures tested on 495 independent deterministic runs")
+          PY
+
       - uses: actions/upload-artifact@v4
         with:
           name: tks-balance-${{ matrix.os }}
-          path: ${{ runner.temp }}/tks-balance.json
+          path: |
+            ${{ runner.temp }}/tks-balance.json
+            ${{ runner.temp }}/tks-sun.json
           retention-days: 30
 
 
@@ -135,5 +164,9 @@ jobs:
           mac=base/'tks-balance-macos-14'/'tks-balance.json'
           assert linux.exists() and mac.exists(),(linux,mac)
           assert linux.read_bytes()==mac.read_bytes(), 'OS-specific RNG or rules divergence in balance report'
-          print('Portable balance report reproducible byte-for-byte across Linux and macOS')
+          sun_linux=base/'tks-balance-ubuntu-latest'/'tks-sun.json'
+          sun_mac=base/'tks-balance-macos-14'/'tks-sun.json'
+          assert sun_linux.exists() and sun_mac.exists()
+          assert sun_linux.read_bytes()==sun_mac.read_bytes(), 'OS-specific Sun archetype divergence'
+          print('Portable paired balance and Sun archetype reports are identical on Linux and macOS')
           PY
