@@ -35,13 +35,16 @@ jobs:
           directory = pathlib.Path(os.environ['RUNNER_TEMP']) / 'tks-smoke'
           game = json.loads((directory / 'save.json').read_text())
           prefs = json.loads((directory / 'settings.json').read_text())
+          profile = json.loads((directory / 'chronicle.json').read_text())
           assert game['version'] == 2 and game['revision'] == 2
           assert game['stage'] == 'combat' and game['floor'] == 1
           assert len(game['battle']['hand']) > 0 and game['rng_state']
           assert prefs['theme'] == 'light'
+          assert profile['version'] == 1 and profile['started'] == 1
+          assert profile['best_floor'] >= 1
           assert '读取进度成功' in (pathlib.Path(os.environ['RUNNER_TEMP']) / 'tks-second.log').read_text()
           print('CLI mid-combat save/theme/resume smoke test passed')
           PY
 
-      - name: Seeded autoplay and snapshot stability (100 runs)
-        run: cargo run --release --bin tks-sim -- 100
+      - name: Seeded autoplay and snapshot stability (1000 runs)
+        run: cargo run --release --bin tks-sim -- 1000
