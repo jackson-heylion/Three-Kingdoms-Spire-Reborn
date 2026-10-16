@@ -2,10 +2,10 @@
 //! Every authoritative mutation goes through Game::apply(Action).
 pub mod content;
 
-use content::{Effect, Hero, REWARD_POOL, card_spec, enemy_name};
+use content::{Effect, Hero, REWARD_POOL, NEUTRAL_POOL, hero_pool, card_spec, enemy_name};
 use serde::{Deserialize, Serialize};
 
-pub const SAVE_VERSION: u32 = 1;
+pub const SAVE_VERSION: u32 = 2;
 pub const MAX_FLOOR: u8 = 21;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -60,6 +60,8 @@ pub struct Foe {
     pub strength: i32,
     pub poison: i32,
     pub vulnerable: u8,
+    #[serde(default)]
+    pub weak: u8,
     pub intent: Intent,
 }
 impl Foe {
@@ -77,6 +79,14 @@ pub struct Battle {
     pub block: i32,
     pub strength: i32,
     pub weak: u8,
+    #[serde(default)] pub vulnerable: u8,
+    #[serde(default)] pub momentum: i32,
+    #[serde(default)] pub scheme: i32,
+    #[serde(default)] pub combo: i32,
+    #[serde(default)] pub command: i32,
+    #[serde(default)] pub fury: i32,
+    #[serde(default)] pub thorns: i32,
+    #[serde(default)] pub played: u32,
     pub turn: u32,
 }
 
@@ -101,6 +111,12 @@ pub struct Game {
     pub rewards: Vec<Card>,
     pub market: Vec<Card>,
     pub log: Vec<String>,
+    #[serde(default)] pub ascension: u8,
+    #[serde(default)] pub event_id: u8,
+    #[serde(default)] pub potion_bag: Vec<String>,
+    #[serde(default)] pub shop_relic: Option<String>,
+    #[serde(default)] pub relic_history: Vec<String>,
+    #[serde(default)] pub victories: u32,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -110,10 +126,14 @@ pub enum Action {
     Play { index: usize, target: usize },
     EndTurn,
     UsePotion,
+    UsePotionAt { slot: usize, target: usize },
+    Upgrade { index: usize },
+    Remove { index: usize },
 }
 
 impl Game {
-    pub fn new(hero: Hero, seed: u64) -> Self {
+    pub fn new(hero: Hero, seed: u64) -> Self { Self::new_with_ascension(hero, seed, 0) }
+    pub fn new_with_ascension(hero: Hero, seed: u64, ascension: u8) -> Self {
         let mut deck = vec![];
         for _ in 0..5 { deck.push(Card::new("strike")); }
         for _ in 0..4 { deck.push(Card::new("defend")); }
@@ -125,6 +145,9 @@ impl Game {
             last_node: None, route: vec![], deck, relics: vec!["军旗".into()],
             potions: 1, battle: None, rewards: vec![], market: vec![],
             log: vec![format!("{}率部出征，征途由此开始。", hero.name())],
+            ascension: ascension.min(10), event_id: 0,
+            potion_bag: vec!["healing".into()], shop_relic: None,
+            relic_history: vec!["军旗".into()], victories: 0,
         };
         game.refresh_route();
         game
@@ -133,7 +156,14 @@ impl Game {
         serde_json::to_string_pretty(self).map_err(|e| e.to_string())
     }
     pub fn from_json(raw: &str) -> Result<Self, String> {
-        let g: Self = serde_json::from_str(raw).map_err(|e| format!("存档解析失败: {e}"))?;
+        let mut g: Self = serde_json::from_str(raw).map_err(|e| format!("存档解析失败: {e}"))?;
+        if g.version == 1 {
+            g.version = SAVE_VERSION;
+            if g.potion_bag.is_empty() {
+                for _ in 0..g.potions { g.potion_bag.push("healing".into()); }
+            }
+            if g.relic_history.is_empty() { g.relic_history = g.relics.clone(); }
+        }
         if g.version != SAVE_VERSION {
             return Err(format!("存档版本 {} 不兼容当前版本 {}", g.version, SAVE_VERSION));
         }
@@ -141,7 +171,7 @@ impl Game {
         Ok(g)
     }
     pub fn validate(&self) -> Result<(), String> {
-        if self.hp < 0 || self.hp > self.max_hp || self.max_hp <= 0 || self.floor > MAX_FLOOR {
+        if self.hp < 0 || self.hp > self.max_hp || self.max_hp <= 0 || self.floor > MAX_FLOOR || self.ascension > 10 || self.potions > 3 || self.potion_bag.len() > 3 {
             return Err("存档属性无效".into());
         }
         if (self.stage == Stage::Combat) != self.battle.is_some() {
@@ -154,7 +184,10 @@ impl Game {
             for c in b.draw.iter().chain(b.hand.iter()).chain(b.discard.iter()).chain(b.exhausted.iter()) {
                 if card_spec(&c.id).is_none() { return Err(format!("未知战斗卡牌: {}", c.id)); }
             }
-            if b.energy < 0 || b.block < 0 || b.foes.is_empty() { return Err("无效战斗数据".into()); }
+            if b.energy < 0 || b.block < 0 || b.foes.is_empty() || b.foes.len() > 4
+                || b.momentum < 0 || b.scheme < 0 || b.combo < 0 || b.command < 0 || b.fury < 0
+                || b.thorns < 0 || b.foes.iter().any(|f| f.hp < 0 || f.hp > f.max_hp || f.block < 0 || f.poison < 0)
+            { return Err("无效战斗数据".into()); }
         }
         Ok(())
     }
@@ -175,22 +208,37 @@ impl Game {
     }
     fn refresh_route(&mut self) {
         let next = self.floor + 1;
-        self.route = if next.is_multiple_of(7) {
-            vec![Node::Boss]
-        } else if next % 7 == 1 {
-            vec![Node::Battle, Node::Story, Node::Camp]
+        if next.is_multiple_of(7) {
+            self.route = vec![Node::Boss];
+            return;
+        }
+        let phases: &[Node] = if next % 7 == 1 {
+            &[Node::Battle, Node::Story, Node::Camp]
         } else if next % 7 == 3 {
-            vec![Node::Battle, Node::Elite, Node::Market]
+            &[Node::Battle, Node::Elite, Node::Market]
         } else if next % 7 == 5 {
-            vec![Node::Battle, Node::Camp, Node::Market]
+            &[Node::Battle, Node::Camp, Node::Market]
         } else {
-            vec![Node::Battle, Node::Story, Node::Market]
+            &[Node::Battle, Node::Story, Node::Market, Node::Elite, Node::Camp]
         };
+        // Consume the saved RNG only at floor transitions. This preserves
+        // deterministic branching after resuming on another frontend.
+        let offset = self.random(phases.len());
+        self.route = (0..3).map(|i| phases[(offset + i) % phases.len()]).collect();
     }
     fn pick_reward_cards(&mut self) -> Vec<Card> {
+        let own = hero_pool(self.hero);
         let mut choices: Vec<Card> = vec![];
         while choices.len() < 3 {
-            let card = Card::new(REWARD_POOL[self.random(REWARD_POOL.len())]);
+            let roll = self.random(100);
+            let id = if roll < 62 {
+                own[self.random(own.len())]
+            } else if roll < 85 {
+                NEUTRAL_POOL[self.random(NEUTRAL_POOL.len())]
+            } else {
+                REWARD_POOL[self.random(REWARD_POOL.len())]
+            };
+            let card = Card::new(id);
             if !choices.iter().any(|c| c.id == card.id) { choices.push(card); }
         }
         choices
@@ -216,7 +264,7 @@ impl Game {
             };
             Foe {
                 id: id.to_string(), hp, max_hp: hp, block: 0, strength: 0,
-                poison: 0, vulnerable: 0, intent: Intent::Attack(6),
+                poison: 0, vulnerable: 0, weak: 0, intent: Intent::Attack(6),
             }
         }).collect()
     }
@@ -228,7 +276,7 @@ impl Game {
             if foe.hp <= 0 { continue; }
             let act = ((self.floor - 1) / 7) as i32;
             foe.intent = if roll < 65 {
-                Intent::Attack(7 + act * 3 + foe.strength + if foe.id == "simayi" { 5 } else { 0 })
+                Intent::Attack(7 + act * 3 + foe.strength + if foe.id == "simayi" { 5 } else { 0 } + self.ascension as i32 / 3)
             } else if roll < 86 {
                 Intent::Guard(6 + act * 4)
             } else {
@@ -250,16 +298,28 @@ impl Game {
         }
     }
     fn start_battle(&mut self, node: Node) {
-        let foes = self.generate_foes(node);
+        let mut foes = self.generate_foes(node);
+        for foe in &mut foes {
+            let extra = (self.ascension as i32 / 2) * (1 + (self.floor as i32 / 7));
+            foe.hp += extra;
+            foe.max_hp += extra;
+        }
         let mut draw = self.deck.clone();
         self.shuffle(&mut draw);
         self.battle = Some(Battle {
             foes, draw, hand: vec![], discard: vec![], exhausted: vec![],
             energy: 3, block: 0, strength: if self.hero == Hero::GuanYu { 1 } else { 0 },
-            weak: 0, turn: 1,
+            weak: 0, vulnerable: 0, momentum: 0, scheme: 0,
+            combo: 0, command: 0, fury: 0, thorns: 0, played: 0, turn: 1,
         });
         self.roll_intents();
-        self.draw_cards(5);
+        let extra_draw = usize::from(self.relics.iter().any(|r| r == "虎翼"));
+        self.draw_cards(5 + extra_draw);
+        if let Some(b) = &mut self.battle {
+            if self.relics.iter().any(|r| r == "军旗") { b.block += 4; }
+            if self.relics.iter().any(|r| r == "虎符") { b.strength += 1; }
+            if self.relics.iter().any(|r| r == "兵书") { b.scheme += 1; }
+        }
         self.stage = Stage::Combat;
     }
     fn finish_scene(&mut self) {
@@ -282,7 +342,10 @@ impl Game {
                 self.market = self.pick_reward_cards();
                 self.stage = Stage::Market;
             }
-            Node::Story => self.stage = Stage::Story,
+            Node::Story => {
+                self.event_id = self.random(12) as u8;
+                self.stage = Stage::Story;
+            },
         }
         Ok(msg)
     }
@@ -295,9 +358,12 @@ impl Game {
     }
     fn damage_enemy(&mut self, idx: usize, base: i32) {
         let b = self.battle.as_mut().expect("battle");
-        let raw = base + b.strength;
+        let raw = base + b.strength
+            + if self.hero == Hero::GuanYu { b.momentum / 3 } else { 0 }
+            + if self.hero == Hero::LuBu { b.fury / 4 } else { 0 };
         let foe = &mut b.foes[idx];
-        let damage = if foe.vulnerable > 0 { raw * 3 / 2 } else { raw }.max(0);
+        let raw = if b.weak > 0 { raw.max(0) * 3 / 4 } else { raw.max(0) };
+        let damage = if foe.vulnerable > 0 { raw * 3 / 2 } else { raw };
         let absorbed = damage.min(foe.block);
         foe.block -= absorbed;
         foe.hp = (foe.hp - damage + absorbed).max(0);
@@ -310,17 +376,25 @@ impl Game {
         self.battle = None;
         let payout = match node { Node::Boss => 100, Node::Elite => 60, _ => 24 + self.random(15) as i32 };
         self.gold += payout;
-        if node == Node::Elite {
-            self.relics.push("虎符".into());
-            self.max_hp += 3;
-            self.hp = (self.hp + 3).min(self.max_hp);
-        } else if node == Node::Boss {
-            self.relics.push(format!("第{}幕帅印", (self.floor - 1) / 7 + 1));
-            self.max_hp += 5;
-            self.hp = (self.hp + 5).min(self.max_hp);
+        if self.relics.iter().any(|r| r == "铜雀") { self.gold += 12; }
+        if self.relics.iter().any(|r| r == "神医") {
+            self.hp = (self.hp + 6).min(self.max_hp);
         }
-        if self.potions < 3 && self.random(100) < 32 { self.potions += 1; }
+        if node == Node::Elite || node == Node::Boss {
+            self.grant_relic();
+            if node == Node::Boss {
+                self.max_hp += 5;
+                self.hp = (self.hp + 5).min(self.max_hp);
+            }
+        }
+        if self.potions < 3 && self.random(100) < 32 {
+            let pool = ["healing", "fire", "shield", "energy", "poison", "strength", "insight"];
+            let potion = pool[self.random(pool.len())];
+            self.potion_bag.push(potion.into());
+            self.potions = self.potion_bag.len() as u8;
+        }
         if self.floor >= MAX_FLOOR {
+            self.victories = self.victories.saturating_add(1);
             self.stage = Stage::Won;
             return "三军凯旋！三幕征程全部通关。".into();
         }
@@ -336,7 +410,11 @@ impl Game {
         if matches!(spec.effect, Effect::Unplayable) { return Err("这张牌无法打出".into()); }
         if b.energy < spec.cost { return Err("军令不足".into()); }
         let requires_target = matches!(
-            spec.effect, Effect::Hit(_) | Effect::HitDraw(_, _) | Effect::HitTwice(_) | Effect::Poison(_)
+            spec.effect, Effect::Hit(_) | Effect::HitDraw(_, _) | Effect::HitTwice(_)
+                | Effect::Poison(_) | Effect::HitWeak(_, _) | Effect::HitVulnerable(_, _)
+                | Effect::MomentumStrike(_) | Effect::SchemeStrike(_) | Effect::ComboStrike(_)
+                | Effect::CommandStrike(_) | Effect::FuryStrike(_) | Effect::BloodPrice(_, _)
+                | Effect::Leech(_) | Effect::HitPoison(_, _) | Effect::Pierce(_)
         );
         let target_idx = if requires_target { Some(self.target_index(target)?) } else { None };
         {
@@ -374,7 +452,113 @@ impl Game {
             Effect::Draw(n) => self.draw_cards(n + usize::from(card.upgraded)),
             Effect::Strength(n) => self.battle.as_mut().expect("battle").strength += n + i32::from(card.upgraded),
             Effect::Heal(n) => self.hp = (self.hp + n + bonus).min(self.max_hp),
+            Effect::HitWeak(n, turns) => {
+                let idx = target_idx.expect("target");
+                self.damage_enemy(idx, n + bonus);
+                self.battle.as_mut().expect("battle").foes[idx].weak += turns;
+            }
+            Effect::HitVulnerable(n, turns) => {
+                let idx = target_idx.expect("target");
+                self.damage_enemy(idx, n + bonus);
+                self.battle.as_mut().expect("battle").foes[idx].vulnerable += turns;
+            }
+            Effect::WeakAll(turns) => {
+                for foe in &mut self.battle.as_mut().expect("battle").foes {
+                    if foe.hp > 0 { foe.weak += turns; }
+                }
+            }
+            Effect::ApplyVulnerable(turns) => {
+                for foe in &mut self.battle.as_mut().expect("battle").foes {
+                    if foe.hp > 0 { foe.vulnerable += turns; }
+                }
+            }
+            Effect::GainMomentum(n) => self.battle.as_mut().expect("battle").momentum += n + bonus,
+            Effect::MomentumStrike(n) => {
+                let boost = self.battle.as_ref().expect("battle").momentum * 3;
+                self.damage_enemy(target_idx.expect("target"), n + bonus + boost);
+                self.battle.as_mut().expect("battle").momentum = 0;
+            }
+            Effect::Scheme(n) => self.battle.as_mut().expect("battle").scheme += n + bonus,
+            Effect::SchemeStrike(n) => {
+                let boost = self.battle.as_ref().expect("battle").scheme * 4;
+                self.damage_enemy(target_idx.expect("target"), n + bonus + boost);
+                self.battle.as_mut().expect("battle").scheme = 0;
+            }
+            Effect::ComboStrike(n) => {
+                let boost = self.battle.as_ref().expect("battle").combo * 3;
+                self.damage_enemy(target_idx.expect("target"), n + bonus + boost);
+            }
+            Effect::Command(n) => self.battle.as_mut().expect("battle").command += n + bonus,
+            Effect::CommandStrike(n) => {
+                let boost = self.battle.as_ref().expect("battle").command * 3;
+                self.damage_enemy(target_idx.expect("target"), n + bonus + boost);
+                self.battle.as_mut().expect("battle").command = 0;
+            }
+            Effect::Fury(n) => self.battle.as_mut().expect("battle").fury += n + bonus,
+            Effect::FuryStrike(n) => {
+                let boost = self.battle.as_ref().expect("battle").fury * 3;
+                self.damage_enemy(target_idx.expect("target"), n + bonus + boost);
+                self.battle.as_mut().expect("battle").fury = 0;
+            }
+            Effect::BloodPrice(loss, power) => {
+                self.hp = (self.hp - loss).max(1);
+                self.battle.as_mut().expect("battle").fury += loss;
+                self.damage_enemy(target_idx.expect("target"), power + bonus);
+            }
+            Effect::Thorns(n) => self.battle.as_mut().expect("battle").thorns += n + bonus,
+            Effect::Leech(n) => {
+                let idx = target_idx.expect("target");
+                let before = self.battle.as_ref().expect("battle").foes[idx].hp;
+                self.damage_enemy(idx, n + bonus);
+                let after = self.battle.as_ref().expect("battle").foes[idx].hp;
+                self.hp = (self.hp + (before - after) / 3).min(self.max_hp);
+            }
+            Effect::HitPoison(n, poison) => {
+                let idx = target_idx.expect("target");
+                self.damage_enemy(idx, n + bonus);
+                self.battle.as_mut().expect("battle").foes[idx].poison += poison;
+            }
+            Effect::Pierce(n) => {
+                let b = self.battle.as_mut().expect("battle");
+                let foe = &mut b.foes[target_idx.expect("target")];
+                foe.hp = (foe.hp - n - bonus).max(0);
+            }
+            Effect::DrawEnergy(n, energy) => {
+                self.battle.as_mut().expect("battle").energy += energy;
+                self.draw_cards(n + usize::from(card.upgraded));
+            }
+            Effect::Energy(n) => self.battle.as_mut().expect("battle").energy += n + i32::from(card.upgraded),
             Effect::Unplayable => unreachable!(),
+        }
+        let attack = requires_target || matches!(spec.effect, Effect::All(_));
+        {
+            let b = self.battle.as_mut().expect("battle");
+            b.played += 1;
+            match self.hero {
+                Hero::GuanYu if attack => b.momentum += 1,
+                Hero::ZhugeLiang if !attack => b.scheme += 1,
+                Hero::SunShangxiang if attack => b.combo += 1,
+                Hero::CaoCao if !attack => b.command += 1,
+                _ => {}
+            }
+        }
+        if self.hero == Hero::ZhugeLiang && self.battle.as_ref().expect("battle").scheme >= 3 {
+            self.battle.as_mut().expect("battle").scheme -= 3;
+            self.battle.as_mut().expect("battle").energy += 1;
+            self.draw_cards(1);
+        }
+        if self.hero == Hero::SunShangxiang && attack
+            && self.battle.as_ref().expect("battle").combo.is_multiple_of(3) {
+            self.draw_cards(1);
+        }
+        if self.hero == Hero::CaoCao && self.battle.as_ref().expect("battle").command >= 3 {
+            let b = self.battle.as_mut().expect("battle");
+            b.command -= 3;
+            b.block += 5;
+            b.energy += 1;
+        }
+        if self.relics.iter().any(|r| r == "百战") && attack {
+            self.battle.as_mut().expect("battle").strength += 1;
         }
         let msg = format!("使用了【{}】。", card.name());
         if spec.exhaust {
@@ -406,10 +590,15 @@ impl Game {
             match intent {
                 Intent::Attack(power) => {
                     let b = self.battle.as_mut().expect("battle");
-                    let blocked = power.min(b.block);
+                    let foe = &b.foes[i];
+                    let reduced = if foe.weak > 0 { power * 3 / 4 } else { power };
+                    let modified = if b.vulnerable > 0 { reduced * 3 / 2 } else { reduced };
+                    let blocked = modified.min(b.block);
                     b.block -= blocked;
-                    let damage = (power - blocked).max(0);
+                    let damage = (modified - blocked).max(0);
                     self.hp = (self.hp - damage).max(0);
+                    if self.hero == Hero::LuBu { b.fury += damage / 2; }
+                    if b.thorns > 0 { b.foes[i].hp = (b.foes[i].hp - b.thorns).max(0); }
                     messages.push(format!("{name}进攻，受到{damage}点伤害"));
                 }
                 Intent::Guard(amount) => {
@@ -431,14 +620,19 @@ impl Game {
             let b = self.battle.as_mut().expect("battle");
             b.block = 0;
             b.weak = b.weak.saturating_sub(1);
-            b.energy = 3;
+            b.vulnerable = b.vulnerable.saturating_sub(1);
+            b.energy = 3 + i32::from(self.relics.iter().any(|r| r == "玉玺"));
+            b.combo = 0;
             b.turn += 1;
             for foe in &mut b.foes {
                 foe.vulnerable = foe.vulnerable.saturating_sub(1);
+                foe.weak = foe.weak.saturating_sub(1);
+                foe.block = 0;
             }
         }
         self.roll_intents();
-        self.draw_cards(5);
+        self.draw_cards(5 + usize::from(self.relics.iter().any(|r| r == "虎翼")));
+        if self.defeated() { return Ok(self.win_battle()); }
         Ok(format!("回合结束：{}。", messages.join("；")))
     }
     fn choose_reward(&mut self, index: usize) -> Result<String, String> {
@@ -575,7 +769,7 @@ mod tests {
     #[test]
     fn corrupt_snapshot_rejected() {
         let game = Game::new(Hero::ZhugeLiang, 2);
-        let json = game.to_json().unwrap().replace("\"version\": 1", "\"version\": 99");
+        let json = game.to_json().unwrap().replace("\"version\": 2", "\"version\": 99");
         assert!(Game::from_json(&json).is_err());
     }
 }
