@@ -141,6 +141,15 @@ impl App {
                     let b = g.battle.as_ref().expect("stage validated");
                     println!(" 【战斗】第{}回合  军令：{}  护甲：{}  武勇：{}",
                         b.turn, b.energy, b.block, b.strength);
+                    if b.turn>=35 {
+                        let notice=if b.turn<40 {
+                            format!("距军粮枯竭还剩{}个回合",40-b.turn)
+                        } else {
+                            format!("军粮枯竭：本回合结束时无视护甲失去{}体力，之后每4回合增加1点",
+                                1+(b.turn-40)/4)
+                        };
+                        println!(" 【持久战警报】{notice}");
+                    }
                     for (i, foe) in b.foes.iter().enumerate() {
                         println!("   敌{}：{}  {}/{}体力  甲{}  毒{}  意图：{}{}",
                             i + 1, foe.name(), foe.hp, foe.max_hp, foe.block, foe.poison,
