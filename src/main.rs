@@ -224,7 +224,7 @@ impl App {
         };
         let result: Result<String, String> = match args[0].to_ascii_lowercase().as_str() {
             "quit" | "exit" | "q" => { let _ = self.save(); return false; }
-            "help" | "h" => Ok("new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 在出征前指定三幕变体；daily YYYY-MM-DD；load/save；choose N；play N [目标]；discard N 弃换；end；use [药剂号] [目标]；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看连通路线；relics；lore 看纪事；bonds 看人物羁绊；chapter 1-120 回目索引；powers 持续能力；events 最近战斗结算；chronicle；theme dark|light；status；quit。".into()),
+            "help" | "h" => Ok("new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 在出征前指定三幕变体；daily YYYY-MM-DD；load/save；choose N；play N [目标]；discard N 弃换；end；use [药剂号] [目标]；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看连通路线；relics；lore 看纪事；bonds 看人物羁绊；chapter 1-120 回目索引；powers 持续能力；events 最近战斗结算；metrics 战役统计；chronicle；theme dark|light；status；quit。".into()),
             "new" | "custom" => {
                 let mode = if args[0] == "custom" {RunMode::Custom} else {RunMode::Standard};
                 let hero = args.get(1).and_then(|s| Hero::parse(s)).unwrap_or(Hero::GuanYu);
@@ -359,6 +359,22 @@ impl App {
                         format!("{}×{}：{}",p.id.name(),p.stacks,p.id.description()))
                         .collect::<Vec<_>>().join("\n") }
                 })),
+            "metrics" => Ok(self.game.as_ref().map_or("尚未开局".into(),|g| {
+                let c=&g.telemetry.totals;
+                let recent=g.telemetry.recent_turns.iter().rev().take(8).rev()
+                    .map(|t| format!("第{}层/回合{}{}：亲兵攻击{}、实际伤害{}、护卫承伤{}、统御触发{}、孙尚香弃换{}、连段{}、英雄生命损失{}",
+                        t.floor,t.turn,if t.completed {""} else {"（未结束）"},
+                        t.counters.troop_attacks,t.counters.troop_damage,t.counters.troop_absorbed,
+                        t.counters.command_procs,t.counters.sun_discards,t.counters.sun_combo_procs,
+                        t.counters.hero_hp_damage))
+                    .collect::<Vec<_>>().join("\n");
+                format!("战役累计：遭遇{}／胜{}／败{}；已结算{}回合；出牌{}；英雄生命损失{}。\n                    亲兵：行动{}、实际输出{}、吸收伤害{}。\n                    统御：触发{}、额外军令{}、护甲{}。\n                    孙尚香：主动弃换{}次／护甲{}，三连触发{}次／护甲{}／实际额外抽牌{}张。\n最近回合：\n{}",
+                    c.battles_started,c.battles_won,c.battles_lost,c.turns_completed,
+                    c.cards_played,c.hero_hp_damage,c.troop_attacks,c.troop_damage,
+                    c.troop_absorbed,c.command_procs,c.command_energy,c.command_block,
+                    c.sun_discards,c.sun_discard_block,c.sun_combo_procs,c.sun_combo_block,
+                    c.sun_combo_draws,if recent.is_empty(){"暂无回合记录"}else{&recent})
+            })),
             "events" => Ok(self.game.as_ref().and_then(|g|g.battle.as_ref())
                 .map_or("当前没有可用的战斗事件记录。".into(),|b| {
                     if b.events.is_empty() { "尚无事件记录。".into() }
