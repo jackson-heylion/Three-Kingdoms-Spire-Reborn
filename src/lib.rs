@@ -614,6 +614,16 @@ impl Game {
             } else { None };
             foe.intent = if let Some(action) = boss_move {
                 Intent::Boss(action)
+            } else if foe.phase > 0 && foe.id == "tiger_general" && turn % 2 == 0 {
+                Intent::MultiAttack((attack / 2).max(4), 3)
+            } else if foe.phase > 0 && foe.id == "war_elephant" && turn % 3 == 0 {
+                Intent::Guard(12 + act * 3)
+            } else if foe.phase > 0 && foe.id == "sacred_beast" && turn % 3 == 0 {
+                Intent::Hex(2, 1)
+            } else if foe.phase > 0 && foe.id == "royal_guard" && living > 1 && turn % 2 == 0 {
+                Intent::Assist(8 + act * 2)
+            } else if foe.phase > 0 && foe.id == "elite" && turn % 3 == 0 {
+                Intent::Rally(3)
             } else if living > 1
                 && matches!(foe.id.as_str(),"officer"|"tactician"|"royal_guard")
                 && turn % 3 == 2
@@ -1552,7 +1562,8 @@ impl Game {
         let changes: Vec<(usize,String)> = self.battle.as_ref().expect("battle").foes
             .iter().enumerate().filter(|(_,foe)|
                 foe.hp > 0 && foe.phase == 0 && foe.hp * 2 <= foe.max_hp
-                && matches!(foe.id.as_str(),"zhangjiao"|"sunjian"|"dongzhuo"|"yuanshao"|"simayi"|"zuoci"))
+                && matches!(foe.id.as_str(),"zhangjiao"|"sunjian"|"dongzhuo"|"yuanshao"|"simayi"|"zuoci"
+                    |"elite"|"war_elephant"|"royal_guard"|"tiger_general"|"sacred_beast"))
             .map(|(i,foe)| (i,foe.id.clone())).collect();
         let mut messages = vec![];
         for (idx,id) in changes {
@@ -1595,7 +1606,41 @@ impl Game {
                     b.vulnerable += 2;
                     messages.push("司马懿奇袭：两张军心涣散混入弃牌堆，我军易伤两回合".into());
                 }
+                "elite" => {
+                    b.foes[idx].strength += 2;
+                    b.foes[idx].block += 6;
+                    messages.push("精锐校尉下令死战：武勇+2、护甲+6".into());
+                }
+                "war_elephant" => {
+                    b.foes[idx].strength += 2;
+                    b.foes[idx].block += 14;
+                    messages.push("战象披甲冲阵：武勇+2、护甲+14".into());
+                }
+                "royal_guard" => {
+                    b.foes[idx].strength += 1;
+                    b.foes[idx].block += 10;
+                    for (ally_index, ally) in b.foes.iter_mut().enumerate() {
+                        if ally_index != idx && ally.hp > 0 { ally.block += 5; }
+                    }
+                    messages.push("禁卫整备铁壁：自身护甲+10，存活友军护甲+5".into());
+                }
+                "tiger_general" => {
+                    b.foes[idx].strength += 3;
+                    b.foes[idx].block += 5;
+                    messages.push("虎将奋威：武勇+3、护甲+5，后续预告三连虎袭".into());
+                }
+                "sacred_beast" => {
+                    let foe = &mut b.foes[idx];
+                    let heal = (foe.max_hp - foe.hp).min(12);
+                    foe.hp += heal;
+                    foe.block += 6;
+                    messages.push(format!("灵兽回生：恢复{heal}生命、护甲+6，后续加强诡术"));
+                }
                 _ => {}
+            }
+            if matches!(id.as_str(), "elite"|"war_elephant"|"royal_guard"|"tiger_general"|"sacred_beast") {
+                self.combat_event(EventKind::EnemyTechnique, &format!("{id}_phase_two"), 1,
+                    Some(format!("foe:{idx}")));
             }
         }
         messages
@@ -3446,5 +3491,73 @@ mod tests {
         g.apply(Action::Remove { index: 1 }).unwrap();
         assert_eq!(g.deck.len(), 9);
         assert_eq!(g.gold, 15);
+    }
+}
+
+#[cfg(test)]
+mod elite_phase_regression_tests {
+    use super::*;
+
+    #[test]
+    fn five_elite_phase_transitions_are_one_shot_and_serializable() {
+        for id in ["elite", "war_elephant", "royal_guard", "tiger_general", "sacred_beast"] {
+            let mut game = Game::new(Hero::GuanYu, 626);
+            game.floor = 10;
+            game.start_battle(Node::Elite);
+            let battle = game.battle.as_mut().unwrap();
+            battle.foes[0].id = id.into();
+            battle.foes[0].max_hp = 40;
+            battle.foes[0].hp = 18;
+            battle.foes[0].phase = 0;
+            let original_seq = battle.event_seq;
+            let effects = game.boss_phase_transitions();
+            assert_eq!(effects.len(), 1, "{id}");
+            assert_eq!(game.battle.as_ref().unwrap().foes[0].phase, 1, "{id}");
+            let b = game.battle.as_ref().unwrap();
+            assert!(b.event_seq > original_seq, "{id}");
+            assert!(b.events.iter().any(|e|e.kind == EventKind::EnemyTechnique
+                && e.source == format!("{id}_phase_two")), "{id}");
+            assert!(game.boss_phase_transitions().is_empty(), "{id} must not phase twice");
+            let saved = game.to_json().unwrap();
+            let loaded = Game::from_json(&saved).unwrap();
+            assert_eq!(loaded.battle.unwrap().foes[0].phase, 1, "{id}");
+        }
+    }
+
+    #[test]
+    fn elite_special_intents_are_telegraphed_after_phase() {
+        for (id, turn) in [
+            ("tiger_general", 2_u32),
+            ("war_elephant", 3),
+            ("sacred_beast", 3),
+            ("royal_guard", 2),
+            ("elite", 3),
+        ] {
+            let mut game = Game::new(Hero::GuanYu, 888);
+            game.floor = 10;
+            game.start_battle(Node::Elite);
+            let battle = game.battle.as_mut().unwrap();
+            battle.foes[0].id = id.into();
+            battle.foes[0].phase = 1;
+            battle.turn = turn;
+            if id == "royal_guard" {
+                let hp = content::enemy_hp("officer");
+                battle.foes.push(Foe {
+                    id: "officer".into(), hp, max_hp: hp, block: 0, strength: 0,
+                    poison: 0, vulnerable: 0, weak: 0,
+                    intent: Intent::Attack(6), phase: 0,
+                });
+            }
+            game.roll_intents();
+            let intent = &game.battle.as_ref().unwrap().foes[0].intent;
+            assert!(match (id, intent) {
+                ("tiger_general", Intent::MultiAttack(_, 3)) => true,
+                ("war_elephant", Intent::Guard(_)) => true,
+                ("sacred_beast", Intent::Hex(2, 1)) => true,
+                ("royal_guard", Intent::Assist(_)) => true,
+                ("elite", Intent::Rally(3)) => true,
+                _ => false,
+            }, "expected phase-specific intent for {id}: {intent:?}");
+        }
     }
 }

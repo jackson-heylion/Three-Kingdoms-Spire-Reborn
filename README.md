@@ -150,3 +150,5 @@ cargo run --release --bin tks-sim -- 1000
 ### 自由挑战、时间线与藏品（P1 增量）
 
 在终端输入 `timeline` 查看解锁路线和挑战藏品，`modifier` 查看已解锁难度。先以 `custom guanyu 42 0` 新开自由挑战，再用 `modifier no_rest on`、`modifier iron_legion on`、`modifier thin_supplies on` 选择可叠加规则；`off` 关闭。必须在进入第一层之前设置。标准战役与每日挑战禁止使用修饰符；自由挑战获胜记录独立藏品但不解锁标准飞升。旧存档在未设置时保持旧机制。每条规则在 `src/challenges.rs` 有明确说明，持续效果由游戏核心执行而非界面模拟。
+
+**精英战二阶段（P1 增量）**：校尉、战象、禁卫、虎将、灵兽半血阶段各有独立强化及后续可预告行动；玩家在下一次敌方行动前可先看到三连虎袭、强化护甲、诡术或援军护阵。阶段转换与近期结算事件可通过 `events` 检查。
