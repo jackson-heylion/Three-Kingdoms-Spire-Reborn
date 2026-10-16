@@ -17,7 +17,7 @@
 | [Major Update #2](https://steamcommunity.com/games/2868840/announcements/detail/710026912607505281) | 官方修复 RNG 偏差与主分支数值 | 行为一致性单测、种子可复现、无效 Action 回滚 | 统计采样偏差检验、隔离战斗/地图/奖励 RNG |
 | [Reddit 职业机制与附魔讨论](https://www.reddit.com/r/slaythespire/comments/1rnvoee/im_enjoying_the_new_enchantment_system/) | 附魔与职业资源构建更高阶组合 | 五武将资源、原创4类附魔、弃牌触发、亲兵护卫、进阶伤害与 status | 保留/销毁/抽弃/生成/转化/延迟触发完整事件栈、持续能力及费用变化 |
 | [Reddit Ancient 回报](https://www.reddit.com/r/slaythespire/comments/1t95lc8/ancients_are_in_my_opinion_the_most_refreshing/) | 章末奖励最好是可取舍的构筑方向，不要只有加军令 | 章末原创 12 项先贤赐福池，选择3项之一 | 章际奇遇、负面代价与更多差异化长期规则 |
-| [Reddit 地图体验](https://www.reddit.com/r/slaythespire/comments/1vphy08/pathing_plus_mod_maybe_i_should_have_called_it/) | 玩家重视分支地图可读性、路线规划 | 每层三选一，并有章节与节点类型 | 真正 DAG 拓扑、跨层连线、预览风险、路线笔记 |
+| [Reddit 地图体验](https://www.reddit.com/r/slaythespire/comments/1vphy08/pathing_plus_mod_maybe_i_should_have_called_it/) | 玩家重视分支地图可读性、路线规划 | 三道相邻可达的七层持久化节点图、全幕预览、章节和节点类型 | 更复杂 DAG 分合流、可视连线、风险预估、路线笔记 |
 | [Reddit 模式讨论](https://www.reddit.com/r/slaythespire/comments/1wvetzb/custom_run_modifiers_to_select_which_act_you_play/) | 希望指定替代章节来体验新增内容 | 每幕种子驱动章节变种、每日种子命令 | 自定义章节/事件池与模式设置，等级/解锁规则 |
 | [Reddit 战斗节奏讨论](https://www.reddit.com/r/slaythespire/comments/1rn7dvu/now_that_sts2_is_in_early_release_im_curious_what/) | 要提高状态层可读性和战斗决策，而非纯堆数据 | 敌军意图、多段攻击、军令、状态显示、资源体系 | 触发顺序、详细事件日志、卡牌检索与战斗预测 |
 | [Reddit 多人平衡反馈](https://www.reddit.com/r/slaythespire/comments/1rsam7v/slay_the_spire_2_multiplayer_is_fun_but_seriously/) | 四人场景共享控制和减益将严重影响平衡 | 仅列入设计与协议约束 | 多人同步、归属与结算顺序、按队伍人数重新定价与压测 |
