@@ -38,11 +38,16 @@ upgrade 3                    # 在营寨升级指定卡牌
 enchant 3 迅捷               # 在营寨花35金附魔
 remove 2                     # 在军市花75金移除指定卡牌
 relics                       # 查看遗物
+bonds                        # 当前人物羁绊和战斗加成
+lore                         # 查看演义事件、伏笔与已解锁彩蛋
+chapter 50                   # 120回原著回目索引与对应游戏剧情
 chronicle                    # 战功簿、解锁、图鉴、最近战局
 theme light                  # 亮色终端
 theme dark                   # 暗色终端
 save / load / status / help / quit
 ```
+
+**三国叙事**：参考毛宗岗本120回目录建立章回索引，新增28则有前置条件的原创演义奇遇、25条关系羁绊、8项需完成整条选择链的隐藏结局。场景选择与战斗资源、金钱、体力、后续事件、JSON存档关联。支持 `lore`、`bonds`、`chapter N` 查询文学出处。未完成120回全文逐回审校，详见 [小说资料审定](docs/NOVEL_STUDY.md)。
 
 **可玩内容**：五名武将各自的战斗资源与被动体系、95 张原创卡牌、31 类敌人（包含替代精英和六名关底敌军）、10 种药剂、16 种遗物、12 类分支事件、12 种先贤赐福、三幕 21 层连通三路战役地图、6名关底统帅的二阶段变化、敌人意图、单/群体伤害、护甲、虚弱、易伤、中毒、武勇、反击、亲兵扛伤与自动攻击、弃换触发、牌组抽弃/消耗、特殊任务牌探索变形、升级与附魔、军市和营寨、战功簿与每日挑战、标准难度逐级解锁和自由挑战难度。
 
@@ -69,6 +74,7 @@ cargo run --bin tks -- --save-dir ./custom-saves
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test --all-targets
+cargo test --test bdd -- --nocapture
 cargo build --release
 cargo run --release --bin tks-sim -- 1000
 ```
