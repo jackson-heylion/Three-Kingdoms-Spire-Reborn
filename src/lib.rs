@@ -1432,6 +1432,7 @@ mod tests {
         g.deck.push(Card::new("quest_tulu"));
         for progress in 1..=3 {
             g.route = vec![Node::Story];
+            g.route_lanes = vec![0];
             g.apply(Action::Choose { index: 1 }).unwrap();
             if progress < 3 {
                 assert_eq!(g.deck.last().unwrap().quest_progress, progress);
