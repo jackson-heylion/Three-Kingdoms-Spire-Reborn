@@ -10,6 +10,7 @@ use three_kingdoms_spire_reborn::{
     Action, Card, Game, Stage,
     content::{Hero, card_spec},
     items::potion_name,
+    progression::Profile,
 };
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -25,6 +26,7 @@ impl Theme {
 struct Preferences { theme: Theme }
 struct App {
     game: Option<Game>,
+    profile: Profile,
     theme: Theme,
     dir: PathBuf,
     use_ansi: bool,
@@ -32,6 +34,7 @@ struct App {
 }
 fn save_path(dir: &std::path::Path) -> PathBuf { dir.join("save.json") }
 fn prefs_path(dir: &std::path::Path) -> PathBuf { dir.join("settings.json") }
+fn profile_path(dir: &std::path::Path) -> PathBuf { dir.join("chronicle.json") }
 fn atomic_write(path: &std::path::Path, data: &str) -> io::Result<()> {
     if let Some(parent) = path.parent() { fs::create_dir_all(parent)?; }
     let temporary = path.with_extension(format!("tmp.{}", std::process::id()));
@@ -60,6 +63,20 @@ impl App {
         let game = self.game.as_ref().ok_or("尚未开局")?;
         atomic_write(&save_path(&self.dir), &game.to_json()?).map_err(|e| e.to_string())
     }
+
+    fn save_profile(&self) -> Result<(), String> {
+        let json = self.profile.to_json()?;
+        atomic_write(&profile_path(&self.dir), &json).map_err(|e| e.to_string())
+    }
+    fn track_action(&mut self) -> Result<(), String> {
+        let g = self.game.as_ref().ok_or("请先开局")?;
+        self.profile.observe(g);
+        if matches!(g.stage, Stage::Won | Stage::Lost) {
+            let key = format!("{}:{}:{}:{}:{:?}", g.hero.name(),g.seed,g.floor,g.revision,g.stage);
+            self.profile.record(g,key)?;
+        }
+        self.save_profile()
+    }
     fn preferences(&self) -> Result<(), String> {
         let data = serde_json::to_string_pretty(&Preferences { theme: self.theme })
             .map_err(|e| e.to_string())?;
@@ -79,6 +96,9 @@ impl App {
                 (g.floor.saturating_sub(1) / 7 + 1).min(3), g.floor, g.deck.len(),
                 g.relics.join("、"), g.revision);
             println!(" 飞升难度：{}  已完成战役：{}  存档协议：V{}", g.ascension, g.victories, g.version);
+            println!(" 战功簿：{}局 {}胜 {}负；最高层{}；最佳得分{}",
+                self.profile.started, self.profile.wins, self.profile.losses,
+                self.profile.best_floor, self.profile.best_score);
             for (i,p) in g.potion_bag.iter().enumerate() {
                 println!("   药剂{}：{}", i + 1, potion_name(p));
             }
@@ -157,7 +177,7 @@ impl App {
         };
         let result: Result<String, String> = match args[0].to_ascii_lowercase().as_str() {
             "quit" | "exit" | "q" => { let _ = self.save(); return false; }
-            "help" | "h" => Ok("new [武将] [seed] [难度0-10] 新局；load 读档；save 保存；choose N 选择；play N [目标] 出牌；end 结束回合；use [药剂号] [目标] 饮药；upgrade N 升级；remove N 移牌；deck 查牌组；relics 查遗物；theme dark|light 主题；status 状态；quit 退出。编号从1开始。".into()),
+            "help" | "h" => Ok("new [武将] [seed] [难度0-10]；daily YYYY-MM-DD 每日挑战；load / save；choose N；play N [目标]；end；use [药剂号] [目标]；upgrade N；remove N；deck；relics；chronicle；theme dark|light；status；quit。".into()),
             "new" => {
                 let hero = args.get(1).and_then(|s| Hero::parse(s)).unwrap_or(Hero::GuanYu);
                 let seed = args.get(2).and_then(|s| s.parse::<u64>().ok()).unwrap_or_else(|| {
@@ -165,7 +185,27 @@ impl App {
                 });
                 let ascension = args.get(3).and_then(|s| s.parse::<u8>().ok()).unwrap_or(0).min(10);
                 self.game = Some(Game::new_with_ascension(hero, seed, ascension));
-                self.save().map(|_| format!("以 {} 开始新征程，种子 {seed}，难度 {ascension}。", hero.name()))
+                let g = self.game.as_ref().expect("just created");
+                self.profile.on_start(g);
+                self.save().and_then(|_| self.save_profile())
+                    .map(|_| format!("以 {} 开始新征程，种子 {seed}，难度 {ascension}。", hero.name()))
+            }
+            "daily" => {
+                match args.get(1).copied() {
+                    Some(date) if date.len() == 10 && date.chars().enumerate()
+                        .all(|(i,c)| if i==4||i==7 { c=='-' } else { c.is_ascii_digit() }) => {
+                        let seed = date.bytes().fold(0xcbf29ce484222325_u64, |h,c|
+                            (h ^ u64::from(c)).wrapping_mul(0x100000001b3));
+                        let heroes = [Hero::GuanYu,Hero::ZhugeLiang,Hero::SunShangxiang,Hero::CaoCao,Hero::LuBu];
+                        let hero = heroes[(seed % heroes.len() as u64) as usize];
+                        self.game = Some(Game::new_with_ascension(hero,seed,3));
+                        let g = self.game.as_ref().expect("just created");
+                        self.profile.on_start(g);
+                        self.save().and_then(|_| self.save_profile())
+                            .map(|_| format!("每日挑战 {date}：{}，难度3，种子 {seed}",hero.name()))
+                    }
+                    _ => Err("每日挑战请输入 YYYY-MM-DD（如 daily 2026-10-16）".into())
+                }
             }
             "load" => self.load().map(|_| "已读档。".into()),
             "save" => self.save().map(|_| "已保存。".into()),
@@ -181,6 +221,13 @@ impl App {
             "deck" => Ok(self.game.as_ref().map_or("尚未开局".into(), |g| {
                 g.deck.iter().enumerate().map(|(i,c)| format!("{}. {}", i+1, card_label(c))).collect::<Vec<_>>().join("\n")
             })),
+            "chronicle" => Ok(format!("战役{}次，胜利{}次，失败{}次，最高层{}，最高分{}，卡牌图鉴{}，敌军图鉴{}，遗物图鉴{}。\n{}",
+                self.profile.started,self.profile.wins,self.profile.losses,self.profile.best_floor,
+                self.profile.best_score,self.profile.seen_cards.len(),self.profile.seen_enemies.len(),
+                self.profile.discovered_relics.len(),
+                self.profile.records.iter().rev().take(5).map(|r| format!("{}: {} {}层 评分{} 难度{}",
+                    if r.won {"胜"} else {"败"},r.hero.name(),r.floor,r.score,r.ascension)).collect::<Vec<_>>().join("\n")
+            )),
             "relics" => Ok(self.game.as_ref().map_or("尚未开局".into(), |g| {
                 g.relics.iter().map(|r| format!("{}：{}",r, three_kingdoms_spire_reborn::items::relic_name(r))).collect::<Vec<_>>().join("\n")
             })),
@@ -198,6 +245,7 @@ impl App {
                 action.and_then(|action| {
                     let messages = self.game.as_mut().ok_or("请先输入 new 开局")?.apply(action)?;
                     self.save()?;
+                    self.track_action()?;
                     Ok(messages.join("\n"))
                 })
             }
@@ -223,8 +271,11 @@ fn main() {
     let theme = fs::read_to_string(prefs_path(&dir)).ok()
         .and_then(|s| serde_json::from_str::<Preferences>(&s).ok())
         .map_or(Theme::Dark, |settings| settings.theme);
+    let profile = fs::read_to_string(profile_path(&dir)).ok()
+        .and_then(|s| Profile::from_json(&s).ok())
+        .unwrap_or_else(Profile::new);
     let mut app = App {
-        game: None, theme, dir,
+        game: None, profile, theme, dir,
         use_ansi: io::stdout().is_terminal() && !args.iter().any(|a| a == "--plain"),
         message: String::new(),
     };
