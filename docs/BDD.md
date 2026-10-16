@@ -2,11 +2,11 @@
 
 ## 可执行契约
 
-- 场景文件：`features/lore.feature`、`features/save_resume.feature`、`features/novel_provenance.feature`、`features/combat_powers.feature`、`features/advanced_combat.feature`、`features/advanced_cards.feature`、`features/boss_tactics.feature`、`features/balance_guards.feature`、`features/combat_telemetry.feature`
+- 场景文件：`features/lore.feature`、`features/save_resume.feature`、`features/novel_provenance.feature`、`features/combat_powers.feature`、`features/advanced_combat.feature`、`features/advanced_cards.feature`、`features/boss_tactics.feature`、`features/balance_guards.feature`、`features/combat_telemetry.feature`、`features/doctrine_drafting.feature`
 - 运行器：`tests/bdd.rs`，执行单一、严格的 Given / When / Then / And / But 子集。不是完整通用 Gherkin 解析器；不支持 Scenario Outline、Examples、Rule、Background、标签和数据表。遇到不认识的步骤，必须失败，不能自动跳过。
 - CI：`cargo test --test bdd -- --nocapture`，`cargo test --all-targets` 也会执行 BDD 验收。
 - 辅助质量门：Rust 单元测试、Clippy `-D warnings`、Release 构建、终端进度持久化冒烟、两平台各 1000 局种子模拟。
-- 本轮新增5个职业持久能力BDD：关羽攻击触发一次护阵，诸葛计策触发恢复，孙尚香主动弃换触发伤害，曹操后勤随存档，吕布浴血随存档；现在合计48个Gherkin场景；新增5个高级战斗案例覆盖保留/虚无、抽牌护甲、施毒增强、击杀回复、非法动作无副作用。
+- 本轮新增5个职业持久能力BDD：关羽攻击触发一次护阵，诸葛计策触发恢复，孙尚香主动弃换触发伤害，曹操后勤随存档，吕布浴血随存档；现在合计53个Gherkin场景；新增5个高级战斗案例覆盖保留/虚无、抽牌护甲、施毒增强、击杀回复、非法动作无副作用。
 - 内容审查：必须有小说回目 provenance；游戏虚构、小说演义、史实评价分开，不能写成已验证史实。
 
 ## 行为覆盖目录
@@ -76,7 +76,7 @@ cargo run --release --bin tks-sim -- 1000
 5. 曹操临时募兵在结束回合后自动消耗，`CardGenerated` 与存档需保持一致；
 6. 中立 X 格挡遵守手牌、军令和护甲规则。
 
-附加单元测试验证 10 手牌上限、临时牌主动弃换消耗、X + 迅捷附魔、检索不触发 `CardDrawn` 类能力、临时保留牌的生命周期、无效动作 RNG/版本回滚。当前合计48个行为场景，另有数十项单元测试。
+附加单元测试验证 10 手牌上限、临时牌主动弃换消耗、X + 迅捷附魔、检索不触发 `CardDrawn` 类能力、临时保留牌的生命周期、无效动作 RNG/版本回滚。当前合计53个行为场景，另有数十项单元测试。
 
 ## 六首领 + 敌军协同（8个新场景）
 
@@ -93,3 +93,7 @@ cargo run --release --bin tks-sim -- 1000
 ## 战役资源累计与回合追踪（新增4条BDD，合计48）
 
 `features/combat_telemetry.feature` 校验曹操亲兵实际攻击次数与第一回合回合索引，满4层统御补充一次军令/5护甲且跨存档不丢，孙尚香合法弃换记录次数/2护甲，三连攻击记录一次奖励与3护甲。结合 `src/lib.rs` 单测覆盖真实扣血与护卫承伤的区别、未完成回合与完整回合的统计区分、旧 V2 存档兼容、回合记录容量上限与不合法统计快照拒绝。详见 [战斗统计说明](COMBAT_TELEMETRY_2026-10.md)。
+
+## 正常战役流派柔性引导（新增5条BDD，合计53）
+
+`features/doctrine_drafting.feature` 测试本武将10种预定义流派中的正确选择、跨武将代码拒绝、战斗中不得改选重刷奖励、两张不同的已有流派专属牌使自动识别生效、击败普通敌人后依旧产生三张不同的合法战利品且存档恢复后不重排。Rust 单测还验证无偏好时的 RNG 序列严格兼容、概率引导不会在每次奖励出现、切换动作完全原子回滚和长局军粮消耗无视护甲、能按规则结束战役。通过 `--natural-drafting 15` 再验证495局正常起始牌。详见 [战法流派规格](DOCTRINE_DRAFTING_2026-10.md)。
