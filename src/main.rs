@@ -100,6 +100,10 @@ impl App {
                 (g.floor.saturating_sub(1) / 7 + 1).min(3), g.floor, g.deck.len(),
                 g.relics.join("、"), g.revision);
             println!(" 飞升难度：{}  已完成战役：{}  存档协议：V{}", g.ascension, g.victories, g.version);
+            if !g.boons.is_empty() {
+                println!(" 先贤赐福：{}",g.boons.iter().map(|id|
+                    three_kingdoms_spire_reborn::items::boon_name(id)).collect::<Vec<_>>().join("、"));
+            }
             println!(" 战功簿：{}局 {}胜 {}负；最高层{}；最佳得分{}",
                 self.profile.started, self.profile.wins, self.profile.losses,
                 self.profile.best_floor, self.profile.best_score);
@@ -163,6 +167,13 @@ impl App {
                 }
                 Stage::Story => {
                     println!(" 【驿道奇遇】{}", g.story_options());
+                }
+                Stage::Ancient => {
+                    println!(" 【先贤赐福】此役平定，选择一项长期军略：");
+                    for (i,boon) in g.boon_choices.iter().enumerate() {
+                        println!("   {}. {}", i+1,three_kingdoms_spire_reborn::items::boon_name(boon));
+                    }
+                    println!(" 输入 choose <编号>");
                 }
                 Stage::Won => println!(" 【胜利】三幕皆定，江山已平！输入 new 开始新征程。"),
                 Stage::Lost => println!(" 【败北】胜败乃兵家常事。输入 new 开始新征程。"),
