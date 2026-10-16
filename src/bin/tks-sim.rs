@@ -5,6 +5,7 @@ use std::fs;
 use serde::Serialize;
 use three_kingdoms_spire_reborn::{
     Action, Card, CombatCounters, Game, Intent, Node, Stage,
+    archetypes::Doctrine,
     content::{Effect, Hero, card_spec},
 };
 
@@ -25,6 +26,11 @@ struct Outcome {
     telemetry: CombatCounters,
     death_encounter: Option<String>,
     death_node: Option<Node>,
+    reward_screens: u32,
+    focus_offer_screens: u32,
+    focus_picks: u32,
+    discard_distinct: usize,
+    combo_distinct: usize,
 }
 #[derive(Clone, Copy, Debug)]
 enum Policy { FirstPlayable, Tactical }
@@ -141,12 +147,14 @@ fn tactical_reward(game:&Game)->usize {
             let novelty= if game.deck.iter().any(|owned|owned.id==card.id){-10}else{10};
             let is_power=card_spec(&card.id)
                 .is_some_and(|s|matches!(s.effect,Effect::Power(_,_)));
+            let focus_synergy=if game.doctrine.is_some_and(|focus|focus.contains(&card.id))
+                {32}else{0};
             let sun_synergy=if game.hero==Hero::SunShangxiang &&
                 card_spec(&card.id).is_some_and(|spec|matches!(spec.effect,
                     Effect::Tactics(_) | Effect::DiscardStrike(_) |
                     Effect::Power(three_kingdoms_spire_reborn::combat::PowerId::ArrowsOnDiscard,_)))
                 {20}else{0};
-            (novelty+if is_power{14}else{0}+sun_synergy
+            (novelty+if is_power{14}else{0}+sun_synergy+focus_synergy
                 +tactical_card_value(game,card,14),-(*idx as i32))
         })
         .map_or(0,|(i,card)|if card_spec(&card.id).is_some_and(|s|matches!(s.effect,Effect::Unplayable)){0}else{i+1})
@@ -279,8 +287,19 @@ fn simulate_policy(hero:Hero,seed:u64,ascension:u8,policy:Policy)->Result<Outcom
 fn simulate_policy_package(hero:Hero,seed:u64,ascension:u8,policy:Policy,package:SunPackage)
     ->Result<Outcome,String>
 {
+    simulate_config(hero,seed,ascension,policy,package,None)
+}
+fn simulate_config(hero:Hero,seed:u64,ascension:u8,policy:Policy,package:SunPackage,
+    focus:Option<Doctrine>)->Result<Outcome,String>
+{
     let mut game = Game::new_with_ascension(hero, seed, ascension);
     if package!=SunPackage::Standard {apply_sun_package(&mut game,package)?;}
+    if let Some(focus)=focus {
+        game.apply(Action::SetDoctrine{id:focus.id().into()})?;
+    }
+    let mut reward_screens=0;
+    let mut focus_offer_screens=0;
+    let mut focus_picks=0;
     let mut death_context:Option<(String,Node)>=None;
     for count in 0..MAX_ACTIONS {
         if matches!(game.stage,Stage::Won | Stage::Lost) {
@@ -292,9 +311,27 @@ fn simulate_policy_package(hero:Hero,seed:u64,ascension:u8,policy:Policy,package
                     else {death_context.as_ref().map(|(id,_)|id.clone())},
                 death_node:if game.stage==Stage::Won {None}
                     else {death_context.as_ref().map(|(_,node)|*node)},
+                reward_screens,
+                focus_offer_screens,
+                focus_picks,
+                discard_distinct:Doctrine::SunDiscard.distinct_owned(&game.deck),
+                combo_distinct:Doctrine::SunCombo.distinct_owned(&game.deck),
             });
         }
         let action = preferred_action_policy(&game,policy)?;
+        if game.stage==Stage::Reward {
+            reward_screens+=1;
+            if let Some(active)=game.effective_doctrine() {
+                if game.rewards.iter().any(|c|active.contains(&c.id)) {
+                    focus_offer_screens+=1;
+                }
+                if let Action::Choose{index}=action {
+                    if index>0 && game.rewards.get(index-1).is_some_and(|c|active.contains(&c.id)) {
+                        focus_picks+=1;
+                    }
+                }
+            }
+        }
         if game.stage==Stage::Combat {
             if let Some(b)=&game.battle {
                 // Encounter context, not a claim about the exact killing blow.
@@ -457,6 +494,86 @@ fn print_balance(report:&BalanceReport) {
 }
 
 #[derive(Debug,Serialize)]
+struct NaturalDraftCell {
+    policy:String,
+    ascension:u8,
+    samples:usize,
+    wins:usize,
+    floor_sum:u64,
+    reward_screens:u64,
+    focus_offer_screens:u64,
+    focus_picks:u64,
+    discard_formed:usize,
+    combo_formed:usize,
+    discard_distinct_sum:u64,
+    combo_distinct_sum:u64,
+}
+#[derive(Debug,Serialize)]
+struct NaturalDraftReport {
+    schema_version:u8,
+    study:String,
+    samples_per_cell:usize,
+    cells:Vec<NaturalDraftCell>,
+}
+fn build_natural_drafting(samples:usize)->Result<NaturalDraftReport,String>{
+    let mut cells=Vec::new();
+    for ascension in 0..=10_u8 {
+        for (policy,focus) in [
+            ("unfocused_tactical",None),
+            ("choose_discard",Some(Doctrine::SunDiscard)),
+            ("choose_combo",Some(Doctrine::SunCombo)),
+        ] {
+            let mut cell=NaturalDraftCell {
+                policy:policy.into(),ascension,samples,wins:0,floor_sum:0,
+                reward_screens:0,focus_offer_screens:0,focus_picks:0,
+                discard_formed:0,combo_formed:0,discard_distinct_sum:0,combo_distinct_sum:0,
+            };
+            for trial in 0..samples {
+                let ordinal=4_000_000u64+u64::from(ascension)*10_000+trial as u64+1;
+                let seed=ordinal.wrapping_mul(0x9E3779B97F4A7C15);
+                let outcome=simulate_config(Hero::SunShangxiang,seed,ascension,
+                    Policy::Tactical,SunPackage::Standard,focus)?;
+                cell.wins+=usize::from(outcome.won);
+                cell.floor_sum+=u64::from(outcome.floor);
+                cell.reward_screens+=u64::from(outcome.reward_screens);
+                cell.focus_offer_screens+=u64::from(outcome.focus_offer_screens);
+                cell.focus_picks+=u64::from(outcome.focus_picks);
+                cell.discard_formed+=usize::from(outcome.discard_distinct>=2);
+                cell.combo_formed+=usize::from(outcome.combo_distinct>=2);
+                cell.discard_distinct_sum+=outcome.discard_distinct as u64;
+                cell.combo_distinct_sum+=outcome.combo_distinct as u64;
+            }
+            cells.push(cell);
+        }
+    }
+    Ok(NaturalDraftReport{
+        schema_version:1,
+        study:"Sun Shangxiang normal ten-card starter; doctrine choice only, no card injection; all three policies paired on the same seeds".into(),
+        samples_per_cell:samples,cells,
+    })
+}
+fn print_natural_drafting(report:&NaturalDraftReport){
+    println!("NATURAL DRAFT: standard starting decks, {} trials/tier/policy, no injected cards",
+        report.samples_per_cell);
+    println!("Policy | Ascension band | Wins | Discard formed | Combo formed | Focus offer screens / total rewards | Focus cards chosen");
+    for policy in ["unfocused_tactical","choose_discard","choose_combo"] {
+        for (band,start,end) in [("0-3",0,3),("4-7",4,7),("8-10",8,10)] {
+            let rows=report.cells.iter().filter(|c|c.policy==policy
+                && c.ascension>=start && c.ascension<=end).collect::<Vec<_>>();
+            let n=rows.iter().map(|c|c.samples).sum::<usize>();
+            let wins=rows.iter().map(|c|c.wins).sum::<usize>();
+            let d=rows.iter().map(|c|c.discard_formed).sum::<usize>();
+            let comb=rows.iter().map(|c|c.combo_formed).sum::<usize>();
+            let offered=rows.iter().map(|c|c.focus_offer_screens).sum::<u64>();
+            let rewards=rows.iter().map(|c|c.reward_screens).sum::<u64>();
+            let picked=rows.iter().map(|c|c.focus_picks).sum::<u64>();
+            println!("{policy} | {band} | {wins}/{n} ({:.1}%) | {d}/{n} | {comb}/{n} | {offered}/{rewards} | {picked}",
+                wins as f64*100.0/n as f64);
+        }
+    }
+}
+
+#[derive(Debug,Serialize)]
 struct SunArchetypeCell {
     package:String,
     ascension:u8,
@@ -522,6 +639,18 @@ fn print_sun_archetypes(report:&SunArchetypeReport) {
 
 fn main() {
     let arguments=std::env::args().collect::<Vec<_>>();
+    if arguments.get(1).is_some_and(|arg|arg=="--natural-drafting") {
+        let samples=arguments.get(2).and_then(|s|s.parse::<usize>().ok())
+            .unwrap_or(15).clamp(1,200);
+        let report=build_natural_drafting(samples)
+            .unwrap_or_else(|e|panic!("natural drafting simulation failed: {e}"));
+        print_natural_drafting(&report);
+        if let Some(path)=arguments.get(3) {
+            fs::write(path,serde_json::to_string_pretty(&report)
+                .expect("serialize natural draft")).unwrap_or_else(|e|panic!("write {path}: {e}"));
+        }
+        return;
+    }
     if arguments.get(1).is_some_and(|arg|arg=="--sun-archetypes") {
         let samples=arguments.get(2).and_then(|raw|raw.parse::<usize>().ok())
             .unwrap_or(15).clamp(1,200);
@@ -622,6 +751,21 @@ mod tests {
         }
         let mut outsider=Game::new(Hero::CaoCao,1);
         assert!(apply_sun_package(&mut outsider,SunPackage::Discard).is_err());
+    }
+    #[test]
+    fn natural_draft_preserves_starter_deck_without_injected_packages() {
+        let hero=Hero::SunShangxiang;
+        let seed=8472;
+        let a=simulate_config(hero,seed,0,Policy::Tactical,SunPackage::Standard,
+            Some(Doctrine::SunDiscard)).unwrap();
+        let b=simulate_config(hero,seed,0,Policy::Tactical,SunPackage::Standard,
+            Some(Doctrine::SunDiscard)).unwrap();
+        assert_eq!(a.snapshot,b.snapshot);
+        assert_eq!(a.reward_screens,b.reward_screens);
+        assert_eq!(a.focus_offer_screens,b.focus_offer_screens);
+        assert!(a.focus_offer_screens<=a.reward_screens);
+        assert!(a.focus_picks<=a.focus_offer_screens);
+        assert!(a.discard_distinct<=Doctrine::SunDiscard.members().len());
     }
     #[test]
     fn run_counters_survive_replay_and_sum_without_double_counting() {
