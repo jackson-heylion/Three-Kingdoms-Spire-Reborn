@@ -96,6 +96,30 @@ impl World {
             let game = self.game_mut()?;
             let idx = game.battle.as_ref().ok_or("no battle")?.hand.len();
             game.apply(Action::Play { index: idx, target: 1 })?;
+        } else if step == "I duplicate the first enemy as a second combatant" {
+            let b = self.game_mut()?.battle.as_mut().ok_or("not in combat")?;
+            if b.foes.len() != 1 { return Err("expected a single enemy fixture".into()); }
+            b.foes.push(b.foes[0].clone());
+        } else if step == "the first enemy has one health and no guard" {
+            let b = self.game_mut()?.battle.as_mut().ok_or("not in combat")?;
+            b.foes[0].hp = 1;
+            b.foes[0].block = 0;
+        } else if step.starts_with("the first enemy has at least ") && step.ends_with(" poison") {
+            let value = parse_after(step,"the first enemy has at least ")?
+                .split_whitespace().next().ok_or("bad poison value")?
+                .parse::<i32>().map_err(|_|"invalid poison threshold")?;
+            let actual = self.game()?.battle.as_ref().ok_or("not in battle")?.foes[0].poison;
+            if actual < value {return Err(format!("expected poison >= {value}, got {actual}")); }
+        } else if step.starts_with("my hand contains \"") {
+            let id = quoted(step)?;
+            let b = self.game()?.battle.as_ref().ok_or("not in combat")?;
+            if !b.hand.iter().any(|c|c.id==id) {return Err(format!("{id} was not retained")); }
+        } else if step.starts_with("my exhaust pile contains \"") {
+            let id = quoted(step)?;
+            let b = self.game()?.battle.as_ref().ok_or("not in combat")?;
+            if !b.exhausted.iter().any(|c|c.id==id) {
+                return Err(format!("{id} was not exhausted at end turn"));
+            }
         } else if step == "I gain one manual discard token" {
             self.game_mut()?.battle.as_mut().ok_or("not in combat")?.discard_tokens += 1;
         } else if step == "I remember the first enemy health" {
@@ -120,6 +144,9 @@ impl World {
                 "arrows_on_discard" => PowerId::ArrowsOnDiscard,
                 "granary_support" => PowerId::GranarySupport,
                 "blood_courage" => PowerId::BloodCourage,
+                "wisdom_on_draw" => PowerId::WisdomOnDraw,
+                "toxic_reversal" => PowerId::ToxicReversal,
+                "victory_drum" => PowerId::VictoryDrum,
                 _ => return Err(format!("unrecognized power id {id}")),
             };
             let expected: i32 = step.split(" has at least ").nth(1)
@@ -141,11 +168,19 @@ impl World {
                 "power_triggered" => EventKind::PowerTriggered,
                 "turn_started" => EventKind::TurnStarted,
                 "turn_ended" => EventKind::TurnEnded,
+                "card_resolved" => EventKind::CardResolved,
+                "card_drawn" => EventKind::CardDrawn,
+                "card_exhausted" => EventKind::CardExhausted,
+                "status_applied" => EventKind::StatusApplied,
+                "foe_defeated" => EventKind::FoeDefeated,
                 _ => return Err(format!("unknown event kind {kind}")),
             };
-            let found = self.game()?.battle.as_ref().ok_or("not in combat")?
-                .events.iter().any(|evt|evt.kind == event && evt.source == source);
-            if !found { return Err(format!("event {kind}/{source} absent")); }
+            let count = self.game()?.battle.as_ref().ok_or("not in combat")?
+                .events.iter().filter(|evt|evt.kind == event && evt.source == source).count();
+            if count == 0 { return Err(format!("event {kind}/{source} absent")); }
+            if step.ends_with("occurs exactly once") && count != 1 {
+                return Err(format!("expected exactly one event {kind}/{source}, observed {count}"));
+            }
         } else if step == "the event sequence strictly increases" {
             let events = &self.game()?.battle.as_ref().ok_or("not in combat")?.events;
             if !events.windows(2).all(|w|w[0].seq<w[1].seq) {
@@ -220,6 +255,7 @@ impl World {
             let battle = self.game()?.battle.as_ref().ok_or("not in battle")?;
             let got = match chunks[1] {
                 "guard" => battle.block,
+                "energy" => battle.energy,
                 "scheme" => battle.scheme,
                 "combo" => battle.combo,
                 "command" => battle.command,
@@ -315,13 +351,14 @@ fn run_feature(source: &str, name: &str) -> Result<usize, String> {
 fn gherkin_bdd_acceptance_suite() {
     let documents = [
         ("features/combat_powers.feature", include_str!("../features/combat_powers.feature")),
+        ("features/advanced_combat.feature", include_str!("../features/advanced_combat.feature")),
         ("features/lore.feature", include_str!("../features/lore.feature")),
         ("features/save_resume.feature", include_str!("../features/save_resume.feature")),
         ("features/novel_provenance.feature", include_str!("../features/novel_provenance.feature")),
     ];
     let scenarios: usize = documents.iter().map(|(name,text)|
         run_feature(text,name).unwrap_or_else(|error|panic!("{error}"))).sum();
-    assert!(scenarios >= 22, "BDD suite lost scenarios: {scenarios}");
+    assert!(scenarios >= 27, "BDD suite lost scenarios: {scenarios}");
     println!("Verified {scenarios} executable Given/When/Then acceptance scenarios");
 }
 
