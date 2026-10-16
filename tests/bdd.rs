@@ -262,8 +262,8 @@ impl World {
             if !b.exhausted.iter().any(|card|card.id==id && card.temporary) {
                 return Err(format!("expected temporary {id} exhausted"));
             }
-        } else if step == "I set command to two" {
-            self.game_mut()?.battle.as_mut().ok_or("not in combat")?.command=2;
+        } else if step == "I set command to three" {
+            self.game_mut()?.battle.as_mut().ok_or("not in combat")?.command=3;
         } else if step == "the previous turn telemetry has completed turn one" {
             let g=self.game()?;
             let sample=g.telemetry.recent_turns.last().ok_or("missing turn telemetry")?;
