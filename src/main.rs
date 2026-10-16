@@ -179,7 +179,7 @@ impl App {
                     println!(" upgrade N 定向升级；enchant N 迅捷|锐锋|护身|明悟（35金）");
                 }
                 Stage::Story => {
-                    println!(" 【驿道奇遇】{}", g.story_options());
+                    println!(" 【驿道奇遇】{}", g.lore_hint());
                 }
                 Stage::Ancient => {
                     println!(" 【先贤赐福】此役平定，选择一项长期军略：");
@@ -212,7 +212,7 @@ impl App {
         };
         let result: Result<String, String> = match args[0].to_ascii_lowercase().as_str() {
             "quit" | "exit" | "q" => { let _ = self.save(); return false; }
-            "help" | "h" => Ok("new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 在出征前指定三幕变体；daily YYYY-MM-DD；load/save；choose N；play N [目标]；discard N 弃换；end；use [药剂号] [目标]；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看连通路线；relics；chronicle；theme dark|light；status；quit。".into()),
+            "help" | "h" => Ok("new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 在出征前指定三幕变体；daily YYYY-MM-DD；load/save；choose N；play N [目标]；discard N 弃换；end；use [药剂号] [目标]；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看连通路线；relics；lore 看纪事；bonds 看人物羁绊；chronicle；theme dark|light；status；quit。".into()),
             "new" | "custom" => {
                 let mode = if args[0] == "custom" {RunMode::Custom} else {RunMode::Standard};
                 let hero = args.get(1).and_then(|s| Hero::parse(s)).unwrap_or(Hero::GuanYu);
@@ -282,6 +282,32 @@ impl App {
                 self.profile.records.iter().rev().take(5).map(|r| format!("{}: {} {}层 评分{} 难度{}",
                     if r.won {"胜"} else {"败"},r.hero.name(),r.floor,r.score,r.ascension)).collect::<Vec<_>>().join("\n")
             )),
+            "bonds" | "fate" => Ok(self.game.as_ref().map_or("尚未开局".into(), |g| {
+                let records = g.active_bonds();
+                if records.is_empty() {
+                    "暂无已结缘人物；在演义奇遇中选择守诺，后续羁绊才会生效。".into()
+                } else {
+                    records.iter().map(|bond| format!("{} ↔ {}【{}】（原著第{}回）{}",
+                        g.hero.name(),bond.companion,bond.relation.name(),bond.chapter,bond.note))
+                        .collect::<Vec<_>>().join("\n")
+                }
+            })),
+            "lore" => Ok(self.game.as_ref().map_or("尚未开局".into(), |g| {
+                let mut out = format!("演义纪事：已见{}则，已结{}段因果，人物羁绊{}项。\n",
+                    g.lore_seen.len(),g.lore_flags.len(),g.active_bonds().len());
+                for id in &g.lore_seen {
+                    if let Some(b) = three_kingdoms_spire_reborn::lore::beat(id) {
+                        let chosen = if g.lore_flags.iter().any(|flag| flag == b.flag) {"立约"} else {"未立约"};
+                        out.push_str(&format!("第{:03}回 {}【{}】{}\n",b.chapter,b.title,chosen,
+                            three_kingdoms_spire_reborn::lore::provenance_url(b.chapter)));
+                    }
+                }
+                let hidden = three_kingdoms_spire_reborn::lore::BEATS.iter()
+                    .filter(|b| b.prerequisite.is_some_and(|key| g.lore_flags.iter().any(|flag| flag == key))
+                        && !g.lore_seen.iter().any(|seen| seen == b.id)).count();
+                out.push_str(&format!("尚有{hidden}项未揭开的因果（不剧透）"));
+                out
+            })),
             "relics" => Ok(self.game.as_ref().map_or("尚未开局".into(), |g| {
                 g.relics.iter().map(|r| format!("{}：{}",r, three_kingdoms_spire_reborn::items::relic_name(r))).collect::<Vec<_>>().join("\n")
             })),
