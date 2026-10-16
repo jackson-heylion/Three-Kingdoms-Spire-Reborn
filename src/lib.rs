@@ -2776,6 +2776,44 @@ mod tests {
         assert_eq!(g.battle.as_ref().unwrap().foes[0].strength,strength);
     }
     #[test]
+    fn old_v2_snapshots_default_new_enemy_ai_fields_and_reject_invalid_penalties() {
+        let g=test_boss("simayi");
+        let raw=g.to_json().unwrap();
+        let mut old:serde_json::Value=serde_json::from_str(&raw).unwrap();
+        let battle=old.get_mut("battle").and_then(serde_json::Value::as_object_mut).unwrap();
+        battle.remove("played_this_turn");
+        battle.remove("last_turn_cards");
+        battle.remove("next_turn_energy_penalty");
+        let migrated=Game::from_json(&old.to_string()).unwrap();
+        let b=migrated.battle.as_ref().unwrap();
+        assert_eq!(b.played_this_turn,0);
+        assert_eq!(b.last_turn_cards,0);
+        assert_eq!(b.next_turn_energy_penalty,0);
+        assert!(matches!(b.foes[0].intent,Intent::Boss(BossMove::HiddenScheme(_))));
+        let mut invalid=migrated;
+        invalid.battle.as_mut().unwrap().next_turn_energy_penalty=3;
+        assert!(Game::from_json(&invalid.to_json().unwrap()).is_err());
+    }
+    #[test]
+    fn playing_four_cards_only_counts_current_turn_and_is_reset_after_turn_end() {
+        let mut g=test_boss("simayi");
+        g.battle.as_mut().unwrap().hand=vec![Card::new("guji");4];
+        for _ in 0..4 {
+            g.apply(Action::Play { index:1,target:1 }).unwrap();
+        }
+        assert_eq!(g.battle.as_ref().unwrap().played_this_turn,4);
+        g.apply(Action::EndTurn).unwrap();
+        let b=g.battle.as_ref().unwrap();
+        assert_eq!(b.played_this_turn,0);
+        assert_eq!(b.last_turn_cards,4);
+        assert!(matches!(b.foes[0].intent,Intent::Boss(BossMove::HiddenScheme(_))));
+        // The pressure is measured only over the preceding completed turn.
+        g.apply(Action::EndTurn).unwrap();
+        let b=g.battle.as_ref().unwrap();
+        assert_eq!(b.played_this_turn,0);
+        assert_eq!(b.last_turn_cards,0);
+    }
+    #[test]
     fn targeted_camp_upgrade_and_shop_removal_work() {
         let mut g = Game::new(Hero::ZhugeLiang, 8);
         g.stage = Stage::Camp;
