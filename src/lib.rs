@@ -2988,6 +2988,92 @@ mod tests {
             e.kind==EventKind::PowerTriggered && e.source=="sun_discard_guard"));
     }
     #[test]
+    fn telemetry_counts_actual_troop_damage_after_armor_not_nominal_attack() {
+        let mut g=Game::new(Hero::CaoCao,6001);
+        g.apply(Action::Choose{index:1}).unwrap();
+        let b=g.battle.as_mut().unwrap();
+        b.foes[0].hp=7;
+        b.foes[0].max_hp=7;
+        b.foes[0].block=1;
+        b.troops_attack=8;
+        g.troop_attack();
+        assert_eq!(g.telemetry.totals.troop_damage,7);
+        assert_eq!(g.telemetry.totals.troop_attacks,1);
+        assert_eq!(g.telemetry.current_turn.troop_damage,7);
+        assert_eq!(g.battle.as_ref().unwrap().foes[0].hp,0);
+        let saved=g.to_json().unwrap();
+        assert_eq!(Game::from_json(&saved).unwrap().to_json().unwrap(),saved);
+    }
+    #[test]
+    fn telemetry_tracks_troops_protection_after_guard_and_hero_health_damage() {
+        let mut g=Game::new(Hero::CaoCao,6002);
+        g.apply(Action::Choose{index:1}).unwrap();
+        let b=g.battle.as_mut().unwrap();
+        b.block=4;
+        b.troops_hp=3;
+        let hp=g.hp;
+        assert_eq!(g.enemy_attack(0,11),4);
+        assert_eq!(g.hp,hp-4);
+        assert_eq!(g.telemetry.totals.troop_absorbed,3);
+        assert_eq!(g.telemetry.totals.hero_hp_damage,4);
+        assert_eq!(g.battle.as_ref().unwrap().troops_hp,0);
+        assert_eq!(g.telemetry.totals.battles_started,1);
+    }
+    #[test]
+    fn telemetry_records_exact_command_energy_and_guard_from_one_proc() {
+        let mut g=Game::new(Hero::CaoCao,6003);
+        g.apply(Action::Choose{index:1}).unwrap();
+        let b=g.battle.as_mut().unwrap();
+        b.command=2;
+        b.energy=2;
+        b.hand=vec![Card::new("defend")];
+        g.apply(Action::Play{index:1,target:1}).unwrap();
+        let c=g.telemetry.totals;
+        assert_eq!(c.command_procs,1);
+        assert_eq!(c.command_energy,1);
+        assert_eq!(c.command_block,5);
+        assert_eq!(c.cards_played,1);
+        assert_eq!(g.battle.as_ref().unwrap().command,0);
+    }
+    #[test]
+    fn telemetry_retains_complete_turn_indices_and_separates_partial_win() {
+        let mut g=Game::new(Hero::CaoCao,6004);
+        g.apply(Action::Choose{index:1}).unwrap();
+        let b=g.battle.as_mut().unwrap();
+        b.foes[0].intent=Intent::Guard(1);
+        g.apply(Action::EndTurn).unwrap();
+        assert_eq!(g.telemetry.totals.turns_completed,1);
+        assert_eq!(g.telemetry.recent_turns.len(),1);
+        assert_eq!(g.telemetry.recent_turns[0].turn,1);
+        assert_eq!(g.telemetry.recent_turns[0].floor,1);
+        assert!(g.telemetry.recent_turns[0].completed);
+        // Mid-player-turn win should not count as an additional finished turn.
+        g.battle.as_mut().unwrap().foes[0].hp=1;
+        g.battle.as_mut().unwrap().foes[0].block=0;
+        g.battle.as_mut().unwrap().hand=vec![Card::new("strike")];
+        g.apply(Action::Play{index:1,target:1}).unwrap();
+        assert_eq!(g.telemetry.totals.turns_completed,1);
+        assert_eq!(g.telemetry.totals.battles_won,1);
+        assert_eq!(g.telemetry.recent_turns.len(),2);
+        assert_eq!(g.telemetry.recent_turns[1].turn,2);
+        assert!(!g.telemetry.recent_turns[1].completed);
+    }
+    #[test]
+    fn telemetry_defaults_old_v2_saves_and_rejects_corrupted_trace_atomically() {
+        let g=Game::new(Hero::SunShangxiang,6005);
+        let mut old:serde_json::Value=serde_json::from_str(&g.to_json().unwrap()).unwrap();
+        old.as_object_mut().unwrap().remove("telemetry");
+        let migrated=Game::from_json(&old.to_string()).unwrap();
+        assert_eq!(migrated.telemetry,CombatTelemetry::default());
+        let mut bad=migrated.clone();
+        bad.telemetry.recent_turns=vec![TurnTelemetry{
+            floor:1,turn:1,completed:true,hero_hp_after:1,troop_hp_after:0,
+            counters:CombatCounters::default(),
+        };MAX_RECENT_TURN_METRICS+1];
+        assert!(Game::from_json(&bad.to_json().unwrap()).is_err());
+        assert_eq!(migrated.to_json().unwrap(),g.to_json().unwrap());
+    }
+    #[test]
     fn targeted_camp_upgrade_and_shop_removal_work() {
         let mut g = Game::new(Hero::ZhugeLiang, 8);
         g.stage = Stage::Camp;
