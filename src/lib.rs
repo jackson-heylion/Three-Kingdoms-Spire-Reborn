@@ -2,6 +2,7 @@
 //! Every authoritative mutation goes through Game::apply(Action).
 pub mod content;
 pub mod items;
+pub mod lore;
 pub mod map;
 pub mod progression;
 
@@ -152,6 +153,9 @@ pub struct Game {
     #[serde(default)] pub act_map: Option<map::ActMap>,
     #[serde(default)] pub map_lane: Option<u8>,
     #[serde(default)] pub route_lanes: Vec<u8>,
+    #[serde(default)] pub lore_flags: Vec<String>,
+    #[serde(default)] pub lore_seen: Vec<String>,
+    #[serde(default)] pub lore_current: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -198,6 +202,7 @@ impl Game {
             boons: vec![], boon_choices: vec![], variants: None,
             mode: RunMode::Standard, run_id: String::new(),
             act_map: None, map_lane: None, route_lanes: Vec::new(),
+            lore_flags: vec![], lore_seen: vec![], lore_current: None,
         };
         game.refresh_route();
         game
@@ -240,6 +245,13 @@ impl Game {
         { return Err("非法战役地图状态".into()); }
         if !self.route_lanes.is_empty() && self.route_lanes.len() != self.route.len() {
             return Err("地图显示路线与可达车道数量不一致".into());
+        }
+        if self.lore_flags.iter().any(|flag| !lore::BEATS.iter().any(|b| b.flag == flag))
+            || self.lore_seen.iter().any(|id| lore::beat(id).is_none())
+            || self.lore_current.as_deref().is_some_and(|id| lore::beat(id).is_none())
+        { return Err("无效人物羁绊与剧情存档".into()); }
+        if self.lore_current.is_some() && self.stage != Stage::Story {
+            return Err("仅奇遇场景可拥有当前演义剧情".into());
         }
         for boon in self.boons.iter().chain(self.boon_choices.iter()) {
             if !items::BOONS.iter().any(|(id,_)| id == boon) { return Err(format!("未知赐福: {boon}")); }
@@ -445,6 +457,37 @@ impl Game {
             if self.relics.iter().any(|r| r == "军旗") { b.block += 4; }
             if self.relics.iter().any(|r| r == "虎符") { b.strength += 1; }
             if self.relics.iter().any(|r| r == "兵书") { b.scheme += 1; }
+            // Relationship rewards live in the same battle snapshot, no separate UI logic.
+            if self.hero == Hero::GuanYu && self.lore_flags.iter().any(|f| f == "taoyuan_oath") {
+                b.block += 6;
+            }
+            if self.hero == Hero::GuanYu && self.lore_flags.iter().any(|f| f == "huarong_mercy") {
+                b.strength += 1;
+            }
+            if self.hero == Hero::ZhugeLiang && self.lore_flags.iter().any(|f| f == "longzhong_plan") {
+                b.scheme += 2;
+            }
+            if self.hero == Hero::ZhugeLiang && self.lore_flags.iter().any(|f| f == "star_lantern") {
+                b.energy += 1;
+            }
+            if self.hero == Hero::SunShangxiang && self.lore_flags.iter().any(|f| f == "jiangdong_covenant") {
+                b.combo += 2;
+            }
+            if self.hero == Hero::SunShangxiang && self.lore_flags.iter().any(|f| f == "river_divide") {
+                b.thorns += 3;
+            }
+            if self.hero == Hero::CaoCao && self.lore_flags.iter().any(|f| f == "xu_capital") {
+                b.command += 2;
+            }
+            if self.hero == Hero::CaoCao && self.lore_flags.iter().any(|f| f == "guandu_grain") {
+                b.block += 7;
+            }
+            if self.hero == Hero::LuBu && self.lore_flags.iter().any(|f| f == "red_hare") {
+                b.fury += 3;
+            }
+            if self.hero == Hero::LuBu && self.lore_flags.iter().any(|f| f == "phoenix_pavilion") {
+                b.strength += 1;
+            }
         }
         self.stage = Stage::Combat;
     }
@@ -455,6 +498,7 @@ impl Game {
         self.market.clear();
         self.shop_relic = None;
         self.boon_choices.clear();
+        self.lore_current = None;
         self.refresh_route();
     }
     fn choose_route(&mut self, index: usize) -> Result<String, String> {
@@ -485,6 +529,11 @@ impl Game {
                     }
                 }
                 self.event_id = self.random(12) as u8;
+                // The literary ledger is deterministic for any saved seed and visited flags.
+                // Original generic chance events remain when no eligible authored beat exists.
+                let act = (self.floor.saturating_sub(1) / 7).min(2);
+                self.lore_current = lore::next_beat(self.hero, act, &self.lore_flags, &self.lore_seen)
+                    .map(|beat| beat.id.to_owned());
                 self.stage = Stage::Story;
             },
         }
@@ -1113,7 +1162,47 @@ impl Game {
             _ => "星象异变：1 损血得遗物 / 2 获金币 / 3 恢复",
         }
     }
+    pub fn active_bonds(&self) -> Vec<&'static lore::Bond> {
+        lore::bonds_for(self.hero, &self.lore_flags)
+    }
+    pub fn lore_hint(&self) -> String {
+        if let Some(id) = &self.lore_current
+            && let Some(b) = lore::beat(id) {
+            return format!("【演义残卷·第{}回】{}——{}：{}\n  1. {}（结缘并记下因果）\n  2. {}（获得金银，错过羁绊）\n  3. 不介入",
+                b.chapter,b.title,b.character,b.premise,b.vow,b.bargain);
+        }
+        self.story_options().to_string()
+    }
+    fn choose_lore(&mut self, index: usize) -> Result<String, String> {
+        if !(1..=3).contains(&index) { return Err("演义事件请选1、2或3".into()); }
+        let id = self.lore_current.as_deref().ok_or("没有当前演义章节")?;
+        let b = lore::beat(id).ok_or("不存在的演义章节")?;
+        let result = match index {
+            1 => {
+                if !self.lore_flags.iter().any(|f| f == b.flag) {
+                    self.lore_flags.push(b.flag.into());
+                }
+                self.hp = (self.hp + b.reward_heal).min(self.max_hp);
+                self.gold += b.reward_gold;
+                self.deck.push(Card::new(b.reward_card));
+                format!("{}：结下【{}】，获得{}金、恢复{}体力并得到【{}】。原著参考第{}回。",
+                    b.title,b.flag,b.reward_gold,b.reward_heal,card_spec(b.reward_card).map_or("未知",|spec| spec.name),b.chapter)
+            }
+            2 => {
+                // Alternate choice pays immediately but never completes a future foreshadowing key.
+                let loot = 30 + b.reward_gold;
+                self.gold += loot;
+                self.hp = (self.hp - 6).max(0);
+                format!("{}：取走{}金，失去6体力；相关后续因果不会因此解锁。",b.title,loot)
+            }
+            _ => format!("{}：不介入，因果暂且埋入尘埃。",b.title),
+        };
+        self.lore_seen.push(b.id.into());
+        if self.hp == 0 { self.stage = Stage::Lost; } else { self.finish_scene(); }
+        Ok(result)
+    }
     fn choose_story(&mut self, index: usize) -> Result<String, String> {
+        if self.lore_current.is_some() { return self.choose_lore(index); }
         if !(1..=3).contains(&index) { return Err("奇遇请选 choose 1、2 或 3".into()); }
         let event = self.event_id;
         let cost = match (event,index) {
@@ -1564,6 +1653,45 @@ mod tests {
         assert_eq!(g.route,vec![next[0],next[1]]);
         let json = g.to_json().unwrap();
         assert_eq!(Game::from_json(&json).unwrap().to_json().unwrap(),json);
+    }
+
+    #[test]
+    fn romance_choices_unlock_foreshadowed_future_payoffs() {
+        let mut g = Game::new(Hero::GuanYu, 11);
+        g.stage = Stage::Story;
+        g.lore_current = Some("baima".into());
+        g.apply(Action::Choose { index: 1 }).unwrap();
+        assert!(g.lore_flags.contains(&"baima_debt".to_string()));
+        assert!(g.active_bonds().iter().any(|bond| bond.companion == "曹操"));
+        assert_eq!(lore::next_beat(g.hero,1,&g.lore_flags,&g.lore_seen).unwrap().id,"huarong");
+        let snap = g.to_json().unwrap();
+        let restored = Game::from_json(&snap).unwrap();
+        assert_eq!(restored.to_json().unwrap(),snap);
+        let mut other = Game::new(Hero::GuanYu,11);
+        other.stage = Stage::Story;
+        other.lore_current = Some("baima".into());
+        other.apply(Action::Choose { index: 2 }).unwrap();
+        assert!(lore::next_beat(other.hero,1,&other.lore_flags,&other.lore_seen).is_none());
+        assert_eq!(other.active_bonds().len(),0);
+    }
+    #[test]
+    fn lore_flag_applies_to_combat_before_first_turn() {
+        let mut g = Game::new(Hero::GuanYu,12);
+        g.lore_flags.push("taoyuan_oath".into());
+        g.floor = 1;
+        g.start_battle(Node::Battle);
+        assert!(g.battle.as_ref().unwrap().block >= 10);
+    }
+    #[test]
+    fn invalid_lore_data_and_choice_are_transactional() {
+        let mut g = Game::new(Hero::ZhugeLiang,13);
+        g.stage = Stage::Story;
+        g.lore_current = Some("longzhong".into());
+        let snapshot = g.to_json().unwrap();
+        assert!(g.apply(Action::Choose { index: 99 }).is_err());
+        assert_eq!(g.to_json().unwrap(), snapshot);
+        g.lore_current = Some("forged_chapter".into());
+        assert!(Game::from_json(&g.to_json().unwrap()).is_err());
     }
     #[test]
     fn targeted_camp_upgrade_and_shop_removal_work() {
