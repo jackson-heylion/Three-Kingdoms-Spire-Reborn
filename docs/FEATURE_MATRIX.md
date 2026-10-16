@@ -24,7 +24,8 @@
 | 多人合作（1–4） | **未实现** | 后续需独立战斗归属、多人回合同步和 UI/网络机制 |
 | 键盘 TUI / macOS GUI / HTML | **仅基础 CLI** | 亮/暗色文字；全键盘 TUI、SwiftUI/HTML 尚未开发 |
 | 三端存档互通 | **协议预留** | Rust Game 快照 + revision；无会话服务、CAS、原生GUI或WASM |
-| 自动质量验证 | **已建立持续测试** | macOS/Linux CI、Clippy、单测、41个BDD Given/When/Then验收场景、快照恢复、`tks-sim` 每平台1000局种子对局 |
+| 平衡抽样与数值回归 | **首轮成对抽样完成，未达平衡验收** | 五职业×11飞升×20种子×双策略共2200局；孙尚香战术胜场180→192、曹操仍220/220，模拟器有策略偏差，缺真人与逐资源指标；见 [试验报告](BALANCE_FINDINGS_2026-10-16.md) |
+| 自动质量验证 | **已建立持续测试** | macOS/Linux CI、Clippy、单测、44个BDD Given/When/Then验收场景、快照恢复、`tks-sim` 每平台1000局种子对局 |
 
 ## 六 Boss 与协同敌军可观察规则
 
