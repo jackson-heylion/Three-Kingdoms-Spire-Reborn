@@ -147,6 +147,7 @@ pub struct Game {
     #[serde(default)] pub boon_choices: Vec<String>,
     #[serde(default)] pub variants: Option<[u8; 3]>,
     #[serde(default)] pub mode: RunMode,
+    #[serde(default)] pub run_id: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -167,8 +168,12 @@ pub enum Action {
 impl Game {
     pub fn new(hero: Hero, seed: u64) -> Self { Self::new_with_ascension(hero, seed, 0) }
     pub fn new_with_mode(hero: Hero, seed: u64, ascension: u8, mode: RunMode) -> Self {
+        Self::new_with_identity(hero, seed, ascension, mode, String::new())
+    }
+    pub fn new_with_identity(hero: Hero, seed: u64, ascension: u8, mode: RunMode, run_id: String) -> Self {
         let mut game = Self::new_with_ascension(hero,seed,ascension);
         game.mode = mode;
+        game.run_id = run_id;
         game
     }
     pub fn new_with_ascension(hero: Hero, seed: u64, ascension: u8) -> Self {
@@ -187,7 +192,7 @@ impl Game {
             potion_bag: vec!["healing".into()], shop_relic: None,
             relic_history: vec!["军旗".into()], victories: 0,
             boons: vec![], boon_choices: vec![], variants: None,
-            mode: RunMode::Standard,
+            mode: RunMode::Standard, run_id: String::new(),
         };
         game.refresh_route();
         game
