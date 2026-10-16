@@ -25,6 +25,7 @@ Feature: Choices in Romance of the Three Kingdoms have consequences
     And the lore scene "taoyuan"
     When I choose 1
     Then the flag "taoyuan_oath" is present
+    And my deck contains "oath_guard"
     When I start a battle
     Then battle guard is at least 10
 
@@ -33,6 +34,7 @@ Feature: Choices in Romance of the Three Kingdoms have consequences
     And the lore scene "longzhong"
     When I choose 1
     Then the flag "longzhong_plan" is present
+    And my deck contains "thought_spring"
     And the bond with "刘备" is active
     And act 1 offers the lore scene "borrow_arrows"
     When I start a battle
@@ -43,6 +45,7 @@ Feature: Choices in Romance of the Three Kingdoms have consequences
     And the lore scene "jiangdong_wedding"
     When I choose 1
     Then the flag "jiangdong_covenant" is present
+    And my deck contains "arrows_on_discard"
     And the bond with "刘备" is active
     And the bond with "孙权" is active
     And act 1 offers the lore scene "river"
@@ -54,6 +57,7 @@ Feature: Choices in Romance of the Three Kingdoms have consequences
     And the lore scene "xudu"
     When I choose 1
     Then the flag "xu_capital" is present
+    And my deck contains "granary_support"
     And the bond with "荀彧" is active
     And act 1 offers the lore scene "guandu"
     When I start a battle
@@ -64,6 +68,7 @@ Feature: Choices in Romance of the Three Kingdoms have consequences
     And the lore scene "redhare"
     When I choose 1
     Then the flag "red_hare" is present
+    And my deck contains "blood_courage"
     And the bond with "丁原" is active
     And act 0 offers the lore scene "pavilion"
     When I start a battle
