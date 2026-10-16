@@ -86,3 +86,33 @@ jobs:
 
       - name: Seeded autoplay and snapshot stability (1000 runs)
         run: cargo run --release --bin tks-sim -- 1000
+      - name: Paired balance report by hero and ascension
+        run: cargo run --release --bin tks-sim -- --balance 20 "$RUNNER_TEMP/tks-balance.json"
+
+      - name: Validate balance report structure
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,os,pathlib
+          path=pathlib.Path(os.environ["RUNNER_TEMP"])/"tks-balance.json"
+          report=json.loads(path.read_text())
+          assert report["schema_version"] == 1
+          assert report["samples_per_cell"] == 20
+          assert len(report["cells"]) == 55
+          assert sum(x["samples"] for x in report["cells"]) == 1100
+          assert len(set((x["hero"],x["ascension"]) for x in report["cells"])) == 55
+          assert all(0 <= x["baseline_wins"] <= 20 and
+                     0 <= x["tactical_wins"] <= 20 and
+                     0 <= x["baseline_boss_deaths"] <= 20 and
+                     0 <= x["tactical_boss_deaths"] <= 20
+                     for x in report["cells"])
+          assert sum(x["deaths"] for x in report["baseline_death_encounters"]) == 1100 - sum(x["baseline_wins"] for x in report["cells"])
+          assert sum(x["deaths"] for x in report["tactical_death_encounters"]) == 1100 - sum(x["tactical_wins"] for x in report["cells"])
+          print("Verified deterministic 55-cell paired balance sample, no invented rates")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tks-balance-${{ matrix.os }}
+          path: ${{ runner.temp }}/tks-balance.json
+          retention-days: 30
+
