@@ -82,3 +82,13 @@ Scenario: Guan Yu's debt and mercy reveal a once-only hidden ending
     And the hidden conclusion "sword_debt" is unlocked
     When I save and restore
     Then the hidden conclusion "sword_debt" is unlocked
+
+  Scenario: An actual connected-map story lane opens the correct literary scene
+    Given a "guanyu" campaign with seed 251
+    When I travel to a story node
+    Then the current literary chapter is "taoyuan"
+    When I choose 1
+    Then the flag "taoyuan_oath" is present
+    When I save and restore
+    Then the flag "taoyuan_oath" is present
+
