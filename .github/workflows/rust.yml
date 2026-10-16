@@ -55,6 +55,37 @@ jobs:
           print('CLI mid-combat save/theme/resume smoke test passed')
           PY
 
+      - name: CLI potion status and trigger smoke test
+        shell: bash
+        run: |
+          SAVEDIR="$RUNNER_TEMP/tks-potion"
+          printf 'new zhuge 8181\nchoose 1\nquit\n' | cargo run --quiet -- --plain --save-dir "$SAVEDIR" > "$RUNNER_TEMP/tks-potion-setup.log"
+          python3 - <<'PY'
+          import json, os, pathlib
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'tks-potion' / 'save.json'
+          game = json.loads(path.read_text())
+          game['potion_bag'] = ['poison']
+          game['potions'] = 1
+          game['battle']['powers'] = [{'id': 'toxic_reversal', 'stacks': 2}]
+          path.write_text(json.dumps(game, ensure_ascii=False))
+          PY
+          printf 'use 1 1\nevents\nquit\n' | cargo run --quiet -- --plain --save-dir "$SAVEDIR" > "$RUNNER_TEMP/tks-potion-result.log"
+          python3 - <<'PY'
+          import json, os, pathlib
+          base = pathlib.Path(os.environ['RUNNER_TEMP'])
+          game = json.loads((base / 'tks-potion' / 'save.json').read_text())
+          battle = game['battle']
+          assert battle['foes'][0]['poison'] == 14
+          assert game['potions'] == 0 and game['potion_bag'] == []
+          tail = battle['events'][-3:]
+          assert [event['kind'] for event in tail] == ['potion_used', 'status_applied', 'power_triggered'], tail
+          assert [event['amount'] for event in tail] == [1, 12, 2]
+          assert tail[0]['target'] == 'foe:0'
+          assert all(a['seq'] < b['seq'] for a, b in zip(tail, tail[1:]))
+          assert 'PotionUsed' in (base / 'tks-potion-result.log').read_text()
+          print('CLI potion status and trigger smoke test passed')
+          PY
+
       - name: CLI selected attack tutoring end-to-end
         shell: bash
         run: |

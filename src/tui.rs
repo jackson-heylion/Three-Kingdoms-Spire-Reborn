@@ -50,7 +50,12 @@ pub(super) fn choices(app:&App,target:usize)->Vec<(String,String)> {
                         format!("play {} {target}",index+1))).collect::<Vec<_>>());
             options.push(("结束本回合".into(),"end".into()));
             for (index,potion) in game.potion_bag.iter().enumerate() {
-                options.push((format!("药剂{}：{}",index+1,potion_name(potion)),
+                let scope = match potion.as_str() {
+                    "fire" | "poison" => format!(" →目标{target}"),
+                    "weak" => " →敌方全体".to_owned(),
+                    _ => String::new(),
+                };
+                options.push((format!("药剂{}：{}{}",index+1,potion_name(potion),scope),
                     format!("use {} {target}",index+1)));
             }
             options
@@ -259,6 +264,18 @@ mod p1_accessibility_tests {
     use super::*;
     use three_kingdoms_spire_reborn::{Action, Game, RunMode, content::Hero};
 
+    #[test]
+    fn potion_menu_exposes_single_target_and_all_foe_scope() {
+        let mut game = Game::new(Hero::GuanYu, 8184);
+        game.apply(Action::Choose { index: 1 }).unwrap();
+        game.potion_bag = vec!["poison".into(), "weak".into()];
+        game.potions = 2;
+        let menu = choices(&app(Some(game)), 2);
+        assert!(menu.iter().any(|(label, command)|
+            label.contains("→目标2") && command == "use 1 2"));
+        assert!(menu.iter().any(|(label, command)|
+            label.contains("→敌方全体") && command == "use 2 2"));
+    }
     #[test]
     fn narrow_tty_clips_cjk_without_splitting_codepoints() {
         let label = "大战·孙尚香出征";
