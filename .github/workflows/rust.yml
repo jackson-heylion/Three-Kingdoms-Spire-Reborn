@@ -108,6 +108,37 @@ jobs:
           print('CLI doctrine reload and display confirmed')
           PY
 
+      - name: CLI verified replay, inventory and damaged-save recovery
+        shell: bash
+        run: |
+          SAVEDIR="$RUNNER_TEMP/tks-recovery"
+          printf 'new guanyu 4321\nchoose 1\nverify\nhistory\ninventory\nachievements\ncodex\nquit\n' | cargo run --quiet -- --plain --save-dir "$SAVEDIR" > "$RUNNER_TEMP/tks-integrity.log"
+          python3 - <<'PY'
+          import json,os,pathlib
+          d=pathlib.Path(os.environ["RUNNER_TEMP"])/"tks-recovery"
+          state=json.loads((d/"save.json").read_text())
+          assert len(state["action_history"])==1 and state["floor"]==1
+          assert (d/"save.bak").exists(), "rotated backup was not retained"
+          display=(pathlib.Path(os.environ["RUNNER_TEMP"])/"tks-integrity.log").read_text()
+          assert "回放校验通过，共1步" in display
+          assert "【全局背包】" in display
+          assert "【战功成就】" in display
+          assert "【图鉴】" in display
+          (d/"save.json").write_text("{damaged")
+          print("Corrupted the primary save while leaving valid .bak")
+          PY
+          printf 'verify\nquit\n' | cargo run --quiet -- --plain --save-dir "$SAVEDIR" > "$RUNNER_TEMP/tks-recovery.log"
+          python3 - <<'PY'
+          import pathlib,json,os
+          d=pathlib.Path(os.environ["RUNNER_TEMP"])/"tks-recovery"
+          game=json.loads((d/"save.json").read_text())
+          assert game["floor"]==1 and len(game["action_history"])==1
+          assert (d/"save.corrupt").read_text()=="{damaged"
+          display=(pathlib.Path(os.environ["RUNNER_TEMP"])/"tks-recovery.log").read_text()
+          assert "已从上一次有效" in display and "回放校验通过" in display
+          print("Corrupt save quarantined, backup restored and seed-exact history verified")
+          PY
+
       - name: Seeded autoplay and snapshot stability (1000 runs)
         run: cargo run --release --bin tks-sim -- 1000
       - name: Paired balance report by hero and ascension
@@ -181,6 +212,22 @@ jobs:
                      for c in doc['cells'])
           print('Normal starter, 33 stratified policies and honest offer/take accounting verified')
           PY
+
+      - name: Build downloadable terminal edition archives
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp target/release/tks dist/tks
+          cp target/release/tks-sim dist/tks-sim
+          cp README.md LICENSE dist/ || true
+          mkdir -p dist/docs
+          cp docs/ROADMAP.md docs/FEATURE_MATRIX.md dist/docs/
+          tar -czf "$RUNNER_TEMP/tks-cli-${{ matrix.os }}.tar.gz" -C dist .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tks-cli-${{ matrix.os }}
+          path: ${{ runner.temp }}/tks-cli-${{ matrix.os }}.tar.gz
+          retention-days: 30
 
       - uses: actions/upload-artifact@v4
         with:
