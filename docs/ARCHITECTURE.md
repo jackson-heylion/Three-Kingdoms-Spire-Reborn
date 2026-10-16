@@ -86,3 +86,13 @@ Snapshot: {version:2,revision:42,seed:...,rng_state:...,stage:"combat",battle:{.
 `Card.temporary` 经 `#[serde(default)]` 加入旧 V2 快照而无需迁移，非战斗牌组禁止携带临时标志。临时牌生成/复制仅进入当前 `Battle.hand`；打出、手动弃换、回合末都进入消耗堆，不会改变 `Game.deck`；生成超过十张手牌上限的部分直接丢弃且不生成事件。
 
 检索、复制、生成分别产生强类型 `CardTutored`、`CardCopied`、`CardGenerated`，只有真正正常抽牌时才产生 `CardDrawn`，避免诸葛亮抽牌护甲等持续能力因检索虚增。近期事件簿含全部这16类事件，但仍不是完整事件源重放。
+
+## 六统帅战技的状态机与下一回合压力（2026-10-16）
+
+战斗意图不再仅为 `Attack`/`Guard`/`Hex` 等通用效果。`BossMove` 是原生强类型、可序列化的六种招式；`Intent::Boss(BossMove)` 表示在玩家可读意图中预告，`Intent::Assist` 表示有同伴存活的军中支援行为。行动在 `Game::end_turn` 中执行，产生 `EventKind::EnemyTechnique`，其编号随最近80条事件快照保存。
+
+六 Boss 第1、4、7……次敌方意图优先选专属技能。司马懿与左慈在玩家上回合分别打出至少4张、5张卡后也会选择专属招式。为防止从 `Battle.played`（全局累计值）误判，新增 `played_this_turn` 和 `last_turn_cards` 两个 `u8`，在结束玩家回合时复制并清空；三字段采用 serde 默认值与旧版V2快照兼容。
+
+司马懿的暗度陈仓使用 `next_turn_energy_penalty` 存放延期的军令减益，上限2；在新回合恢复军令时先扣除后清零，能够抵御存档恢复后的重复扣费。敌人旧护甲在二阶段转换前清除，避免刚触发的二阶段护甲被同一回合错误清空。友军布阵只影响存活成员；支援者单独存活时不会重新选择协同意图。Boss 的行动意图和未来军令压力均属于战斗权威快照；所有操作仍须经 `Game::apply` 的事务验证。
+
+参阅 [Boss 专属机制与反制指南](BOSS_TACTICS.md)，验证由 `features/boss_tactics.feature`（8种新增场景）和 Rust 单元测试共同提供。当前这是带确定性决策条件的脚本战技，并不是 AI 自主学习或完整行为树。
