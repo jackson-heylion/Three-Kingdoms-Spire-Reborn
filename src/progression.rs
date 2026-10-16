@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub const PROFILE_VERSION: u32 = 1;
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Profile {
     pub version: u32,
@@ -37,10 +37,19 @@ pub struct RunRecord {
     pub relics: Vec<String>,
 }
 
-impl Profile {
-    pub fn new() -> Self {
-        Self { version: PROFILE_VERSION, ..Self::default() }
+impl Default for Profile {
+    fn default() -> Self {
+        Self {
+            version: PROFILE_VERSION, started: 0, wins: 0, losses: 0,
+            best_floor: 0, best_score: 0, ascensions: BTreeMap::new(),
+            hero_wins: BTreeMap::new(), seen_cards: BTreeSet::new(),
+            seen_enemies: BTreeSet::new(), discovered_relics: BTreeSet::new(),
+            recorded_results: BTreeSet::new(), records: Vec::new(),
+        }
     }
+}
+impl Profile {
+    pub fn new() -> Self { Self::default() }
 
     pub fn from_json(source: &str) -> Result<Self, String> {
         let result: Self = serde_json::from_str(source).map_err(|e| format!("战功簿解析失败: {e}"))?;
