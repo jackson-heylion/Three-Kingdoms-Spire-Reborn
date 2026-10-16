@@ -2084,12 +2084,13 @@ mod tests {
     fn bounded_event_journal_stays_valid_through_save_roundtrip() {
         let mut g = Game::new(Hero::GuanYu, 706);
         g.apply(Action::Choose { index: 1 }).unwrap();
+        let initial_seq = g.battle.as_ref().unwrap().event_seq;
         for n in 0..135 {
             g.combat_event(EventKind::TurnStarted,"test",n,None);
         }
         let b = g.battle.as_ref().unwrap();
         assert_eq!(b.events.len(),MAX_RECENT_EVENTS);
-        assert_eq!(b.event_seq,135);
+        assert_eq!(b.event_seq,initial_seq+135);
         let snap = g.to_json().unwrap();
         assert_eq!(Game::from_json(&snap).unwrap().to_json().unwrap(),snap);
     }
@@ -2187,6 +2188,7 @@ mod tests {
         let mut g=Game::new(Hero::GuanYu,713);
         g.apply(Action::Choose {index:1}).unwrap();
         let b=g.battle.as_mut().unwrap();
+        b.foes.push(b.foes[0].clone());
         b.foes.push(b.foes[0].clone());
         b.foes[0].hp=2;
         b.foes[0].block=30;
