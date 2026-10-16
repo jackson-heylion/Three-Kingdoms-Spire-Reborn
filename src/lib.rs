@@ -614,15 +614,15 @@ impl Game {
             } else { None };
             foe.intent = if let Some(action) = boss_move {
                 Intent::Boss(action)
-            } else if foe.phase > 0 && foe.id == "tiger_general" && turn % 2 == 0 {
+            } else if foe.phase > 0 && foe.id == "tiger_general" && turn.is_multiple_of(2) {
                 Intent::MultiAttack((attack / 2).max(4), 3)
-            } else if foe.phase > 0 && foe.id == "war_elephant" && turn % 3 == 0 {
+            } else if foe.phase > 0 && foe.id == "war_elephant" && turn.is_multiple_of(3) {
                 Intent::Guard(12 + act * 3)
-            } else if foe.phase > 0 && foe.id == "sacred_beast" && turn % 3 == 0 {
+            } else if foe.phase > 0 && foe.id == "sacred_beast" && turn.is_multiple_of(3) {
                 Intent::Hex(2, 1)
-            } else if foe.phase > 0 && foe.id == "royal_guard" && living > 1 && turn % 2 == 0 {
+            } else if foe.phase > 0 && foe.id == "royal_guard" && living > 1 && turn.is_multiple_of(2) {
                 Intent::Assist(8 + act * 2)
-            } else if foe.phase > 0 && foe.id == "elite" && turn % 3 == 0 {
+            } else if foe.phase > 0 && foe.id == "elite" && turn.is_multiple_of(3) {
                 Intent::Rally(3)
             } else if living > 1
                 && matches!(foe.id.as_str(),"officer"|"tactician"|"royal_guard")
@@ -3550,14 +3550,13 @@ mod elite_phase_regression_tests {
             }
             game.roll_intents();
             let intent = &game.battle.as_ref().unwrap().foes[0].intent;
-            assert!(match (id, intent) {
-                ("tiger_general", Intent::MultiAttack(_, 3)) => true,
-                ("war_elephant", Intent::Guard(_)) => true,
-                ("sacred_beast", Intent::Hex(2, 1)) => true,
-                ("royal_guard", Intent::Assist(_)) => true,
-                ("elite", Intent::Rally(3)) => true,
-                _ => false,
-            }, "expected phase-specific intent for {id}: {intent:?}");
+            assert!(matches!((id, intent),
+                ("tiger_general", Intent::MultiAttack(_, 3))
+                | ("war_elephant", Intent::Guard(_))
+                | ("sacred_beast", Intent::Hex(2, 1))
+                | ("royal_guard", Intent::Assist(_))
+                | ("elite", Intent::Rally(3))
+            ), "expected phase-specific intent for {id}: {intent:?}");
         }
     }
 }
