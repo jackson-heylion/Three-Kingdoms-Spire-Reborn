@@ -1247,9 +1247,9 @@ impl Game {
             let added=self.battle.as_ref().expect("battle").hand.len().saturating_sub(old_len) as u64;
             self.record_metric(|c| c.sun_combo_draws = c.sun_combo_draws.saturating_add(added));
         }
-        if self.hero == Hero::CaoCao && self.battle.as_ref().expect("battle").command >= 3 {
+        if self.hero == Hero::CaoCao && self.battle.as_ref().expect("battle").command >= 4 {
             let b = self.battle.as_mut().expect("battle");
-            b.command -= 3;
+            b.command -= 4;
             b.block += 5;
             b.energy += 1;
             self.record_metric(|c| {
@@ -3020,11 +3020,27 @@ mod tests {
         assert_eq!(g.telemetry.totals.battles_started,1);
     }
     #[test]
+    fn caocao_command_four_threshold_prevents_a_three_stack_free_refund() {
+        let mut g=Game::new(Hero::CaoCao,6006);
+        g.apply(Action::Choose{index:1}).unwrap();
+        let b=g.battle.as_mut().unwrap();
+        b.command=2;
+        b.energy=3;
+        b.hand=vec![Card::new("defend"),Card::new("defend")];
+        g.apply(Action::Play{index:1,target:1}).unwrap();
+        assert_eq!(g.battle.as_ref().unwrap().command,3);
+        assert_eq!(g.telemetry.totals.command_energy,0);
+        g.apply(Action::Play{index:1,target:1}).unwrap();
+        assert_eq!(g.battle.as_ref().unwrap().command,0);
+        assert_eq!(g.telemetry.totals.command_energy,1);
+        assert_eq!(g.telemetry.totals.command_block,5);
+    }
+    #[test]
     fn telemetry_records_exact_command_energy_and_guard_from_one_proc() {
         let mut g=Game::new(Hero::CaoCao,6003);
         g.apply(Action::Choose{index:1}).unwrap();
         let b=g.battle.as_mut().unwrap();
-        b.command=2;
+        b.command=3;
         b.energy=2;
         b.hand=vec![Card::new("defend")];
         g.apply(Action::Play{index:1,target:1}).unwrap();
