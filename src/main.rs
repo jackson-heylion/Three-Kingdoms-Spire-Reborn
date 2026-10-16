@@ -39,6 +39,7 @@ fn atomic_write(path: &std::path::Path, data: &str) -> io::Result<()> {
     if let Some(parent) = path.parent() { fs::create_dir_all(parent)?; }
     let temporary = path.with_extension(format!("tmp.{}", std::process::id()));
     fs::write(&temporary, data)?;
+    if path.exists() { fs::copy(path,path.with_extension("bak"))?; }
     fs::rename(temporary, path)?;
     Ok(())
 }
@@ -67,10 +68,37 @@ fn card_label(card: &Card) -> String {
 }
 impl App {
     fn load(&mut self) -> Result<(), String> {
-        let raw = fs::read_to_string(save_path(&self.dir)).map_err(|e| e.to_string())?;
-        self.game = Some(Game::from_json(&raw)?);
-        self.message = "读取进度成功，战斗牌堆和随机状态已恢复。".into();
-        Ok(())
+        let path=save_path(&self.dir);
+        let current=fs::read_to_string(&path)
+            .map_err(|e|e.to_string()).and_then(|raw|Game::from_json(&raw));
+        match current {
+            Ok(game)=>{
+                self.game=Some(game);
+                self.message="读取进度成功，战斗牌堆和随机状态已恢复。".into();
+                Ok(())
+            }
+            Err(original_error)=>{
+                let backup=path.with_extension("bak");
+                let fallback=fs::read_to_string(&backup)
+                    .map_err(|e|e.to_string()).and_then(|raw|Game::from_json(&raw));
+                match fallback {
+                    Ok(game)=>{
+                        // Preserve the damaged source for manual inspection;
+                        // do not overwrite the last verified good backup.
+                        if path.exists() {
+                            fs::rename(&path,path.with_extension("corrupt"))
+                                .map_err(|e|format!("无法保留受损存档: {e}"))?;
+                        }
+                        fs::copy(&backup,&path)
+                            .map_err(|e|format!("备份有效，但恢复到主路径失败: {e}"))?;
+                        self.game=Some(game);
+                        self.message="主存档异常，已从上一次有效 .bak 备份恢复；损坏原文件已保留为 .corrupt。".into();
+                        Ok(())
+                    }
+                    Err(backup_error)=>Err(format!("主存档错误：{original_error}；备份恢复失败：{backup_error}"))
+                }
+            }
+        }
     }
     fn save(&self) -> Result<(), String> {
         let game = self.game.as_ref().ok_or("尚未开局")?;
@@ -234,7 +262,7 @@ impl App {
         };
         let result: Result<String, String> = match args[0].to_ascii_lowercase().as_str() {
             "quit" | "exit" | "q" => { let _ = self.save(); return false; }
-            "help" | "h" => Ok("new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 在出征前指定三幕变体；daily YYYY-MM-DD；load/save；choose N；play N [目标]；discard N 弃换；end；use [药剂号] [目标]；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看连通路线；relics；lore 看纪事；bonds 看人物羁绊；chapter 1-120 回目索引；powers 持续能力；events 最近战斗结算；metrics 战役统计；doctrine 查看流派 / doctrine auto|代码 选择；chronicle；theme dark|light；status；quit。".into()),
+            "help" | "h" => Ok("new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 在出征前指定三幕变体；daily YYYY-MM-DD；load/save；choose N；play N [目标]；discard N 弃换；end；use [药剂号] [目标]；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看连通路线；relics；lore 看纪事；bonds 看人物羁绊；chapter 1-120 回目索引；powers 持续能力；events 最近战斗结算；metrics 战役统计；verify 回放检验；history 最近操作；doctrine 查看流派 / doctrine auto|代码 选择；chronicle；theme dark|light；status；quit。".into()),
             "new" | "custom" => {
                 let mode = if args[0] == "custom" {RunMode::Custom} else {RunMode::Standard};
                 let hero = args.get(1).and_then(|s| Hero::parse(s)).unwrap_or(Hero::GuanYu);
@@ -306,6 +334,16 @@ impl App {
                 })),
             "doctrine" if args.len()==1 => Ok(self.game.as_ref()
                 .map_or("请先输入 new 开局".into(),|g|g.doctrine_status())),
+            "verify" => self.game.as_ref().ok_or("请先开局")
+                .and_then(|game|game.verify_action_replay()
+                    .map(|count|format!("全战役操作回放校验通过，共{count}步；随机数、地图、卡牌、战斗事件和剧情结果一致。"))),
+            "history" => Ok(self.game.as_ref().map_or("尚未开局".into(),|g|{
+                g.action_history.as_ref().map_or("旧存档缺少完整操作历史".into(),|actions|
+                    format!("累计{}次成功操作。最近15步：\n{}",actions.len(),
+                        actions.iter().enumerate().rev().take(15).collect::<Vec<_>>()
+                        .iter().rev().map(|(idx,a)|format!("{}. {a:?}",idx+1))
+                        .collect::<Vec<_>>().join("\n")))
+            })),
             "deck" => Ok(self.game.as_ref().map_or("尚未开局".into(), |g| {
                 g.deck.iter().enumerate().map(|(i,c)| format!("{}. {}", i+1, card_label(c))).collect::<Vec<_>>().join("\n")
             })),
@@ -458,7 +496,7 @@ fn main() {
         use_ansi: io::stdout().is_terminal() && !args.iter().any(|a| a == "--plain"),
         message: String::new(),
     };
-    if save_path(&app.dir).exists()
+    if (save_path(&app.dir).exists() || save_path(&app.dir).with_extension("bak").exists())
         && let Err(err) = app.load()
     {
         app.message = format!("存档未能加载：{err}；可输入 new 开新局。");
