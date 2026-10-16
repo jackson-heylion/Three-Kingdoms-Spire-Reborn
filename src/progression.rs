@@ -97,16 +97,17 @@ impl Profile {
             (*id,*name,*desc,self.achievements.contains(*id))).collect()
     }
     fn refresh_achievements(&mut self) {
-        let mut add=|id|{self.achievements.insert(id.to_string());};
-        if self.started>0 {add("first_step");}
-        if self.longest_campaign>=2 {add("first_act");}
-        if self.longest_campaign>=3 {add("final_act");}
-        if self.wins>0 {add("first_clear");}
-        if self.records.iter().any(|r|r.won && r.mode==RunMode::Standard && r.ascension>=5) {add("ascension_five");}
-        if self.records.iter().any(|r|r.won && r.mode==RunMode::Standard && r.ascension==10) {add("ascension_ten");}
-        if self.hero_wins.len()>=5 {add("five_heroes");}
-        if self.seen_cards.len()>=40 {add("discover_40");}
-        if self.discovered_relics.len()>=10 {add("relic_10");}
+        let mut unlocked=Vec::new();
+        if self.started>0 {unlocked.push("first_step");}
+        if self.longest_campaign>=2 {unlocked.push("first_act");}
+        if self.longest_campaign>=3 {unlocked.push("final_act");}
+        if self.wins>0 {unlocked.push("first_clear");}
+        if self.records.iter().any(|r|r.won && r.mode==RunMode::Standard && r.ascension>=5) {unlocked.push("ascension_five");}
+        if self.records.iter().any(|r|r.won && r.mode==RunMode::Standard && r.ascension==10) {unlocked.push("ascension_ten");}
+        if self.hero_wins.len()>=5 {unlocked.push("five_heroes");}
+        if self.seen_cards.len()>=40 {unlocked.push("discover_40");}
+        if self.discovered_relics.len()>=10 {unlocked.push("relic_10");}
+        for id in unlocked {self.achievements.insert(id.to_owned());}
     }
 
     pub fn observe(&mut self, game: &Game) {
