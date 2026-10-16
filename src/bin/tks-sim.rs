@@ -325,10 +325,10 @@ fn simulate_config(hero:Hero,seed:u64,ascension:u8,policy:Policy,package:SunPack
                 if game.rewards.iter().any(|c|active.contains(&c.id)) {
                     focus_offer_screens+=1;
                 }
-                if let Action::Choose{index}=action {
-                    if index>0 && game.rewards.get(index-1).is_some_and(|c|active.contains(&c.id)) {
-                        focus_picks+=1;
-                    }
+                if let Action::Choose{index}=action
+                    && index>0 && game.rewards.get(index-1).is_some_and(|c|active.contains(&c.id))
+                {
+                    focus_picks+=1;
                 }
             }
         }
