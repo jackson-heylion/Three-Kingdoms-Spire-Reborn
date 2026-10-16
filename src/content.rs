@@ -1,6 +1,7 @@
 //! Independent, original Three Kingdoms content catalogue.
 //! Add new IDs without changing the save schema; never serialize localized display names.
 use serde::{Deserialize, Serialize};
+use crate::combat::PowerId;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -87,6 +88,7 @@ pub enum Effect {
     Companion(i32),
     Tactics(i32),
     DiscardStrike(i32),
+    Power(PowerId, i32),
     Unplayable,
 }
 
@@ -195,6 +197,11 @@ pub fn card_spec(id: &str) -> Option<CardSpec> {
         "huanshe" => ("幻影换阵", "获得2次弃换行动", 1, Effect::Tactics(2), false),
         "jiecang" => ("借势回旋", "获得1次弃换行动", 0, Effect::Tactics(1), false),
         "feishi" => ("策应飞矢", "造成7点伤害；被弃换时自动触发", 1, Effect::DiscardStrike(7), false),
+        "oath_guard" => ("桃园义阵", "持续：每次打出攻击牌，获得3护甲/层", 1, Effect::Power(PowerId::OathGuard, 1), true),
+        "thought_spring" => ("卧龙筹策", "持续：每回合首次打出非攻击牌，回复1军令/层并抽1", 1, Effect::Power(PowerId::ThoughtSpring, 1), true),
+        "arrows_on_discard" => ("飞羽随形", "持续：主动弃换手牌时对敌军造成4伤害/层", 1, Effect::Power(PowerId::ArrowsOnDiscard, 1), true),
+        "granary_support" => ("屯田补给", "持续：回合末存活亲兵恢复4体力/层", 1, Effect::Power(PowerId::GranarySupport, 1), true),
+        "blood_courage" => ("饮血方天", "持续：受实际伤害额外得到2怒气/层", 1, Effect::Power(PowerId::BloodCourage, 1), true),
         "cursed" => ("军心涣散", "无法主动打出", 0, Effect::Unplayable, false),
         _ => return None,
     };
@@ -210,14 +217,14 @@ pub const NEUTRAL_POOL: &[&str] = &["duanliang", "yingji", "guji", "zhuangji", "
 
 pub fn hero_pool(hero: Hero) -> &'static [&'static str] {
     match hero {
-        Hero::GuanYu => &["yanyue", "zhongyi", "qianli", "juyi", "danqi", "qinglongwu", "yibao", "pojun", "guanxi", "lianzhan", "yidao", "qinying"],
-        Hero::ZhugeLiang => &["bagua", "kongcheng", "jiecaodong", "lianji", "shanchang", "xinghuo", "yingxin", "zhouyuji", "mouduan", "wuhou", "kuce", "fenglei"],
-        Hero::SunShangxiang => &["huanshe", "jiecang", "feishi", "gonglian", "tupo", "jianshu", "liandao", "qiaoying", "yitian", "lianhua", "huashe", "lianying", "yidong", "chuanxin", "jibao"],
-        Hero::CaoCao => &["qingqi", "hujun", "longwei", "tuntian", "tieqi", "junjin", "xiongbi", "jianxiong", "xiaoling", "qunxiong", "shengming", "jianbing", "junshang", "wuwei", "zhaoxian"],
-        Hero::LuBu => &["fennu", "huaji", "xuezhai", "chijian", "shuangji", "baonu", "ranxue", "tianxia", "xiongmeng", "yanren", "zhanqi", "dangguan"],
+        Hero::GuanYu => &["oath_guard", "yanyue", "zhongyi", "qianli", "juyi", "danqi", "qinglongwu", "yibao", "pojun", "guanxi", "lianzhan", "yidao", "qinying"],
+        Hero::ZhugeLiang => &["thought_spring", "bagua", "kongcheng", "jiecaodong", "lianji", "shanchang", "xinghuo", "yingxin", "zhouyuji", "mouduan", "wuhou", "kuce", "fenglei"],
+        Hero::SunShangxiang => &["arrows_on_discard", "huanshe", "jiecang", "feishi", "gonglian", "tupo", "jianshu", "liandao", "qiaoying", "yitian", "lianhua", "huashe", "lianying", "yidong", "chuanxin", "jibao"],
+        Hero::CaoCao => &["granary_support", "qingqi", "hujun", "longwei", "tuntian", "tieqi", "junjin", "xiongbi", "jianxiong", "xiaoling", "qunxiong", "shengming", "jianbing", "junshang", "wuwei", "zhaoxian"],
+        Hero::LuBu => &["blood_courage", "fennu", "huaji", "xuezhai", "chijian", "shuangji", "baonu", "ranxue", "tianxia", "xiongmeng", "yanren", "zhanqi", "dangguan"],
     }
 }
-pub fn card_count() -> usize { 95 }
+pub fn card_count() -> usize { 100 }
 
 pub const ENEMY_IDS: &[&str] = &["bandit", "archer", "officer", "shaman", "yellow_turban", "pyromancer", "spearman", "cuirass", "raider", "crossbowman", "wolf", "tomb_guard", "firelancer", "tactician", "horse_archer", "assassin", "panther", "iron_guard", "witch", "sling", "elite", "war_elephant", "royal_guard", "tiger_general", "sacred_beast", "zhangjiao", "sunjian", "dongzhuo", "yuanshao", "simayi", "zuoci"];
 
