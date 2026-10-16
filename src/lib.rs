@@ -690,7 +690,7 @@ impl Game {
                 Intent::MultiAttack(power, hits) => {
                     let mut total = 0;
                     for _ in 0..hits {
-                        if self.hp == 0 { break; }
+                        if self.hp == 0 || self.battle.as_ref().expect("battle").foes[i].hp == 0 { break; }
                         total += self.enemy_attack(i, power);
                     }
                     messages.push(format!("{name}连续进攻{hits}次，受到{total}点伤害"));
@@ -1015,5 +1015,114 @@ mod tests {
         let game = Game::new(Hero::ZhugeLiang, 2);
         let json = game.to_json().unwrap().replace("\"version\": 2", "\"version\": 99");
         assert!(Game::from_json(&json).is_err());
+    }
+
+    #[test]
+    fn every_original_card_is_playable_and_serializable() {
+        let classes = [Hero::GuanYu, Hero::ZhugeLiang, Hero::SunShangxiang, Hero::CaoCao, Hero::LuBu];
+        let mut all = vec!["strike", "defend"];
+        all.extend(REWARD_POOL.iter().copied());
+        all.extend(NEUTRAL_POOL.iter().copied());
+        for hero in classes { all.extend(hero_pool(hero).iter().copied()); }
+        all.sort_unstable();
+        all.dedup();
+        assert_eq!(all.len() + 1, content::card_count());
+        for id in all {
+            let mut g = Game::new(Hero::GuanYu, 42);
+            g.apply(Action::Choose { index: 1 }).unwrap();
+            let b = g.battle.as_mut().unwrap();
+            b.energy = 99;
+            b.hand = vec![Card::new(id)];
+            for foe in &mut b.foes { foe.max_hp = 10000; foe.hp = 10000; }
+            assert!(g.apply(Action::Play { index: 1, target: 1 }).is_ok(), "unplayable card {id}");
+            let json = g.to_json().unwrap();
+            assert!(Game::from_json(&json).is_ok(), "invalid snapshot after {id}");
+        }
+    }
+    #[test]
+    fn each_hero_passive_has_a_distinct_mechanical_effect() {
+        let entries = [
+            (Hero::GuanYu, "strike"), (Hero::ZhugeLiang, "defend"),
+            (Hero::SunShangxiang, "strike"), (Hero::CaoCao, "defend"),
+            (Hero::LuBu, "xuezhai"),
+        ];
+        for (hero, card) in entries {
+            let mut g = Game::new(hero, 321);
+            g.apply(Action::Choose { index: 1 }).unwrap();
+            let b = g.battle.as_mut().unwrap();
+            b.energy = 99;
+            b.hand = vec![Card::new(card)];
+            g.apply(Action::Play { index: 1, target: 1 }).unwrap();
+            let b = g.battle.as_ref().unwrap();
+            assert!(match hero {
+                Hero::GuanYu => b.momentum > 0,
+                Hero::ZhugeLiang => b.scheme > 0,
+                Hero::SunShangxiang => b.combo > 0,
+                Hero::CaoCao => b.command > 0,
+                Hero::LuBu => b.fury > 0,
+            });
+        }
+    }
+    #[test]
+    fn v1_saves_migrate_without_losing_battle_state() {
+        let mut g = Game::new(Hero::SunShangxiang, 51);
+        g.apply(Action::Choose { index: 1 }).unwrap();
+        let mut raw: serde_json::Value = serde_json::from_str(&g.to_json().unwrap()).unwrap();
+        raw["version"] = serde_json::json!(1);
+        for field in ["ascension", "event_id", "potion_bag", "shop_relic", "relic_history", "victories"] {
+            raw.as_object_mut().unwrap().remove(field);
+        }
+        for field in ["vulnerable", "momentum", "scheme", "combo", "command", "fury", "thorns", "played"] {
+            raw["battle"].as_object_mut().unwrap().remove(field);
+        }
+        for enemy in raw["battle"]["foes"].as_array_mut().unwrap() {
+            enemy.as_object_mut().unwrap().remove("weak");
+        }
+        let restored = Game::from_json(&serde_json::to_string(&raw).unwrap()).unwrap();
+        assert_eq!(restored.version, SAVE_VERSION);
+        assert_eq!(restored.battle.as_ref().unwrap().hand.len(), g.battle.as_ref().unwrap().hand.len());
+        assert_eq!(restored.potion_bag, vec!["healing".to_string()]);
+    }
+    #[test]
+    fn relics_are_unique_and_potions_are_consumed() {
+        let mut g = Game::new(Hero::CaoCao, 771);
+        for _ in 0..items::RELICS.len() { g.grant_relic(); }
+        let unique: std::collections::HashSet<_> = g.relics.iter().collect();
+        assert_eq!(unique.len(), g.relics.len());
+        g.apply(Action::Choose { index: 1 }).unwrap();
+        g.potion_bag = vec!["shield".into(), "poison".into()];
+        g.potions = 2;
+        g.apply(Action::UsePotionAt { slot: 1, target: 1 }).unwrap();
+        assert_eq!(g.battle.as_ref().unwrap().block >= 20, true);
+        assert_eq!(g.potion_bag, vec!["poison".to_string()]);
+        g.apply(Action::UsePotionAt { slot: 1, target: 1 }).unwrap();
+        assert_eq!(g.potions, 0);
+    }
+    #[test]
+    fn alternate_act_bosses_and_enemy_catalogue_are_valid() {
+        for id in content::ENEMY_IDS {
+            assert!(content::enemy_hp(id) > 0);
+            assert_ne!(content::enemy_name(id), "无名敌军");
+        }
+        for seed in [2_u64, 3_u64] {
+            let mut g = Game::new(Hero::GuanYu, seed);
+            for floor in [7, 14, 21] {
+                g.floor = floor;
+                let foes = g.generate_foes(Node::Boss);
+                assert_eq!(foes.len(), 1);
+                assert!(foes[0].max_hp >= 75);
+            }
+        }
+    }
+    #[test]
+    fn targeted_camp_upgrade_and_shop_removal_work() {
+        let mut g = Game::new(Hero::ZhugeLiang, 8);
+        g.stage = Stage::Camp;
+        g.apply(Action::Upgrade { index: 10 }).unwrap();
+        assert!(g.deck[9].upgraded);
+        g.stage = Stage::Market;
+        g.apply(Action::Remove { index: 1 }).unwrap();
+        assert_eq!(g.deck.len(), 9);
+        assert_eq!(g.gold, 15);
     }
 }
