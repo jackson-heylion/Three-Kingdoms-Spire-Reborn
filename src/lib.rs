@@ -2301,6 +2301,155 @@ mod tests {
         assert_eq!(g.to_json().unwrap(),snap);
     }
     #[test]
+    fn x_cost_consumes_available_energy_and_scales_damage_and_guard() {
+        let mut g=Game::new(Hero::GuanYu,901);
+        g.apply(Action::Choose {index:1}).unwrap();
+        {
+            let b=g.battle.as_mut().unwrap();
+            b.energy=3;
+            b.foes[0].hp=500;
+            b.foes[0].max_hp=500;
+            b.hand=vec![Card::new("yidao_x")];
+        }
+        let hp=g.battle.as_ref().unwrap().foes[0].hp;
+        g.apply(Action::Play {index:1,target:1}).unwrap();
+        let b=g.battle.as_ref().unwrap();
+        assert_eq!(b.energy,0);
+        assert_eq!(hp-b.foes[0].hp,19); // 3*6 plus starting 1 Guan strength
+        assert!(b.events.iter().any(|evt|evt.kind==EventKind::CardPlayed
+            && evt.source=="yidao_x" && evt.amount==3));
+        let before=b.foes[0].hp;
+        let b=g.battle.as_mut().unwrap();
+        b.hand=vec![Card::new("yidao_x")];
+        g.apply(Action::Play {index:1,target:1}).unwrap();
+        assert_eq!(g.battle.as_ref().unwrap().foes[0].hp,before); // zero-energy X
+        let b=g.battle.as_mut().unwrap();
+        b.energy=2;
+        let mut card=Card::new("x_bulwark");
+        card.upgraded=true;
+        card.enchantment=Some("迅捷".into());
+        b.hand=vec![card];
+        let block=b.block;
+        g.apply(Action::Play {index:1,target:1}).unwrap();
+        let b=g.battle.as_ref().unwrap();
+        assert_eq!(b.energy,0); // Swift does not discount X
+        assert_eq!(b.block-block,14); // 2 * (5+2 upgrade)
+    }
+
+    #[test]
+    fn tutor_accepts_explicit_top_first_choice_and_does_not_trigger_draw_power() {
+        let mut g=Game::new(Hero::ZhugeLiang,902);
+        g.apply(Action::Choose {index:1}).unwrap();
+        g.gain_power(PowerId::WisdomOnDraw,1);
+        {
+            let b=g.battle.as_mut().unwrap();
+            b.draw=vec![Card::new("defend"),Card::new("strike"),Card::new("qinglong")];
+            b.hand=vec![Card::new("xingpan_tutor")];
+            b.energy=3;
+        }
+        let prior=g.to_json().unwrap();
+        assert!(g.apply(Action::PlaySelected {index:1,target:1,selection:99}).is_err());
+        assert_eq!(g.to_json().unwrap(),prior);
+        assert!(g.apply(Action::PlaySelected {index:1,target:1,selection:3}).is_err());
+        assert_eq!(g.to_json().unwrap(),prior);
+        let prior_draw=g.battle.as_ref().unwrap().events.iter()
+            .filter(|e|e.kind==EventKind::CardDrawn).count();
+        let before_guard=g.battle.as_ref().unwrap().block;
+        g.apply(Action::PlaySelected {index:1,target:1,selection:2}).unwrap();
+        let b=g.battle.as_ref().unwrap();
+        assert!(b.hand.iter().any(|c|c.id=="strike"));
+        assert_eq!(b.draw.len(),2);
+        assert_eq!(b.block,before_guard); // Tutor is not a draw
+        assert_eq!(b.events.iter().filter(|e|e.kind==EventKind::CardDrawn).count(),prior_draw);
+        assert!(b.events.iter().any(|e|e.kind==EventKind::CardTutored && e.source=="strike"));
+        let saved=g.to_json().unwrap();
+        assert_eq!(Game::from_json(&saved).unwrap().to_json().unwrap(),saved);
+    }
+
+    #[test]
+    fn copy_from_discard_produces_battle_only_card_and_exhausts_after_play() {
+        let mut g=Game::new(Hero::SunShangxiang,903);
+        g.apply(Action::Choose {index:1}).unwrap();
+        {
+            let b=g.battle.as_mut().unwrap();
+            b.discard=vec![Card::new("strike"),Card::new("defend")];
+            b.hand=vec![Card::new("feiyu_copy")];
+            b.energy=5;
+        }
+        let deck_len=g.deck.len();
+        g.apply(Action::PlaySelected {index:1,target:1,selection:2}).unwrap();
+        let b=g.battle.as_ref().unwrap();
+        assert_eq!(g.deck.len(),deck_len);
+        assert!(b.hand.iter().any(|c|c.id=="strike" && c.temporary));
+        assert!(b.events.iter().any(|e|e.kind==EventKind::CardCopied && e.source=="strike"));
+        let snap=g.to_json().unwrap();
+        let mut restored=Game::from_json(&snap).unwrap();
+        assert_eq!(restored.to_json().unwrap(),snap);
+        restored.apply(Action::Play {index:1,target:1}).unwrap();
+        let b=restored.battle.as_ref().unwrap();
+        assert!(b.exhausted.iter().any(|c|c.id=="strike" && c.temporary));
+        assert!(!b.discard.iter().any(|c|c.id=="strike" && c.temporary));
+    }
+
+    #[test]
+    fn generated_cards_respect_hand_cap_and_exhaust_on_discard_or_end_turn() {
+        let mut g=Game::new(Hero::CaoCao,904);
+        g.apply(Action::Choose {index:1}).unwrap();
+        {
+            let b=g.battle.as_mut().unwrap();
+            b.hand=vec![Card::new("muji")];
+            b.energy=5;
+        }
+        g.apply(Action::Play {index:1,target:1}).unwrap();
+        assert_eq!(g.battle.as_ref().unwrap().hand.iter()
+            .filter(|c|c.temporary && c.id=="defend").count(),2);
+        let b=g.battle.as_mut().unwrap();
+        b.discard_tokens=1;
+        g.apply(Action::Discard {index:1}).unwrap();
+        assert_eq!(g.battle.as_ref().unwrap().exhausted.iter()
+            .filter(|c|c.temporary && c.id=="defend").count(),1);
+        let b=g.battle.as_mut().unwrap();
+        b.foes[0].intent=Intent::Guard(2);
+        g.apply(Action::EndTurn).unwrap();
+        assert!(g.battle.as_ref().unwrap().exhausted.iter()
+            .filter(|c|c.temporary && c.id=="defend").count()>=2);
+        let mut h=Game::new(Hero::CaoCao,905);
+        h.apply(Action::Choose {index:1}).unwrap();
+        let b=h.battle.as_mut().unwrap();
+        b.hand=vec![Card::new("field_recruit")];
+        b.draw.clear();
+        b.discard.clear();
+        b.energy=5;
+        h.apply(Action::Play {index:1,target:1}).unwrap();
+        assert!(h.battle.as_ref().unwrap().hand.iter().any(|c|c.temporary));
+        let b=h.battle.as_mut().unwrap();
+        b.hand.resize(10,Card::new("defend"));
+        // A full hand discards generated effects without writing bogus audit events.
+        b.hand[0]=Card::new("muji");
+        let seen=b.events.iter().filter(|e|e.kind==EventKind::CardGenerated).count();
+        h.apply(Action::Play {index:1,target:1}).unwrap();
+        assert_eq!(h.battle.as_ref().unwrap().events.iter()
+            .filter(|e|e.kind==EventKind::CardGenerated).count(),seen+1);
+        assert_eq!(h.battle.as_ref().unwrap().hand.len(),10);
+    }
+
+    #[test]
+    fn temporary_copy_of_retained_card_exhausts_instead_of_staying_forever() {
+        let mut g=Game::new(Hero::SunShangxiang,906);
+        g.apply(Action::Choose {index:1}).unwrap();
+        let b=g.battle.as_mut().unwrap();
+        b.hand=vec![Card::new("feiyu_copy")];
+        b.discard=vec![Card::new("hold_line")];
+        b.energy=4;
+        b.foes[0].intent=Intent::Guard(2);
+        g.apply(Action::Play {index:1,target:1}).unwrap();
+        assert!(g.battle.as_ref().unwrap().hand.iter().any(|c|c.temporary && c.id=="hold_line"));
+        g.apply(Action::EndTurn).unwrap();
+        let b=g.battle.as_ref().unwrap();
+        assert!(!b.hand.iter().any(|c|c.temporary && c.id=="hold_line"));
+        assert!(b.exhausted.iter().any(|c|c.temporary && c.id=="hold_line"));
+    }
+    #[test]
     fn targeted_camp_upgrade_and_shop_removal_work() {
         let mut g = Game::new(Hero::ZhugeLiang, 8);
         g.stage = Stage::Camp;
