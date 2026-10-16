@@ -1,5 +1,6 @@
 //! UI-free deterministic game engine. Safe to reuse from Swift/UniFFI and wasm.
 //! Every authoritative mutation goes through Game::apply(Action).
+pub mod archetypes;
 pub mod combat;
 pub mod content;
 pub mod items;
@@ -241,6 +242,8 @@ pub struct Game {
     pub relics: Vec<String>,
     pub potions: u8,
     pub battle: Option<Battle>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub doctrine: Option<archetypes::Doctrine>,
     #[serde(default)] pub telemetry: CombatTelemetry,
     pub rewards: Vec<Card>,
     pub market: Vec<Card>,
@@ -279,6 +282,7 @@ pub enum Action {
     Enchant { index: usize, kind: String },
     Discard { index: usize },
     SetVariants { act1: u8, act2: u8, act3: u8 },
+    SetDoctrine { id: String },
 }
 
 impl Game {
@@ -302,7 +306,7 @@ impl Game {
             version: SAVE_VERSION, revision: 0, seed, rng_state: seed.max(1),
             hero, hp: max_hp, max_hp, gold: 90, floor: 0, stage: Stage::Map,
             last_node: None, route: vec![], deck, relics: vec!["军旗".into()],
-            potions: 1, battle: None, telemetry: CombatTelemetry::default(), rewards: vec![], market: vec![],
+            potions: 1, battle: None, doctrine: None, telemetry: CombatTelemetry::default(), rewards: vec![], market: vec![],
             log: vec![format!("{}率部出征，征途由此开始。", hero.name())],
             ascension: ascension.min(10), event_id: 0,
             potion_bag: vec!["healing".into()], shop_relic: None,
@@ -344,6 +348,9 @@ impl Game {
         }
         if (self.stage == Stage::Combat) != self.battle.is_some() {
             return Err("存档战斗阶段与战斗快照不一致".into());
+        }
+        if self.doctrine.is_some_and(|focus| focus.hero() != self.hero) {
+            return Err("当前战法与武将不匹配".into());
         }
         if self.variants.is_some_and(|settings| settings.iter().any(|n| *n > 1)) {
             return Err("章节变体必须为0或1".into());
@@ -430,6 +437,17 @@ impl Game {
         self.route_lanes = choices.iter().map(|(lane,_)| *lane).collect();
         self.route = choices.iter().map(|(_,node)| *node).collect();
     }
+    pub fn effective_doctrine(&self) -> Option<archetypes::Doctrine> {
+        self.doctrine.or_else(|| archetypes::inferred(self.hero,&self.deck))
+    }
+    pub fn doctrine_status(&self) -> String {
+        let options=archetypes::Doctrine::for_hero(self.hero);
+        let selection=self.doctrine.map_or("自动识别".to_owned(),|d|d.label().to_owned());
+        let effective=self.effective_doctrine().map_or("尚未形成".to_owned(),
+            |d|format!("{}（{}）",d.label(),d.id()));
+        format!("战法偏好：{selection}；当前流派：{effective}。可选：{}（{}）、{}（{}）、auto；仅在地图或营寨可切换。",
+            options[0].label(),options[0].id(),options[1].label(),options[1].id())
+    }
     fn pick_reward_cards(&mut self) -> Vec<Card> {
         let own = hero_pool(self.hero);
         let mut choices: Vec<Card> = vec![];
@@ -444,6 +462,24 @@ impl Game {
             };
             let card = Card::new(id);
             if !choices.iter().any(|c| c.id == card.id) { choices.push(card); }
+        }
+        // Draft guidance is optional: at most ONE of three randomly generated
+        // rewards is exchanged, with a 70% roll. Two slots remain untouched.
+        // Without an explicit preference or two distinct owned synergies this
+        // method consumes exactly the legacy RNG sequence.
+        if let Some(focus)=self.effective_doctrine()
+            && !choices.iter().any(|card|focus.contains(&card.id))
+            && self.random(100)<70
+        {
+            let candidates=focus.members().iter().copied()
+                .filter(|id| !choices.iter().any(|c|c.id==*id)
+                    && !self.deck.iter().any(|c|c.id==*id))
+                .collect::<Vec<_>>();
+            if !candidates.is_empty() {
+                let pick=candidates[self.random(candidates.len())];
+                let replaced=self.random(choices.len());
+                choices[replaced]=Card::new(pick);
+            }
         }
         choices
     }
@@ -2004,6 +2040,20 @@ impl Game {
             Action::Upgrade { index } => self.upgrade_card(index)?,
             Action::Enchant { index, kind } => self.enchant_card(index, &kind)?,
             Action::Discard { index } => self.discard_card(index)?,
+            Action::SetDoctrine { id } => {
+                if !matches!(self.stage,Stage::Map | Stage::Camp) {
+                    return Err("仅可在地图或营寨调整战法流派".into());
+                }
+                self.doctrine = if id=="auto" {None} else {
+                    let focus=archetypes::Doctrine::parse(&id)
+                        .ok_or("未知战法代码；输入 doctrine 查看可选战法")?;
+                    if focus.hero()!=self.hero {
+                        return Err("此战法不属于当前武将".into());
+                    }
+                    Some(focus)
+                };
+                self.doctrine_status()
+            },
             Action::SetVariants { act1, act2, act3 } => {
                 if self.floor != 0 || self.stage != Stage::Map {
                     return Err("只能在进入第一层前设置章节变体".into());
