@@ -30,7 +30,7 @@ impl Card {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum Stage { Map, Combat, Reward, Camp, Market, Story, Won, Lost }
+pub enum Stage { Map, Combat, Reward, Camp, Market, Story, Ancient, Won, Lost }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -134,6 +134,8 @@ pub struct Game {
     #[serde(default)] pub shop_relic: Option<String>,
     #[serde(default)] pub relic_history: Vec<String>,
     #[serde(default)] pub victories: u32,
+    #[serde(default)] pub boons: Vec<String>,
+    #[serde(default)] pub boon_choices: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -167,6 +169,7 @@ impl Game {
             ascension: ascension.min(10), event_id: 0,
             potion_bag: vec!["healing".into()], shop_relic: None,
             relic_history: vec!["军旗".into()], victories: 0,
+            boons: vec![], boon_choices: vec![],
         };
         game.refresh_route();
         game
@@ -199,6 +202,9 @@ impl Game {
         }
         if (self.stage == Stage::Combat) != self.battle.is_some() {
             return Err("存档战斗阶段与战斗快照不一致".into());
+        }
+        for boon in self.boons.iter().chain(self.boon_choices.iter()) {
+            if !items::BOONS.iter().any(|(id,_)| id == boon) { return Err(format!("未知赐福: {boon}")); }
         }
         for c in self.deck.iter().chain(self.rewards.iter()).chain(self.market.iter()) {
             if card_spec(&c.id).is_none() { return Err(format!("未知卡牌: {}", c.id)); }
@@ -386,9 +392,14 @@ impl Game {
         });
         self.roll_intents();
         let extra_draw = usize::from(self.relics.iter().any(|r| r == "虎翼"));
-        self.draw_cards(5 + extra_draw);
+        let boon_draw = usize::from(self.boons.iter().any(|b| b == "strategist")) * 2;
+        self.draw_cards(5 + extra_draw + boon_draw);
         if let Some(b) = &mut self.battle {
             if self.relics.iter().any(|r| r == "铁骑") { b.block += 8; }
+            if self.boons.iter().any(|id| id == "veteran") { b.block += 6; }
+            if self.boons.iter().any(|id| id == "war_drum") { b.energy += 1; }
+            if self.boons.iter().any(|id| id == "blood_oath") { b.strength += 2; }
+            if self.boons.iter().any(|id| id == "formation") { b.command += 2; }
             if self.relics.iter().any(|r| r == "璇玑") { b.energy += 1; }
             if self.relics.iter().any(|r| r == "军旗") { b.block += 4; }
             if self.relics.iter().any(|r| r == "虎符") { b.strength += 1; }
@@ -402,6 +413,7 @@ impl Game {
         self.rewards.clear();
         self.market.clear();
         self.shop_relic = None;
+        self.boon_choices.clear();
         self.refresh_route();
     }
     fn choose_route(&mut self, index: usize) -> Result<String, String> {
@@ -484,6 +496,9 @@ impl Game {
         if self.relics.iter().any(|r| r == "百草") {
             self.hp = (self.hp + 2).min(self.max_hp);
         }
+        if self.boons.iter().any(|id| id == "renewal") {
+            self.hp = (self.hp + 8).min(self.max_hp);
+        }
         if node == Node::Elite || node == Node::Boss {
             self.grant_relic();
             if node == Node::Boss {
@@ -544,7 +559,8 @@ impl Game {
             }
             Effect::All(n) => {
                 let count = self.battle.as_ref().expect("battle").foes.len();
-                let extra = if self.relics.iter().any(|r| r == "朱雀") { 3 } else { 0 };
+                let extra = if self.relics.iter().any(|r| r == "朱雀") { 3 } else { 0 }
+                    + if self.boons.iter().any(|id| id == "flaming_sky") { 4 } else { 0 };
                 for i in 0..count {
                     if self.battle.as_ref().expect("battle").foes[i].hp > 0 {
                         self.damage_enemy(i, n + bonus + extra);
@@ -837,8 +853,51 @@ impl Game {
             self.deck.push(card);
             msg
         };
-        self.finish_scene();
+        if self.last_node == Some(Node::Boss) {
+            self.boon_choices = self.choose_boons();
+            self.stage = Stage::Ancient;
+        } else { self.finish_scene(); }
         Ok(result)
+    }
+    fn choose_boons(&mut self) -> Vec<String> {
+        let mut pool: Vec<&str> = items::BOONS.iter().map(|(id,_)| *id)
+            .filter(|id| !self.boons.iter().any(|owned| owned == id)).collect();
+        let mut picks = vec![];
+        while !pool.is_empty() && picks.len() < 3 {
+            let idx = self.random(pool.len());
+            picks.push(pool.remove(idx).to_string());
+        }
+        picks
+    }
+    fn choose_boon(&mut self, index: usize) -> Result<String, String> {
+        if self.stage != Stage::Ancient { return Err("当前不在先贤赐福场景".into()); }
+        let idx = index.checked_sub(1).ok_or("赐福编号从1开始")?;
+        let id = self.boon_choices.get(idx).ok_or("无效赐福编号")?.clone();
+        match id.as_str() {
+            "imperial_seal" => { self.max_hp += 12; self.hp += 12; }
+            "blood_oath" => { self.max_hp = (self.max_hp - 8).max(1); self.hp = self.hp.min(self.max_hp).max(1); }
+            "caravan" => self.gold += 140,
+            "arsenal" => {
+                let mut eligible: Vec<usize> = self.deck.iter().enumerate()
+                    .filter(|(_,c)| !c.upgraded && c.id != "cursed" && c.id != "quest_tulu")
+                    .map(|(i,_)| i).collect();
+                for _ in 0..3 {
+                    if eligible.is_empty() { break; }
+                    let index = self.random(eligible.len());
+                    let picked = eligible.remove(index);
+                    self.deck[picked].upgraded = true;
+                }
+            }
+            "herb_garden" => {
+                while self.potion_bag.len() < 3 { self.potion_bag.push("healing".into()); }
+                self.potions = self.potion_bag.len() as u8;
+            }
+            "founder" => self.grant_relic(),
+            _ => {}
+        }
+        self.boons.push(id.clone());
+        self.finish_scene();
+        Ok(format!("获得先贤赐福：{}", items::boon_name(&id)))
     }
 
     fn enchant_card(&mut self, index: usize, kind: &str) -> Result<String, String> {
@@ -1084,6 +1143,7 @@ impl Game {
                 Stage::Camp => self.choose_camp(index)?,
                 Stage::Market => self.choose_market(index)?,
                 Stage::Story => self.choose_story(index)?,
+                Stage::Ancient => self.choose_boon(index)?,
                 _ => return Err("当前场景无法选择".into()),
             },
             Action::Play { index, target } => self.play(index, target)?,
@@ -1318,6 +1378,25 @@ mod tests {
         let before = g.to_json().unwrap();
         assert!(g.apply(Action::UsePotionAt { slot: 1, target: 1 }).is_err());
         assert_eq!(g.to_json().unwrap(), before);
+    }
+
+    #[test]
+    fn boss_reward_flows_into_ancient_choice_without_losing_save() {
+        let mut g = Game::new(Hero::GuanYu, 444);
+        g.floor = 7;
+        g.last_node = Some(Node::Boss);
+        g.stage = Stage::Combat;
+        g.battle = None;
+        let _ = g.win_battle();
+        assert_eq!(g.stage, Stage::Reward);
+        g.apply(Action::Choose { index: 0 }).unwrap();
+        assert_eq!(g.stage, Stage::Ancient);
+        assert_eq!(g.boon_choices.len(), 3);
+        let snap = g.to_json().unwrap();
+        let mut restored = Game::from_json(&snap).unwrap();
+        restored.apply(Action::Choose { index: 1 }).unwrap();
+        assert_eq!(restored.stage, Stage::Map);
+        assert_eq!(restored.boons.len(), 1);
     }
     #[test]
     fn targeted_camp_upgrade_and_shop_removal_work() {
