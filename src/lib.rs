@@ -1568,6 +1568,7 @@ impl Game {
         let mut messages = vec![];
         for (idx,id) in changes {
             let b = self.battle.as_mut().expect("battle");
+            let mut summoned: Option<(&'static str, usize)> = None;
             b.foes[idx].phase = 1;
             match id.as_str() {
                 "zhangjiao" | "yuanshao" | "zuoci" => {
@@ -1577,17 +1578,22 @@ impl Game {
                     };
                     if b.foes.len() < 4 {
                         let hp = enemy_hp(ally);
+                        let new_index = b.foes.len();
                         b.foes.push(Foe {
                             id: ally.into(), hp, max_hp: hp, block: 0, strength: 0,
                             poison: 0, vulnerable: 0, weak: 0,
                             intent: Intent::Guard(4), phase: 0,
                         });
+                        summoned = Some((ally, new_index));
                     }
                     if id == "zuoci" {
                         let foe = &mut b.foes[idx];
                         foe.hp = (foe.hp + 18).min(foe.max_hp);
                     }
-                    messages.push(format!("{}进入第二阶段并呼叫援军",enemy_name(&id)));
+                    messages.push(format!("{}进入第二阶段{}",
+                        enemy_name(&id),
+                        if summoned.is_some() {"并呼叫援军（援军下回合开始行动）"}
+                        else {"，但战场编制已满，无法增援"}));
                 }
                 "sunjian" => {
                     b.foes[idx].strength += 4;
@@ -1637,6 +1643,10 @@ impl Game {
                     messages.push(format!("灵兽回生：恢复{heal}生命、护甲+6，后续加强诡术"));
                 }
                 _ => {}
+            }
+            if let Some((ally, new_index)) = summoned {
+                self.combat_event(EventKind::FoeSummoned, ally, 1,
+                    Some(format!("foe:{new_index}")));
             }
             if matches!(id.as_str(), "elite"|"war_elephant"|"royal_guard"|"tiger_general"|"sacred_beast") {
                 self.combat_event(EventKind::EnemyTechnique, &format!("{id}_phase_two"), 1,
@@ -1698,9 +1708,12 @@ impl Game {
         if let Some(b) = self.battle.as_mut() {
             for f in &mut b.foes { f.block = 0; }
         }
+        // Never execute a newly summoned foe's intent before the player has
+        // seen that intent on the next turn. Existing foes act normally.
+        let existing_foes = self.battle.as_ref().expect("battle").foes.len();
         let phase_messages = self.boss_phase_transitions();
         let intents: Vec<(usize, Intent)> = self.battle.as_ref().expect("battle").foes.iter()
-            .enumerate().filter(|(_, f)| f.hp > 0)
+            .enumerate().filter(|(idx, f)| *idx < existing_foes && f.hp > 0)
             .map(|(i, f)| (i, f.intent.clone())).collect();
         let mut messages = phase_messages;
         for (i, intent) in intents {
@@ -3557,6 +3570,93 @@ mod elite_phase_regression_tests {
                 | ("royal_guard", Intent::Assist(_))
                 | ("elite", Intent::Rally(3))
             ), "expected phase-specific intent for {id}: {intent:?}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod summon_turn_order_p1_tests {
+    use super::*;
+
+    fn setup(id: &str, seed: u64) -> Game {
+        let mut game = Game::new(Hero::GuanYu, seed);
+        game.floor = 7;
+        game.max_hp = 250;
+        game.hp = 250;
+        game.start_battle(Node::Boss);
+        let boss = &mut game.battle.as_mut().unwrap().foes[0];
+        boss.id = id.into();
+        boss.hp = 29;
+        boss.max_hp = 60;
+        boss.phase = 0;
+        boss.intent = Intent::Guard(5);
+        game
+    }
+
+    fn foe(id: &str, intent: Intent) -> Foe {
+        let hp = enemy_hp(id);
+        Foe {
+            id: id.into(), hp, max_hp: hp, block: 0, strength: 0,
+            poison: 0, vulnerable: 0, weak: 0, intent, phase: 0,
+        }
+    }
+
+    #[test]
+    fn summoned_units_wait_one_turn_and_existing_units_still_act() {
+        let mut game = setup("zhangjiao", 4141);
+        game.battle.as_mut().unwrap().foes.push(foe("officer", Intent::Guard(5)));
+        let message = game.end_turn().unwrap();
+        assert!(message.contains("援军下回合开始行动"), "{message}");
+        let battle = game.battle.as_ref().unwrap();
+        assert_eq!(battle.foes.len(), 3);
+        assert_eq!(battle.foes[1].block, 5);
+        assert_eq!(battle.foes[2].block, 0);
+        assert_eq!(battle.foes[2].id, "yellow_turban");
+        assert!(battle.events.iter().any(|event|
+            event.kind == EventKind::FoeSummoned && event.source == "yellow_turban"
+                && event.target.as_deref() == Some("foe:2")));
+        // Isolate the summon's action from its existing ally's shield effect.
+        game.battle.as_mut().unwrap().foes[1].intent = Intent::Attack(0);
+        game.battle.as_mut().unwrap().foes[2].intent = Intent::Guard(7);
+        game.end_turn().unwrap();
+        let battle = game.battle.as_ref().unwrap();
+        assert_eq!(battle.foes.len(), 3);
+        assert_eq!(battle.foes[2].block, 7);
+        assert_eq!(battle.events.iter().filter(|event|event.kind == EventKind::FoeSummoned).count(), 1);
+    }
+
+    #[test]
+    fn summon_cap_never_logs_a_phantom_reinforcement() {
+        let mut game = setup("zhangjiao", 9144);
+        for _ in 0..3 {
+            game.battle.as_mut().unwrap().foes.push(foe("officer", Intent::Guard(2)));
+        }
+        let message = game.end_turn().unwrap();
+        assert!(message.contains("无法增援"), "{message}");
+        let battle = game.battle.as_ref().unwrap();
+        assert_eq!(battle.foes.len(), 4);
+        assert!(!battle.events.iter().any(|event|event.kind == EventKind::FoeSummoned));
+    }
+
+    #[test]
+    fn summoning_bosses_share_order_and_save_contract() {
+        for (boss, ally) in [
+            ("zhangjiao", "yellow_turban"),
+            ("yuanshao", "officer"),
+            ("zuoci", "shaman"),
+        ] {
+            let mut game = setup(boss, 6183);
+            game.end_turn().unwrap();
+            let original = game.battle.as_ref().unwrap();
+            assert_eq!(original.foes.len(), 2, "{boss}");
+            assert_eq!(original.foes[1].id, ally, "{boss}");
+            assert_eq!(original.foes[1].block, 0, "{boss}");
+            let json = game.to_json().unwrap();
+            let restored = Game::from_json(&json).unwrap();
+            let loaded = restored.battle.unwrap();
+            assert_eq!(loaded.foes[1].id, ally);
+            assert_eq!(loaded.events, original.events);
+            assert_eq!(loaded.event_seq, original.event_seq);
         }
     }
 }

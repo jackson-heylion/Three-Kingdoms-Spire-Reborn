@@ -63,6 +63,8 @@ pub enum EventKind {
     CardExhausted,
     StatusApplied,
     FoeDefeated,
+    /// A new foe has entered combat; its first actionable intent is next turn.
+    FoeSummoned,
     CardTutored,
     CardCopied,
     CardGenerated,
