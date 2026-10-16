@@ -1657,6 +1657,27 @@ impl Game {
                 return Ok(format!("{}。将星陨落，征途结束。", messages.join("；")));
             }
         }
+        // Very long battles can deadlock under entirely defensive decks:
+        // Zuo Ci can repeatedly heal while both armies take no net damage.
+        // Starting on enemy turn 40, supply exhaustion is an explicitly
+        // logged, armor-bypassing battlefield hazard with rising cost.
+        // Normal-duration battles (1..39 turns) are mechanically unchanged.
+        let turn=self.battle.as_ref().expect("battle").turn;
+        if turn>=40 {
+            let depletion=1+((turn-40)/4) as i32;
+            let actual=depletion.min(self.hp);
+            self.hp-=actual;
+            self.combat_event(EventKind::DamageReceived,"supply_exhaustion",actual,
+                Some("hero".into()));
+            messages.push(format!("持久战粮尽（第{turn}回合），失去{actual}体力"));
+            if self.hp==0 {
+                self.record_metric(|c| c.battles_lost = c.battles_lost.saturating_add(1));
+                self.capture_turn_metrics(true);
+                self.stage=Stage::Lost;
+                self.battle=None;
+                return Ok(format!("{}。军粮枯竭，征途结束。",messages.join("；")));
+            }
+        }
         self.capture_turn_metrics(true);
         {
             let b = self.battle.as_mut().expect("battle");
@@ -3217,6 +3238,52 @@ mod tests {
         assert_eq!(g.effective_doctrine(),None);
         g.apply(Action::SetDoctrine{id:"sun_combo".into()}).unwrap();
         assert_eq!(g.effective_doctrine(),Some(Doctrine::SunCombo));
+    }
+    #[test]
+    fn lengthy_battles_trigger_rising_armor_piercing_supply_exhaustion() {
+        let mut g=Game::new(Hero::ZhugeLiang,8201);
+        g.apply(Action::Choose{index:1}).unwrap();
+        let b=g.battle.as_mut().unwrap();
+        b.turn=39;
+        b.block=100;
+        b.foes[0].intent=Intent::Guard(0);
+        let hp=g.hp;
+        g.apply(Action::EndTurn).unwrap();
+        assert_eq!(g.hp,hp);
+        let b=g.battle.as_mut().unwrap();
+        b.turn=40;
+        b.block=100;
+        b.foes[0].intent=Intent::Guard(0);
+        g.apply(Action::EndTurn).unwrap();
+        assert_eq!(g.hp,hp-1);
+        assert!(g.telemetry.recent_turns.iter().any(|t|t.turn==40&&t.completed));
+        assert!(g.battle.as_ref().unwrap().events.iter().any(|event|
+            event.kind==EventKind::DamageReceived
+            && event.source=="supply_exhaustion" && event.amount==1));
+        let s=g.to_json().unwrap();
+        assert_eq!(Game::from_json(&s).unwrap().to_json().unwrap(),s);
+        let b=g.battle.as_mut().unwrap();
+        b.turn=48;
+        b.block=100;
+        b.foes[0].intent=Intent::Guard(0);
+        g.apply(Action::EndTurn).unwrap();
+        assert_eq!(g.hp,hp-4); // 1 on turn40 + 3 on turn48
+    }
+    #[test]
+    fn attrition_can_end_an_unwinnable_battle_instead_of_softlocking() {
+        let mut g=Game::new(Hero::ZhugeLiang,8202);
+        g.apply(Action::Choose{index:1}).unwrap();
+        g.hp=1;
+        let b=g.battle.as_mut().unwrap();
+        b.turn=40;
+        b.block=99;
+        b.foes[0].intent=Intent::Guard(0);
+        g.apply(Action::EndTurn).unwrap();
+        assert_eq!(g.stage,Stage::Lost);
+        assert_eq!(g.hp,0);
+        assert!(g.battle.is_none());
+        assert_eq!(g.telemetry.totals.battles_lost,1);
+        assert_eq!(g.telemetry.recent_turns.last().unwrap().turn,40);
     }
     #[test]
     fn doctrine_select_during_reward_cannot_reroll_existing_three_choices() {
