@@ -63,6 +63,9 @@ pub enum EventKind {
     CardExhausted,
     StatusApplied,
     FoeDefeated,
+    CardTutored,
+    CardCopied,
+    CardGenerated,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
