@@ -433,9 +433,13 @@ impl Game {
     fn roll_intents(&mut self) {
         let count = self.battle.as_ref().map_or(0, |b| b.foes.len());
         for i in 0..count {
+            // Consume the same seed-driven roll for every enemy, including scripted
+            // bosses, so RNG state remains reproducible through a saved turn.
             let roll = self.random(100);
             let b = self.battle.as_mut().expect("battle");
             let turn = b.turn;
+            let last_turn_cards = b.last_turn_cards;
+            let living = b.foes.iter().filter(|foe|foe.hp > 0).count();
             let foe = &mut b.foes[i];
             if foe.hp == 0 { continue; }
             let act = (self.floor.saturating_sub(1) / 7) as i32;
@@ -449,7 +453,32 @@ impl Game {
                 | "zhangjiao" | "simayi" | "zuoci");
             let swift = matches!(foe.id.as_str(),
                 "archer" | "crossbowman" | "horse_archer" | "assassin" | "panther");
-            foe.intent = if foe.phase > 0 && matches!(foe.id.as_str(), "sunjian" | "dongzhuo") {
+            // Every boss has a predictable signature on the first turn and each
+            // third turn. The two late-act schemers additionally counter card
+            // spam on the next telegraphed turn.
+            let signature = turn % 3 == 1
+                || (foe.id == "simayi" && last_turn_cards >= 4)
+                || (foe.id == "zuoci" && last_turn_cards >= 5);
+            let second = i32::from(foe.phase > 0);
+            let boss_move = if signature {
+                match foe.id.as_str() {
+                    "zhangjiao" => Some(BossMove::Thunder((attack-2).max(3)+second*2)),
+                    "sunjian" => Some(BossMove::TigerRush((attack/2).max(3)+second)),
+                    "dongzhuo" => Some(BossMove::TyrantLevy((attack-3).max(3)+second*2)),
+                    "yuanshao" => Some(BossMove::GrandAlliance(7+act*2+second*4)),
+                    "simayi" => Some(BossMove::HiddenScheme(1+foe.phase.min(1))),
+                    "zuoci" => Some(BossMove::Mirage(7+act*2+second*3)),
+                    _ => None,
+                }
+            } else { None };
+            foe.intent = if let Some(action) = boss_move {
+                Intent::Boss(action)
+            } else if living > 1
+                && matches!(foe.id.as_str(),"officer"|"tactician"|"royal_guard")
+                && turn % 3 == 2
+            {
+                Intent::Assist(4+act*2)
+            } else if foe.phase > 0 && matches!(foe.id.as_str(), "sunjian" | "dongzhuo") {
                 Intent::MultiAttack((attack / 2).max(3), 2)
             } else if spellcaster && (roll < 26 || turn.is_multiple_of(4)) {
                 Intent::Hex(1 + u8::from(act > 0), u8::from(act > 0))
