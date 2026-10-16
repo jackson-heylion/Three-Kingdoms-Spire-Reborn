@@ -1,6 +1,6 @@
 //! Campaign progression independent of terminal, files and frontends.
 //! Stored separately from in-progress snapshots so the same state model works over FFI/WASM.
-use crate::{Game, RunMode, Stage, content::Hero};
+use crate::{Game, Node, RunMode, Stage, content::Hero};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -113,8 +113,9 @@ impl Profile {
         self.best_floor = self.best_floor.max(game.floor);
         self.longest_campaign=self.longest_campaign.max(if game.floor==0 {0} else {(game.floor-1)/7+1});
         if game.telemetry.totals.battles_won>0 {self.achievements.insert("first_battle".into());}
-        if game.telemetry.totals.battles_won>0 && game.telemetry.totals.battles_started>1
-            && game.relics.len()>1 {self.achievements.insert("first_elite".into());}
+        if game.stage==Stage::Reward && game.last_node==Some(Node::Elite) {
+            self.achievements.insert("first_elite".into());
+        }
         if game.lore_seen.len()>=10 {self.achievements.insert("story_10".into());}
         if game.telemetry.totals.turns_completed>=100 {self.achievements.insert("hundred_turns".into());}
         for c in &game.deck { self.seen_cards.insert(c.id.clone()); }
