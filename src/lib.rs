@@ -809,7 +809,8 @@ impl Game {
             }
             (2,3) | (4,2) | (7,2) | (10,3) => {
                 let pool = hero_pool(self.hero);
-                self.deck.push(Card::new(pool[self.random(pool.len())]));
+                let picked = pool[self.random(pool.len())];
+                self.deck.push(Card::new(picked));
                 if event == 7 { self.deck.push(Card::new("cursed")); }
                 "获得一张武将专属牌。"
             }
