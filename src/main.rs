@@ -112,6 +112,7 @@ impl App {
                 g.relics.join("、"), g.revision);
             println!(" 模式：{:?}  飞升难度：{}  已完成战役：{}  存档协议：V{}",
                 g.mode, g.ascension, g.victories, g.version);
+            println!(" {}",g.doctrine_status());
             println!(" 章节：{}；变体：{}",
                 g.act_name(),
                 g.variants.map_or("随种子".into(),|choices| format!("{}/{}/{}",choices[0],choices[1],choices[2])));
@@ -224,7 +225,7 @@ impl App {
         };
         let result: Result<String, String> = match args[0].to_ascii_lowercase().as_str() {
             "quit" | "exit" | "q" => { let _ = self.save(); return false; }
-            "help" | "h" => Ok("new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 在出征前指定三幕变体；daily YYYY-MM-DD；load/save；choose N；play N [目标]；discard N 弃换；end；use [药剂号] [目标]；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看连通路线；relics；lore 看纪事；bonds 看人物羁绊；chapter 1-120 回目索引；powers 持续能力；events 最近战斗结算；metrics 战役统计；chronicle；theme dark|light；status；quit。".into()),
+            "help" | "h" => Ok("new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 在出征前指定三幕变体；daily YYYY-MM-DD；load/save；choose N；play N [目标]；discard N 弃换；end；use [药剂号] [目标]；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看连通路线；relics；lore 看纪事；bonds 看人物羁绊；chapter 1-120 回目索引；powers 持续能力；events 最近战斗结算；metrics 战役统计；doctrine 查看流派 / doctrine auto|代码 选择；chronicle；theme dark|light；status；quit。".into()),
             "new" | "custom" => {
                 let mode = if args[0] == "custom" {RunMode::Custom} else {RunMode::Standard};
                 let hero = args.get(1).and_then(|s| Hero::parse(s)).unwrap_or(Hero::GuanYu);
@@ -294,6 +295,8 @@ impl App {
                             .map(|(i,c)|format!("{}. {}",i+1,card_label(c)))
                             .collect::<Vec<_>>().join("\n"))
                 })),
+            "doctrine" if args.len()==1 => Ok(self.game.as_ref()
+                .map_or("请先输入 new 开局".into(),|g|g.doctrine_status())),
             "deck" => Ok(self.game.as_ref().map_or("尚未开局".into(), |g| {
                 g.deck.iter().enumerate().map(|(i,c)| format!("{}. {}", i+1, card_label(c))).collect::<Vec<_>>().join("\n")
             })),
@@ -386,7 +389,7 @@ impl App {
             "relics" => Ok(self.game.as_ref().map_or("尚未开局".into(), |g| {
                 g.relics.iter().map(|r| format!("{}：{}",r, three_kingdoms_spire_reborn::items::relic_name(r))).collect::<Vec<_>>().join("\n")
             })),
-            "choose" | "c" | "play" | "p" | "end" | "use" | "upgrade" | "remove" | "enchant" | "discard" | "variant" => {
+            "choose" | "c" | "play" | "p" | "end" | "use" | "upgrade" | "remove" | "enchant" | "discard" | "variant" | "doctrine" => {
                 let action = match args[0] {
                     "choose" | "c" => parsed(1, 0).map(|index| Action::Choose { index }),
                     "play" | "p" => parsed(1, 0).and_then(|index| parsed(2, 1)
@@ -397,6 +400,9 @@ impl App {
                     "upgrade" => parsed(1, 0).map(|index| Action::Upgrade { index }),
                     "remove" => parsed(1, 0).map(|index| Action::Remove { index }),
                     "discard" => parsed(1, 0).map(|index| Action::Discard { index }),
+                    "doctrine" => args.get(1)
+                        .map_or(Err("输入 doctrine 查看可选战法".into()),
+                            |id|Ok(Action::SetDoctrine{id:(*id).into()})),
                     "variant" => parsed(1, 9).and_then(|act1| parsed(2, 9)
                         .and_then(|act2| parsed(3, 9).map(|act3|
                             Action::SetVariants { act1: act1 as u8, act2: act2 as u8, act3: act3 as u8 }))),
