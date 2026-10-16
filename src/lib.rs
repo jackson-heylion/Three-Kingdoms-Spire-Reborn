@@ -818,6 +818,35 @@ impl Game {
         self.stage = Stage::Reward;
         format!("战斗胜利！获得{payout}金，选择一张战利品，或输入 choose 0 跳过。")
     }
+    /// Pile choices use 1-based visual order, top first.
+    fn choose_pile_card(cards: &[Card], selection: Option<usize>, attack_only: bool)
+        -> Result<Option<usize>, String>
+    {
+        let eligible = |card: &Card| card_spec(&card.id).is_some_and(|spec| {
+            !matches!(spec.effect, Effect::Unplayable | Effect::CopyDiscard)
+                && (!attack_only || Self::attack_effect(spec.effect))
+        });
+        if let Some(number) = selection {
+            let idx = number.checked_sub(1)
+                .and_then(|n| cards.len().checked_sub(n+1))
+                .ok_or("选牌编号超出当前牌堆")?;
+            if !eligible(&cards[idx]) { return Err("所选卡牌不符合检索条件".into()); }
+            Ok(Some(idx))
+        } else {
+            Ok(cards.iter().rposition(eligible))
+        }
+    }
+
+    /// Temporary copies and generated cards leave combat when used or on turn end.
+    fn add_temporary_to_hand(&mut self, card: Card, kind: EventKind) -> bool {
+        let id = card.id.clone();
+        let b = self.battle.as_mut().expect("battle");
+        if b.hand.len() >= 10 { return false; }
+        b.hand.push(Card { temporary: true, ..card });
+        self.combat_event(kind,&id,1,Some("hero".into()));
+        true
+    }
+
     fn play(&mut self, index: usize, target: usize, selection: Option<usize>) -> Result<String, String> {
         let b = self.battle.as_ref().ok_or("当前不在战斗中")?;
         let hand_idx = index.checked_sub(1).ok_or("手牌编号从1开始")?;
@@ -981,6 +1010,39 @@ impl Game {
             }
             Effect::DiscardStrike(amount) => {
                 self.damage_enemy(target_idx.expect("target"), amount + bonus);
+            }
+            Effect::XHit(per_energy) => {
+                if cost > 0 {
+                    self.damage_enemy(target_idx.expect("target"),
+                        (per_energy + 2*i32::from(card.upgraded))*cost
+                        + if card.enchantment.as_deref() == Some("锐锋") { 3 } else { 0 });
+                }
+            }
+            Effect::XGuard(per_energy) => {
+                let amount = (per_energy + 2*i32::from(card.upgraded))*cost;
+                self.battle.as_mut().expect("battle").block += amount;
+            }
+            Effect::TutorAttack => {
+                if let Some(idx) = chosen
+                    && self.battle.as_ref().expect("battle").hand.len() < 10
+                {
+                    let b = self.battle.as_mut().expect("battle");
+                    let found = b.draw.remove(idx);
+                    let id = found.id.clone();
+                    b.hand.push(found);
+                    self.combat_event(EventKind::CardTutored,&id,1,Some("hero".into()));
+                }
+            }
+            Effect::CopyDiscard => {
+                if let Some(idx) = chosen {
+                    let found = self.battle.as_ref().expect("battle").discard[idx].clone();
+                    self.add_temporary_to_hand(found,EventKind::CardCopied);
+                }
+            }
+            Effect::Generate(id, number) => {
+                for _ in 0..(number + usize::from(card.upgraded)) {
+                    if !self.add_temporary_to_hand(Card::new(id),EventKind::CardGenerated) { break; }
+                }
             }
             Effect::Power(id, stacks) => {
                 self.gain_power(id, stacks + i32::from(card.upgraded));
