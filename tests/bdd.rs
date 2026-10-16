@@ -55,6 +55,38 @@ impl World {
             let result = self.game_mut()?.apply(Action::Choose { index });
             self.error = result.err();
             if self.error.is_none() { return Err("expected rejected choice but command succeeded".into()); }
+        } else if step.starts_with("I set doctrine \"") {
+            let id=quoted(step)?.to_owned();
+            self.game_mut()?.apply(Action::SetDoctrine{id})?;
+        } else if step.starts_with("I attempt doctrine \"") {
+            let id=quoted(step)?.to_owned();
+            self.error=self.game_mut()?.apply(Action::SetDoctrine{id}).err();
+            if self.error.is_none() {return Err("expected rejected doctrine change".into());}
+        } else if step.starts_with("the active doctrine is \"") {
+            let desired=quoted(step)?;
+            let actual=self.game()?.effective_doctrine().map(|d|d.id());
+            if actual!=Some(desired) {return Err(format!("wanted {desired}, got {actual:?}"));}
+        } else if step == "the active doctrine is automatic and not yet inferred" {
+            let game=self.game()?;
+            if game.doctrine.is_some() || game.effective_doctrine().is_some() {
+                return Err("doctrine inferred too early or preference persisted".into());
+            }
+        } else if step.starts_with("I add permanent card \"") {
+            let id=quoted(step)?;
+            if three_kingdoms_spire_reborn::content::card_spec(id).is_none() {
+                return Err(format!("unknown added card {id}"));
+            }
+            self.game_mut()?.deck.push(Card::new(id));
+        } else if step == "the reward screen has three distinct legal cards" {
+            let game=self.game()?;
+            if game.stage!=Stage::Reward || game.rewards.len()!=3 {
+                return Err("expected three-card reward screen".into());
+            }
+            for (idx,card) in game.rewards.iter().enumerate() {
+                if three_kingdoms_spire_reborn::content::card_spec(&card.id).is_none()
+                    || game.rewards.iter().skip(idx+1).any(|other|other.id==card.id)
+                {return Err("duplicate or nonexistent reward card".into());}
+            }
         } else if step == "I remember the current snapshot" {
             self.before = Some(self.game()?.to_json()?);
         } else if step == "I save and restore" {
@@ -535,13 +567,14 @@ fn gherkin_bdd_acceptance_suite() {
         ("features/boss_tactics.feature", include_str!("../features/boss_tactics.feature")),
         ("features/balance_guards.feature", include_str!("../features/balance_guards.feature")),
         ("features/combat_telemetry.feature", include_str!("../features/combat_telemetry.feature")),
+        ("features/doctrine_drafting.feature", include_str!("../features/doctrine_drafting.feature")),
         ("features/lore.feature", include_str!("../features/lore.feature")),
         ("features/save_resume.feature", include_str!("../features/save_resume.feature")),
         ("features/novel_provenance.feature", include_str!("../features/novel_provenance.feature")),
     ];
     let scenarios: usize = documents.iter().map(|(name,text)|
         run_feature(text,name).unwrap_or_else(|error|panic!("{error}"))).sum();
-    assert!(scenarios >= 48, "BDD suite lost scenarios: {scenarios}");
+    assert!(scenarios >= 53, "BDD suite lost scenarios: {scenarios}");
     println!("Verified {scenarios} executable Given/When/Then acceptance scenarios");
 }
 
