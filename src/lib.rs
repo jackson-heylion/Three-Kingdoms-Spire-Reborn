@@ -59,6 +59,30 @@ impl Node {
     }
 }
 
+/// Boss signatures are serialized as intent data, not inferred only at execution.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BossMove {
+    Thunder(i32),      // 张角：雷咒，实际伤血后虚弱
+    TigerRush(i32),    // 孙坚：多段虎袭
+    TyrantLevy(i32),   // 董卓：进攻兼军资劫掠
+    GrandAlliance(i32),// 袁绍：在场友军列阵护卫
+    HiddenScheme(u8),  // 司马懿：削减下回合军令
+    Mirage(i32),       // 左慈：回复并立盾
+}
+impl BossMove {
+    pub fn label(&self) -> String {
+        match self {
+            Self::Thunder(n) => format!("雷咒 {n}伤害，伤血施加虚弱"),
+            Self::TigerRush(n) => format!("虎袭 {n}×2（进阶3段）"),
+            Self::TyrantLevy(n) => format!("暴政 {n}伤害，并掠夺金钱"),
+            Self::GrandAlliance(n) => format!("盟军列阵 全军护甲+{n}"),
+            Self::HiddenScheme(n) => format!("暗度陈仓 下回合军令-{n}"),
+            Self::Mirage(n) => format!("幻身遁甲 回复{n}并获得护甲"),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Intent {
@@ -67,6 +91,8 @@ pub enum Intent {
     Hex(u8, u8),
     Guard(i32),
     Rally(i32),
+    Assist(i32),
+    Boss(BossMove),
 }
 impl Intent {
     pub fn label(&self) -> String {
@@ -76,6 +102,8 @@ impl Intent {
             Self::Hex(weak, vuln) => format!("诡计 虚弱{weak}/易伤{vuln}"),
             Self::Guard(n) => format!("防御 {n}"),
             Self::Rally(n) => format!("聚势 +{n}"),
+            Self::Assist(n) => format!("协同护阵 友军护甲+{n}"),
+            Self::Boss(action) => action.label(),
         }
     }
 }
@@ -117,6 +145,9 @@ pub struct Battle {
     #[serde(default)] pub fury: i32,
     #[serde(default)] pub thorns: i32,
     #[serde(default)] pub played: u32,
+    #[serde(default)] pub played_this_turn: u8,
+    #[serde(default)] pub last_turn_cards: u8,
+    #[serde(default)] pub next_turn_energy_penalty: u8,
     #[serde(default)] pub troops_hp: i32,
     #[serde(default)] pub troops_attack: i32,
     #[serde(default)] pub discard_tokens: i32,
@@ -284,6 +315,7 @@ impl Game {
             }
             if b.energy < 0 || b.block < 0 || b.troops_hp < 0 || b.troops_attack < 0
                 || b.discard_tokens < 0 || b.foes.is_empty() || b.foes.len() > 4
+                || b.next_turn_energy_penalty > 2
                 || b.powers.len() > 8 || b.powers.iter().any(|power| power.stacks <= 0 || power.stacks > 99)
                 || b.powers.iter().enumerate().any(|(idx,p)| b.powers[..idx].iter().any(|prior| prior.id == p.id))
                 || b.events.len() > MAX_RECENT_EVENTS
@@ -467,6 +499,7 @@ impl Game {
             energy: 3, block: 0, strength: if self.hero == Hero::GuanYu { 1 } else { 0 },
             weak: 0, vulnerable: 0, momentum: 0, scheme: 0,
             combo: 0, command: 0, fury: 0, thorns: 0, played: 0,
+            played_this_turn: 0, last_turn_cards: 0, next_turn_energy_penalty: 0,
             troops_hp: if self.hero == Hero::CaoCao { 12 } else { 0 },
             troops_attack: if self.hero == Hero::CaoCao { 3 } else { 0 },
             discard_tokens: 0,
@@ -1058,6 +1091,7 @@ impl Game {
         {
             let b = self.battle.as_mut().expect("battle");
             b.played += 1;
+            b.played_this_turn = b.played_this_turn.saturating_add(1);
             match self.hero {
                 Hero::GuanYu if attack => b.momentum += 1,
                 Hero::ZhugeLiang if !attack => b.scheme += 1,
