@@ -3213,6 +3213,7 @@ mod tests {
         g.apply(Action::Choose{index:1}).unwrap();
         let b=g.battle.as_mut().unwrap();
         b.energy=0;
+        b.strength=0; // Remove Guan Yu's innate +1, isolate the relic coefficient.
         b.hand=vec![Card::new("yidao_x"),Card::new("x_bulwark")];
         b.foes[0].hp=100;
         b.foes[0].max_hp=100;
