@@ -709,7 +709,22 @@ impl Game {
         }
         self.floor += 1;
         self.last_node = Some(node);
-        let msg = format!("第{}层：{}", self.floor, node.name());
+        let ground=self.act_map.as_ref().and_then(|map|
+            self.map_lane.map(|lane|map.terrain_at(usize::from((self.floor-1)%7),lane)))
+            .unwrap_or(map::Terrain::Road);
+        let mut msg = format!("第{}层：{}（{}）", self.floor, node.name(),ground.label());
+        match ground {
+            map::Terrain::Supply => {
+                self.gold=self.gold.saturating_add(12);
+                msg.push_str("；收集辎重，获得12金");
+            }
+            map::Terrain::Hazard => {
+                let lost=(self.hp-1).clamp(0,3);
+                self.hp-=lost;
+                msg.push_str(&format!("；穿越险地，消耗{lost}体力"));
+            }
+            map::Terrain::Road|map::Terrain::Closed => {}
+        }
         match node {
             Node::Battle | Node::Elite | Node::Boss => self.start_battle(node),
             Node::Camp => self.stage = Stage::Camp,
