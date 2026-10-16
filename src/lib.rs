@@ -36,9 +36,10 @@ impl Card {
     }
     pub fn name(&self) -> String {
         let base = card_spec(&self.id).map_or("未知牌", |s| s.name);
-        format!("{base}{}{}", if self.upgraded { "+" } else { "" },
-            format!("{}{}",self.enchantment.as_ref().map_or(String::new(), |kind| format!("·{kind}")),
-                if self.temporary { "·临时" } else { "" }))
+        let upgraded = if self.upgraded { "+" } else { "" };
+        let enchant = self.enchantment.as_ref().map_or(String::new(), |kind| format!("·{kind}"));
+        let temporary = if self.temporary { "·临时" } else { "" };
+        format!("{base}{upgraded}{enchant}{temporary}")
     }
 }
 
