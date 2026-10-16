@@ -923,44 +923,53 @@ impl Game {
         if self.defeated() { Ok(format!("{msg}。{}", self.win_battle())) }
         else { Ok(msg) }
     }
+
     fn troop_attack(&mut self) {
-        let snapshot = self.battle.as_ref().expect("battle");
-        if snapshot.troops_hp <= 0 || snapshot.troops_attack <= 0 { return; }
-        if let Some(idx) = snapshot.foes.iter().position(|f| f.hp > 0) {
-            // Companions do not inherit the hero's strength or consume command.
-            let b = self.battle.as_mut().expect("battle");
-            let f = &mut b.foes[idx];
-            let damage = b.troops_attack;
-            let absorbed = damage.min(f.block);
-            f.block -= absorbed;
-            f.hp = (f.hp - damage + absorbed).max(0);
+        let b = self.battle.as_ref().expect("battle");
+        if b.troops_hp <= 0 || b.troops_attack <= 0 { return; }
+        let target = b.foes.iter().position(|f|f.hp>0);
+        if let Some(idx) = target {
+            let damage = {
+                let b = self.battle.as_mut().expect("battle");
+                let attack = b.troops_attack;
+                let foe = &mut b.foes[idx];
+                let blocked = attack.min(foe.block);
+                foe.block -= blocked;
+                let actual = foe.hp.min((attack-blocked).max(0));
+                foe.hp -= actual;
+                actual
+            };
+            self.combat_event(EventKind::DamageDealt,"troops",damage,Some(format!("foe:{idx}")));
         }
     }
-
     fn enemy_attack(&mut self, foe_idx: usize, power: i32) -> i32 {
-        let b = self.battle.as_mut().expect("battle");
-        let reduced = if b.foes[foe_idx].weak > 0 { power * 3 / 4 } else { power };
-        let modified = if b.vulnerable > 0 { reduced * 3 / 2 } else { reduced };
-        let blocked = modified.min(b.block);
-        b.block -= blocked;
-        let incoming = (modified - blocked).max(0);
-        let protected = incoming.min(b.troops_hp);
-        b.troops_hp -= protected;
-        let damage = incoming - protected;
-        self.hp = (self.hp - damage).max(0);
-        if self.hero == Hero::LuBu { b.fury += damage / 2; }
-        let courage = if damage > 0 {
-            b.powers.iter().find(|p| p.id == PowerId::BloodCourage)
-                .map_or(0, |p| p.stacks * 2)
-        } else { 0 };
-        if courage > 0 { b.fury += courage; }
-        if b.thorns > 0 {
-            b.foes[foe_idx].hp = (b.foes[foe_idx].hp - b.thorns).max(0);
-        }
-        // Damage event is recorded before the conditional power proc.
-        self.combat_event(EventKind::DamageReceived, &format!("foe:{foe_idx}"), damage, Some("hero".into()));
+        let (damage, courage, reflected) = {
+            let b = self.battle.as_mut().expect("battle");
+            let reduced = if b.foes[foe_idx].weak > 0 { power * 3 / 4 } else { power };
+            let modified = if b.vulnerable > 0 { reduced * 3 / 2 } else { reduced };
+            let blocked = modified.min(b.block);
+            b.block -= blocked;
+            let incoming = (modified - blocked).max(0);
+            let protected = incoming.min(b.troops_hp);
+            b.troops_hp -= protected;
+            let damage = self.hp.min(incoming - protected);
+            self.hp -= damage;
+            if self.hero == Hero::LuBu { b.fury += damage / 2; }
+            let courage = if damage > 0 {
+                b.powers.iter().find(|p| p.id == PowerId::BloodCourage)
+                    .map_or(0, |p| p.stacks * 2)
+            } else { 0 };
+            b.fury += courage;
+            let reflected = b.thorns.min(b.foes[foe_idx].hp);
+            b.foes[foe_idx].hp -= reflected;
+            (damage,courage,reflected)
+        };
+        self.combat_event(EventKind::DamageReceived,&format!("foe:{foe_idx}"),damage,Some("hero".into()));
         if courage > 0 {
-            self.combat_event(EventKind::PowerTriggered, "blood_courage", courage, None);
+            self.combat_event(EventKind::PowerTriggered,"blood_courage",courage,None);
+        }
+        if reflected > 0 {
+            self.combat_event(EventKind::DamageDealt,"thorns",reflected,Some(format!("foe:{foe_idx}")));
         }
         damage
     }
@@ -1020,15 +1029,23 @@ impl Game {
         if self.stage != Stage::Combat { return Err("当前不在战斗中".into()); }
         self.combat_event(EventKind::TurnEnded, "hero", 0, None);
         self.trigger_granary();
-        {
+
+        let poison_events = {
             let b = self.battle.as_mut().expect("battle");
             b.discard.append(&mut b.hand);
-            for foe in &mut b.foes {
+            let mut pending = Vec::new();
+            for (idx,foe) in b.foes.iter_mut().enumerate() {
                 if foe.hp > 0 && foe.poison > 0 {
-                    foe.hp = (foe.hp - foe.poison).max(0);
+                    let damage = foe.hp.min(foe.poison);
+                    foe.hp -= damage;
                     foe.poison = (foe.poison - 1).max(0);
+                    pending.push((idx,damage));
                 }
             }
+            pending
+        };
+        for (idx,damage) in poison_events {
+            self.combat_event(EventKind::DamageDealt,"poison",damage,Some(format!("foe:{idx}")));
         }
         if self.defeated() { return Ok(self.win_battle()); }
         self.troop_attack();
