@@ -15,3 +15,7 @@ Feature: Novel provenance is auditable
     Given a "guanyu" campaign with seed 221
     Then act 1 has no available lore scene
     And the flag "baima_debt" is absent
+
+Scenario: The source catalog includes every chapter title and traceable link
+    Given a "zhuge" campaign with seed 241
+    Then novel index contains all 120 numbered chapters
