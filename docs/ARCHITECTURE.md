@@ -70,3 +70,9 @@ Snapshot: {version:2,revision:42,seed:...,rng_state:...,stage:"combat",battle:{.
 `src/combat.rs` 声明带 `serde` 的 `PowerId`、`PowerStack`、`EventKind`、`CombatEvent`。权威战斗快照包括最近80条递增事件和持续能力层数；`Game::apply` 仍使用草稿-验证-提交确保事务原子性。结算顺序为：出牌事件 → 卡牌效果及伤害 → 职业被动 → 本卡一次性持续触发 → 卡牌进入弃牌/消耗；主动弃换则产生弃牌事件和特殊弃换攻击，再抽替代牌。回合末依次记录事件、补给亲兵、结算毒与亲兵攻击、敌军意图，然后开始下一回合。
 
 `EventKind` 的最近事件用于调试与存档核验，**不是可重播的完整事件源**；以后若用于多人实时同步，仍需要独立追加式服务器事件流、因果 ID、幂等提交、版本迁移与冲突处理。
+
+### 2026-10 扩充：确定性触发派发与关键词生命周期
+
+事件入口是 `Game::combat_event`，先把事件写入 Battle 的有界记录，再运行 `dispatch_combat_event` 中对八项具体持续能力的规则订阅。可触发场景包括 CardResolved（攻击后护阵、非攻击后首次计策恢复）、CardDiscarded（主动弃换飞羽）、TurnEnded（存活亲兵补给）、DamageReceived（实损怒气）、CardDrawn（额外护甲）、StatusApplied（额外毒层）、FoeDefeated（击败回复军令）。后续 PowerTriggered 是记录而不会再触发自身监听；施毒增强只记录触发数值而不再次派发 StatusApplied；阵亡只在 HP 首次过零时产出事件，因此没有循环递归或重复结算。卡牌普通抽弃流程仍遵守 `Game::apply` 的事务提交。
+
+`CardSpec` 增加 `retain` 与 `ethereal` 属性，按回合结算区分手牌保留、回合末消耗、普通弃牌。用户在 CLI 使用 `events` 可查看近期日志。当前仍是静态规则订阅表，**不等于**可以动态插入规则或原子反制的通用事件栈。
