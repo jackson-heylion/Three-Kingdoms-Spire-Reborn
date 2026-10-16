@@ -53,9 +53,11 @@ fn default_dir() -> PathBuf {
 }
 fn card_label(card: &Card) -> String {
     match card_spec(&card.id) {
-        Some(spec) => format!("{} [费{}] {}{}",
+        Some(spec) => format!("{} [费{}] {}{}{}{}",
             card.name(),
             if card.enchantment.as_deref() == Some("迅捷") { (spec.cost - 1).max(0) } else { spec.cost },
+            if spec.retain { "[保留] " } else { "" },
+            if spec.ethereal { "[虚无] " } else { "" },
             spec.description,
             if card.id == "quest_tulu" { format!("，进度{}/3", card.quest_progress) } else { String::new() }),
         None => format!("未知卡牌 {}", card.id),
