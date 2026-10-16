@@ -133,16 +133,16 @@ impl ActMap {
         let mut reachable=[true;3];
         for row in 1..ROWS {
             let mut next=[false;3];
-            for previous in 0..3 {
+            for (previous,found) in reachable.iter().enumerate() {
                 let bits=self.edges[row-1][previous];
                 if bits&!0b111!=0 || (bits!=0 && self.terrain_at(row-1,previous as u8)==Terrain::Closed)
                 {return false;}
-                for to in 0..3 {
-                    if bits&(1u8<<to)!=0 && ((previous as i32-to as i32).abs()>1 ||
+                for to in 0usize..3 {
+                    if bits&(1u8<<to)!=0 && (previous.abs_diff(to)>1 ||
                         self.terrain_at(row,to as u8)==Terrain::Closed)
                     {return false;}
                 }
-                if reachable[previous] {
+                if *found {
                     let routes=self.routes(row,Some(previous as u8));
                     if routes.is_empty() {return false;}
                     for (lane,_) in routes {next[usize::from(lane)]=true;}
