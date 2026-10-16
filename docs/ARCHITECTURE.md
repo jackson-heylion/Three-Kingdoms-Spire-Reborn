@@ -46,9 +46,17 @@ Secure Context 相关限制。远程部署的 HTML 不可假设拥有本地文�
 Action: {"type":"play","index":1,"target":1}
 Action: {"type":"choose","index":2}
 Action: {"type":"end_turn"}
-Snapshot: {version:1,revision:42,seed:...,rng_state:...,stage:"combat",battle:{...},...}
+Snapshot: {version:2,revision:42,seed:...,rng_state:...,stage:"combat",battle:{...},...}
 
-当前序列化仅为 V1 存档实现，网络协议、ffi ABI、WASM 接口尚未冻结。
+当前序列化为 V2 存档，`Game::from_json` 可迁移 V1 到 V2。
+`Game::apply` 在草稿副本上执行、验证后再替换正式游戏，失败不会改变存档状态或 RNG。
+附魔、任务卡、职业资源、亲兵、首领阶段、章节变体、章末赐福均写入快照。
+独立的 `chronicle.json` 存长期战功、解锁、图鉴、分数和单局结果列表，由 `src/progression.rs` 定义。
+终端设置 `settings.json` 独立保存明暗主题。
+
+持续测试包含 `tks-sim` 的五武将多个种子、困难档、每隔若干动作的快照往返一致性与软锁最大动作阈值。自动模拟是冒烟检验，不是所有可能状态的形式化证明。
+
+网络协议、ffi ABI、WASM 接口尚未冻结。
 正式引入网络接口前先增加状态修订 CAS、事件序号、事务日志和迁移测试。
 
 ## 权属与内容原则
