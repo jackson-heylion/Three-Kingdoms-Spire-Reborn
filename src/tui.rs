@@ -1,6 +1,8 @@
 //! Optional full-keyboard terminal menu for macOS/Linux without platform crates.
 //! Raw mode is scoped by RAII, and the existing plain line CLI remains supported.
 use super::{App, Stage, card_label};
+#[path = "tui_layout.rs"]
+mod layout;
 use three_kingdoms_spire_reborn::challenges::ChallengeModifier;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use std::{fs::File,io::{self, Read, Write, IsTerminal},process::{Command,Stdio}};
@@ -38,9 +40,14 @@ pub(super) fn choices(app:&App,target:usize)->Vec<(String,String)> {
     match game.stage {
         Stage::Map=>game.route.iter().enumerate()
             .map(|(idx,node)|{
-                let label=format!("路线{} {}（道{}）",idx+1,node.name(),
-                    game.route_lanes.get(idx).copied().unwrap_or(idx as u8)+1);
-                (label,format!("choose {}",idx+1))
+                let lane=game.route_lanes.get(idx).copied().unwrap_or(idx as u8);
+                let row=usize::from(game.floor%7);
+                let details=game.act_map.as_ref().map(|map|format!(
+                    " · {} · 三层评分{}",
+                    map.terrain_at(row,lane).label(),
+                    map.score_route(row,lane,game.hp,game.max_hp,game.gold)));
+                (format!("{} · 道{}{}",node.name(),lane+1,details.unwrap_or_default()),
+                    format!("choose {}",idx+1))
             }).collect(),
         Stage::Combat=>{
             let mut options=game.battle.as_ref().map_or(vec![],|b|
@@ -49,7 +56,8 @@ pub(super) fn choices(app:&App,target:usize)->Vec<(String,String)> {
                         format!("play {} {target}",index+1))).collect::<Vec<_>>());
             options.push(("结束本回合".into(),"end".into()));
             for (index,potion) in game.potion_bag.iter().enumerate() {
-                options.push((format!("药剂{}：{}",index+1,potion),
+                options.push((format!("药剂{}：{}",index+1,
+                    three_kingdoms_spire_reborn::items::potion_name(potion)),
                     format!("use {} {target}",index+1)));
             }
             options
@@ -98,24 +106,30 @@ pub(super) fn choices(app:&App,target:usize)->Vec<(String,String)> {
 }
 /// Truncate by display cells rather than bytes; never split a Han character.
 fn fitting_label(label: &str, available: usize) -> String {
-    if UnicodeWidthStr::width(label) <= available { return label.to_owned(); }
-    let mut out = String::new();
-    let mut width = 0;
-    for ch in label.chars() {
-        let cells = UnicodeWidthChar::width(ch).unwrap_or(0);
-        if width + cells > available.saturating_sub(1) { break; }
+    if available==0 {return String::new();}
+    let clean: String=label.chars().map(|ch|if ch.is_control(){' '}else{ch}).collect();
+    if UnicodeWidthStr::width(clean.as_str())<=available {return clean;}
+    if available==1 {return "…".into();}
+    let mut out=String::new();
+    let mut width=0;
+    for ch in clean.chars() {
+        let cells=UnicodeWidthChar::width(ch).unwrap_or(0);
+        if width+cells>available-1 {break;}
         out.push(ch);
-        width += cells;
+        width+=cells;
     }
     out.push('…');
     out
 }
-fn current_columns() -> usize {
+fn current_size()->(usize,usize) {
     RawTerminal::stty(&["size"]).ok()
-        .and_then(|out| String::from_utf8(out.stdout).ok())
-        .and_then(|raw| raw.split_whitespace().nth(1)?.parse::<usize>().ok())
-        .unwrap_or(80)
-        .max(24)
+        .and_then(|out|String::from_utf8(out.stdout).ok())
+        .and_then(|raw|{
+            let mut parts=raw.split_whitespace();
+            Some((parts.next()?.parse::<usize>().ok()?,
+                  parts.next()?.parse::<usize>().ok()?))
+        })
+        .map_or((24,80),|(rows,cols)|(rows.max(1),cols.max(1)))
 }
 fn read_byte()->io::Result<u8> {
     let mut byte=[0_u8;1];
@@ -123,14 +137,15 @@ fn read_byte()->io::Result<u8> {
     Ok(byte[0])
 }
 fn typed_command()->io::Result<String> {
-    print!("\r\n: ");
+    let (rows,_)=current_size();
+    print!("\x1b[?25h\x1b[{rows};1H\x1b[2K: ");
     io::stdout().flush()?;
     let mut value=String::new();
     let mut pending_utf8=Vec::new();
     loop {
         match read_byte()? {
-            b'\r'|b'\n'=>{println!();return Ok(value);}
-            27=>{println!();return Ok(String::new());}
+            b'\r'|b'\n'=>{print!("\x1b[?25l");return Ok(value);}
+            27=>{print!("\x1b[?25l");return Ok(String::new());}
             8|127=>{
                 if !pending_utf8.is_empty() { pending_utf8.clear(); }
                 else if let Some(ch)=value.pop() {
@@ -162,31 +177,35 @@ fn typed_command()->io::Result<String> {
         io::stdout().flush()?;
     }
 }
+struct AlternateScreen;
+impl AlternateScreen {
+    fn enter()->io::Result<Self> {
+        print!("\x1b[?1049h\x1b[?25l\x1b[2J\x1b[H");
+        io::stdout().flush()?;
+        Ok(Self)
+    }
+}
+impl Drop for AlternateScreen {
+    fn drop(&mut self) {
+        print!("\x1b[0m\x1b[?25h\x1b[?1049l");
+        let _=io::stdout().flush();
+    }
+}
 pub(super) fn run(app:&mut App)->Result<(),String> {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         return Err("交互式TUI需要真实终端；管道脚本请使用 --plain".into());
     }
     let _raw=RawTerminal::new().map_err(|e|format!("无法启用键盘操作: {e}"))?;
+    let _screen=AlternateScreen::enter().map_err(|e|e.to_string())?;
     let mut cursor=0usize;
     let mut target=1usize;
     loop {
         let options=choices(app,target);
         if options.is_empty() {cursor=0;}
         else {cursor=cursor.min(options.len()-1);}
-        app.draw();
-        let columns=current_columns();
-        if columns < 65 {
-            println!("\n↑↓/jk 选项 | 回车确认 | t目标 | :命令 | ?帮助 | q退出");
-        } else {
-            println!("\n【键盘操作】↑/↓ 或 j/k 选择，回车确认；数字1–9快捷选择；t 切换敌方目标；: 输命令；? 帮助；q 退出");
-        }
-        for (idx,(label,_)) in options.iter().enumerate() {
-            let label=fitting_label(label,columns.saturating_sub(10));
-            let selection=if idx==cursor {">"} else {" "};
-            let accent=if idx==cursor && app.use_ansi {"\x1b[7m"} else {""};
-            let reset=if idx==cursor && app.use_ansi {"\x1b[0m"} else {""};
-            println!(" {} {accent}{}. {}{reset}",selection,idx+1,label);
-        }
+        let (rows,columns)=current_size();
+        let frame=layout::render_frame(app,target,cursor,&options,rows,columns);
+        print!("\x1b[H\x1b[2J{frame}");
         io::stdout().flush().map_err(|e|e.to_string())?;
         let key=read_byte().map_err(|e|e.to_string())?;
         let decision=match key {
@@ -221,9 +240,9 @@ pub(super) fn run(app:&mut App)->Result<(),String> {
             _=>None,
         };
         if let Some(command)=decision {
+            let previous=app.game.as_ref().map(|g|g.stage);
             if !app.command(&command) {return Ok(());}
-            // Menu choices depend on the committed stage; avoid retaining stale selection.
-            cursor=0;
+            if app.game.as_ref().map(|g|g.stage)!=previous {cursor=0;}
             if !matches!(app.game.as_ref().map(|g|g.stage),Some(Stage::Combat)) {target=1;}
         }
     }
