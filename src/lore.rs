@@ -157,8 +157,8 @@ pub const EASTER_EGGS: &[EasterEgg] = &[
         hint:"从井中玉匣到晋朝新诏，金印从来不会替人回答得失。"},
 ];
 
-pub fn newly_completed_eggs<'a>(
-    hero: Hero, flags: &[String], already: &'a [String]
+pub fn newly_completed_eggs(
+    hero: Hero, flags: &[String], already: &[String]
 ) -> Vec<&'static EasterEgg> {
     EASTER_EGGS.iter().filter(|e|
         e.hero.is_none_or(|owner| owner == hero)
