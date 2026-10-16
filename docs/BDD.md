@@ -2,10 +2,11 @@
 
 ## 可执行契约
 
-- 场景文件：`features/lore.feature`、`features/save_resume.feature`、`features/novel_provenance.feature`
+- 场景文件：`features/lore.feature`、`features/save_resume.feature`、`features/novel_provenance.feature`、`features/combat_powers.feature`
 - 运行器：`tests/bdd.rs`，执行单一、严格的 Given / When / Then / And / But 子集。不是完整通用 Gherkin 解析器；不支持 Scenario Outline、Examples、Rule、Background、标签和数据表。遇到不认识的步骤，必须失败，不能自动跳过。
 - CI：`cargo test --test bdd -- --nocapture`，`cargo test --all-targets` 也会执行 BDD 验收。
 - 辅助质量门：Rust 单元测试、Clippy `-D warnings`、Release 构建、终端进度持久化冒烟、两平台各 1000 局种子模拟。
+- 本轮新增5个职业持久能力BDD：关羽攻击触发一次护阵，诸葛计策触发恢复，孙尚香主动弃换触发伤害，曹操后勤随存档，吕布浴血随存档；现有合计22个Gherkin场景。
 - 内容审查：必须有小说回目 provenance；游戏虚构、小说演义、史实评价分开，不能写成已验证史实。
 
 ## 行为覆盖目录
@@ -47,3 +48,12 @@ cargo run --release --bin tks-sim -- 1000
 ```
 
 这里的 BDD 场景是业务行为测试，不代表完全覆盖全部卡牌组合、所有剧情线或所有战役随机状态。完整质量门还需要真正的状态机模型测试、所有事件分支的穷举、组合机制边界与回放日志。
+
+## 战斗事件测试规范
+
+- 一张攻击牌中的多段命中只触发一次按“出牌”定义的义军护阵，反之按“每次造成伤害”定义的记录保留各个来源；
+- 伤害来源列出英雄攻击、亲兵、中毒、反击；只有最终实际损失的英雄生命值才增加浴血触发怒气；
+- 每回合仅一次的计策持续效果和堆叠次数必须写入战斗快照，中途恢复不得双触发；
+- 最近80条日志有严格递增序号，不能接受重复或倒序伪造；
+- 任何失败行动不修改事件日志或任何游戏数据；
+- `cargo test --test bdd -- --nocapture` 以及全平台 CI 都必须绿色才将功能标为通过。
