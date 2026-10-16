@@ -280,8 +280,10 @@ impl Game {
             if b.energy < 0 || b.block < 0 || b.troops_hp < 0 || b.troops_attack < 0
                 || b.discard_tokens < 0 || b.foes.is_empty() || b.foes.len() > 4
                 || b.powers.len() > 5 || b.powers.iter().any(|power| power.stacks <= 0 || power.stacks > 99)
+                || b.powers.iter().enumerate().any(|(idx,p)| b.powers[..idx].iter().any(|prior| prior.id == p.id))
                 || b.events.len() > MAX_RECENT_EVENTS
-                || b.events.iter().any(|event| event.seq > b.event_seq)
+                || b.events.iter().any(|event| event.seq == 0 || event.seq > b.event_seq)
+                || b.events.windows(2).any(|pair| pair[0].seq >= pair[1].seq)
                 || b.momentum < 0 || b.scheme < 0 || b.combo < 0 || b.command < 0 || b.fury < 0
                 || b.thorns < 0 || b.foes.iter().any(|f| f.hp < 0 || f.hp > f.max_hp || f.block < 0 || f.poison < 0 || f.phase > 1)
             { return Err("无效战斗数据".into()); }
@@ -1940,6 +1942,23 @@ mod tests {
         assert_eq!(b.event_seq,135);
         let snap = g.to_json().unwrap();
         assert_eq!(Game::from_json(&snap).unwrap().to_json().unwrap(),snap);
+    }
+
+    #[test]
+    fn invalid_replayed_events_and_duplicate_power_ids_are_rejected() {
+        let mut g = Game::new(Hero::ZhugeLiang, 707);
+        g.apply(Action::Choose { index: 1 }).unwrap();
+        g.gain_power(PowerId::ThoughtSpring, 1);
+        let snap = g.to_json().unwrap();
+        let restored = Game::from_json(&snap).unwrap();
+        assert!(restored.battle.as_ref().unwrap().event_seq > 0);
+        let b = g.battle.as_mut().unwrap();
+        b.powers.push(b.powers[0].clone());
+        assert!(Game::from_json(&g.to_json().unwrap()).is_err());
+        let b = g.battle.as_mut().unwrap();
+        b.powers.pop();
+        b.events.push(b.events[0].clone());
+        assert!(Game::from_json(&g.to_json().unwrap()).is_err());
     }
     #[test]
     fn targeted_camp_upgrade_and_shop_removal_work() {
