@@ -10,6 +10,14 @@ use serde::{Deserialize, Serialize};
 pub const SAVE_VERSION: u32 = 2;
 pub const MAX_FLOOR: u8 = 21;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunMode {
+    #[default] Standard,
+    Daily,
+    Custom,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Card {
     pub id: String,
@@ -138,6 +146,7 @@ pub struct Game {
     #[serde(default)] pub boons: Vec<String>,
     #[serde(default)] pub boon_choices: Vec<String>,
     #[serde(default)] pub variants: Option<[u8; 3]>,
+    #[serde(default)] pub mode: RunMode,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -157,6 +166,11 @@ pub enum Action {
 
 impl Game {
     pub fn new(hero: Hero, seed: u64) -> Self { Self::new_with_ascension(hero, seed, 0) }
+    pub fn new_with_mode(hero: Hero, seed: u64, ascension: u8, mode: RunMode) -> Self {
+        let mut game = Self::new_with_ascension(hero,seed,ascension);
+        game.mode = mode;
+        game
+    }
     pub fn new_with_ascension(hero: Hero, seed: u64, ascension: u8) -> Self {
         let mut deck = vec![];
         for _ in 0..5 { deck.push(Card::new("strike")); }
@@ -173,6 +187,7 @@ impl Game {
             potion_bag: vec!["healing".into()], shop_relic: None,
             relic_history: vec!["军旗".into()], victories: 0,
             boons: vec![], boon_choices: vec![], variants: None,
+            mode: RunMode::Standard,
         };
         game.refresh_route();
         game
