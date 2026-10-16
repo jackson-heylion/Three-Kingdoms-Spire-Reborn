@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use serde::Serialize;
 use three_kingdoms_spire_reborn::{
-    Action, Card, Game, Intent, Node, Stage,
+    Action, Card, CombatCounters, Game, Intent, Node, Stage,
     content::{Effect, Hero, card_spec},
 };
 
@@ -22,6 +22,7 @@ struct Outcome {
     won: bool,
     actions: u32,
     snapshot: String,
+    telemetry: CombatCounters,
     death_encounter: Option<String>,
     death_node: Option<Node>,
 }
@@ -241,6 +242,7 @@ fn simulate_policy(hero:Hero,seed:u64,ascension:u8,policy:Policy)->Result<Outcom
             return Ok(Outcome {
                 hero, seed, floor: game.floor, won: game.stage == Stage::Won,
                 actions: count, snapshot: game.to_json()?,
+                telemetry: game.telemetry.totals,
                 death_encounter:if game.stage==Stage::Won {None}
                     else {death_context.as_ref().map(|(id,_)|id.clone())},
                 death_node:if game.stage==Stage::Won {None}
@@ -284,6 +286,8 @@ struct BalanceCell {
     tactical_floor_sum:u64,
     baseline_boss_deaths:usize,
     tactical_boss_deaths:usize,
+    baseline_telemetry:CombatCounters,
+    tactical_telemetry:CombatCounters,
 }
 #[derive(Debug,Serialize)]
 struct EncounterEntry {
@@ -318,6 +322,8 @@ fn build_report(samples_per_cell:usize)->Result<BalanceReport,String> {
                 baseline_wins:0,tactical_wins:0,
                 baseline_floor_sum:0,tactical_floor_sum:0,
                 baseline_boss_deaths:0,tactical_boss_deaths:0,
+                baseline_telemetry:CombatCounters::default(),
+                tactical_telemetry:CombatCounters::default(),
             };
             for iteration in 0..samples_per_cell {
                 // Independently fixed inputs for each difficulty, hero and trial.
@@ -336,6 +342,10 @@ fn build_report(samples_per_cell:usize)->Result<BalanceReport,String> {
                     };
                     *wins+=usize::from(outcome.won);
                     *floors+=u64::from(outcome.floor);
+                    match policy {
+                        Policy::FirstPlayable=>cell.baseline_telemetry.accumulate(&outcome.telemetry),
+                        Policy::Tactical=>cell.tactical_telemetry.accumulate(&outcome.telemetry),
+                    }
                     if !outcome.won {
                         if outcome.death_node==Some(Node::Boss){*boss_deaths+=1;}
                         let encounter=outcome.death_encounter.unwrap_or_else(||"non-combat".into());
@@ -377,6 +387,19 @@ fn print_balance(report:&BalanceReport) {
                 100.0*tw as f64/n as f64,bf as f64/n as f64,
                 tf as f64/n as f64,bd,td);
         }
+    }
+    for hero in HEROES {
+        let mut totals=CombatCounters::default();
+        for cell in report.cells.iter().filter(|c|c.hero==hero.name()) {
+            totals.accumulate(&cell.tactical_telemetry);
+        }
+        let turn_count=totals.turns_completed.max(1);
+        println!("TELEMETRY {} tactical ({} runs): turns={} troop DPS/turn={:.2} absorbed/turn={:.2} command energy/turn={:.2}, Sun discards={} combo triggers={} / extra draws={}",
+            hero.name(),report.samples_per_cell*11,totals.turns_completed,
+            totals.troop_damage as f64/turn_count as f64,
+            totals.troop_absorbed as f64/turn_count as f64,
+            totals.command_energy as f64/turn_count as f64,
+            totals.sun_discards,totals.sun_combo_procs,totals.sun_combo_draws);
     }
     println!("TOP BASELINE DEATH ENCOUNTERS: {:?}",
         report.baseline_death_encounters.iter().take(8)
@@ -456,6 +479,18 @@ mod tests {
                 assert_eq!(first.death_encounter,repeated.death_encounter);
             }
         }
+    }
+    #[test]
+    fn run_counters_survive_replay_and_sum_without_double_counting() {
+        let first=simulate_policy(Hero::CaoCao,8793,2,Policy::Tactical).unwrap();
+        let replay=simulate_policy(Hero::CaoCao,8793,2,Policy::Tactical).unwrap();
+        assert_eq!(first.telemetry,replay.telemetry);
+        let mut total=CombatCounters::default();
+        total.accumulate(&first.telemetry);
+        total.accumulate(&replay.telemetry);
+        assert_eq!(total.troop_damage,first.telemetry.troop_damage*2);
+        assert_eq!(total.troop_absorbed,first.telemetry.troop_absorbed*2);
+        assert!(total.command_energy>=first.telemetry.command_energy);
     }
     #[test]
     fn encounter_aggregation_is_deterministic() {
