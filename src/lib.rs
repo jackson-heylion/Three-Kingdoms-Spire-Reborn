@@ -1239,6 +1239,92 @@ impl Game {
         }
         damage
     }
+    fn ally_support(&mut self, foe_idx: usize, armor: i32) -> String {
+        let (origin, recipients, shielding) = {
+            let b = self.battle.as_mut().expect("battle");
+            let origin = b.foes[foe_idx].id.clone();
+            let partners = b.foes.iter().enumerate()
+                .filter(|(idx,foe)| *idx != foe_idx && foe.hp > 0)
+                .map(|(idx,_)| idx).collect::<Vec<_>>();
+            let targets = if partners.is_empty() { vec![foe_idx] } else { partners };
+            for idx in &targets { b.foes[*idx].block += armor; }
+            let count = targets.len() as i32;
+            (origin,targets.len(),count*armor)
+        };
+        self.combat_event(EventKind::EnemyTechnique,&origin,shielding,Some("allies".into()));
+        format!("{}为{}名友军布阵，累计护甲+{}",enemy_name(&origin),recipients,shielding)
+    }
+
+    fn boss_signature(&mut self, idx: usize, technique: BossMove) -> String {
+        let (id,phase) = {
+            let foe = &self.battle.as_ref().expect("battle").foes[idx];
+            (foe.id.clone(),foe.phase)
+        };
+        let result = match technique {
+            BossMove::Thunder(attack) => {
+                let hit = self.enemy_attack(idx,attack);
+                if hit > 0 {
+                    let turns = 2+u8::from(phase > 0);
+                    let b = self.battle.as_mut().expect("battle");
+                    b.weak = b.weak.saturating_add(turns);
+                    self.combat_event(EventKind::StatusApplied,"weak",i32::from(turns),Some("hero".into()));
+                }
+                format!("雷咒命中，损失{hit}生命{}",
+                    if hit>0 {"并遭虚弱"} else {"，被护阵抵挡"})
+            }
+            BossMove::TigerRush(attack) => {
+                let hits = 2+usize::from(phase > 0);
+                let mut sum = 0;
+                for _ in 0..hits {
+                    if self.hp == 0 || self.battle.as_ref().expect("battle").foes[idx].hp == 0 {break}
+                    sum += self.enemy_attack(idx,attack);
+                }
+                format!("虎袭连击{hits}段，损失{sum}生命")
+            }
+            BossMove::TyrantLevy(attack) => {
+                let damage = self.enemy_attack(idx,attack);
+                let taken = self.gold.min(10+5*i32::from(phase>0));
+                self.gold -= taken;
+                format!("暴政施压损失{damage}生命，军资被掠夺{taken}金")
+            }
+            BossMove::GrandAlliance(armor) => {
+                let count = {
+                    let b = self.battle.as_mut().expect("battle");
+                    let mut count = 0;
+                    for foe in &mut b.foes {
+                        if foe.hp>0 {
+                            foe.block += armor;
+                            if phase>0 && foe.id!="yuanshao" {foe.strength += 1}
+                            count +=1;
+                        }
+                    }
+                    count
+                };
+                format!("四世三公列阵，{count}名敌军护甲+{armor}{}",
+                    if phase>0 {"，援军武勇+1"} else {""})
+            }
+            BossMove::HiddenScheme(penalty) => {
+                let b = self.battle.as_mut().expect("battle");
+                b.next_turn_energy_penalty = b.next_turn_energy_penalty.max(penalty).min(2);
+                let curses = b.draw.iter().chain(b.hand.iter()).chain(b.discard.iter())
+                    .filter(|c|c.id=="cursed").count();
+                if curses < 4 { b.discard.push(Card::new("cursed")); }
+                format!("暗度陈仓，下回合军令-{}{}",penalty,
+                    if curses<4 {"并混入军心涣散"} else {""})
+            }
+            BossMove::Mirage(amount) => {
+                let b = self.battle.as_mut().expect("battle");
+                let foe = &mut b.foes[idx];
+                let restored = amount.min(foe.max_hp-foe.hp);
+                foe.hp += restored;
+                foe.block += amount/2;
+                format!("遁甲幻身回复{restored}生命，护甲+{}",amount/2)
+            }
+        };
+        self.combat_event(EventKind::EnemyTechnique,&id,1,Some(format!("foe:{idx}")));
+        result
+    }
+
     fn boss_phase_transitions(&mut self) -> Vec<String> {
         let changes: Vec<(usize,String)> = self.battle.as_ref().expect("battle").foes
             .iter().enumerate().filter(|(_,foe)|
@@ -1339,10 +1425,12 @@ impl Game {
         if self.defeated() { return Ok(self.win_battle()); }
         self.troop_attack();
         if self.defeated() { return Ok(self.win_battle()); }
-        let phase_messages = self.boss_phase_transitions();
+        // Remove armor earned in earlier rounds, then let a phase transition
+        // grant fresh armor which remains effective during the next player turn.
         if let Some(b) = self.battle.as_mut() {
             for f in &mut b.foes { f.block = 0; }
         }
+        let phase_messages = self.boss_phase_transitions();
         let intents: Vec<(usize, Intent)> = self.battle.as_ref().expect("battle").foes.iter()
             .enumerate().filter(|(_, f)| f.hp > 0)
             .map(|(i, f)| (i, f.intent.clone())).collect();
@@ -1386,6 +1474,12 @@ impl Game {
                     self.battle.as_mut().expect("battle").foes[i].strength += amount;
                     messages.push(format!("{name}聚势+{amount}"));
                 }
+                Intent::Assist(armor) => {
+                    messages.push(self.ally_support(i,armor));
+                }
+                Intent::Boss(technique) => {
+                    messages.push(format!("{name}：{}",self.boss_signature(i,technique)));
+                }
             }
             if self.hp == 0 {
                 self.stage = Stage::Lost;
@@ -1398,7 +1492,11 @@ impl Game {
             b.block = 0;
             b.weak = b.weak.saturating_sub(1);
             b.vulnerable = b.vulnerable.saturating_sub(1);
-            b.energy = 3 + i32::from(self.relics.iter().any(|r| r == "玉玺"));
+            let base_energy = 3 + i32::from(self.relics.iter().any(|r| r == "玉玺"));
+            b.energy = (base_energy - i32::from(b.next_turn_energy_penalty)).max(0);
+            b.next_turn_energy_penalty = 0;
+            b.last_turn_cards = b.played_this_turn;
+            b.played_this_turn = 0;
             b.combo = 0;
             b.discard_tokens = 0;
             b.thought_used = false;
