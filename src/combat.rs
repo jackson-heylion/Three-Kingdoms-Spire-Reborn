@@ -10,6 +10,9 @@ pub enum PowerId {
     ArrowsOnDiscard,
     GranarySupport,
     BloodCourage,
+    WisdomOnDraw,
+    ToxicReversal,
+    VictoryDrum,
 }
 impl PowerId {
     pub fn name(self) -> &'static str {
@@ -19,6 +22,9 @@ impl PowerId {
             Self::ArrowsOnDiscard => "飞羽追袭",
             Self::GranarySupport => "粮道援护",
             Self::BloodCourage => "浴血鏖战",
+            Self::WisdomOnDraw => "察势观星",
+            Self::ToxicReversal => "七擒余毒",
+            Self::VictoryDrum => "斩将凯歌",
         }
     }
     pub fn description(self) -> &'static str {
@@ -28,6 +34,9 @@ impl PowerId {
             Self::ArrowsOnDiscard => "主动弃换手牌时，造成4伤害/层给首个存活敌人",
             Self::GranarySupport => "回合结束时，存活亲兵回复4体力/层（上限40）",
             Self::BloodCourage => "英雄生命受到实际伤害时，额外获得2怒气/层",
+            Self::WisdomOnDraw => "每抽到一张牌，获得1护甲/层",
+            Self::ToxicReversal => "对敌人施加中毒时，额外附加1层中毒/层",
+            Self::VictoryDrum => "击败一名敌人后，恢复1军令/层",
         }
     }
 }
@@ -49,6 +58,11 @@ pub enum EventKind {
     PowerTriggered,
     TurnEnded,
     TurnStarted,
+    CardResolved,
+    CardDrawn,
+    CardExhausted,
+    StatusApplied,
+    FoeDefeated,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
