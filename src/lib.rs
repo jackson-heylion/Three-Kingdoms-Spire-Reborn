@@ -242,6 +242,10 @@ pub struct Game {
     pub relics: Vec<String>,
     pub potions: u8,
     pub battle: Option<Battle>,
+    /// Complete authoritative successful-action journal for new campaigns.
+    /// Old V2 saves lack a journal and remain playable with None.
+    #[serde(default, skip_serializing_if="Option::is_none")]
+    pub action_history: Option<Vec<Action>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub doctrine: Option<archetypes::Doctrine>,
     #[serde(default)] pub telemetry: CombatTelemetry,
@@ -306,7 +310,7 @@ impl Game {
             version: SAVE_VERSION, revision: 0, seed, rng_state: seed.max(1),
             hero, hp: max_hp, max_hp, gold: 90, floor: 0, stage: Stage::Map,
             last_node: None, route: vec![], deck, relics: vec!["军旗".into()],
-            potions: 1, battle: None, doctrine: None, telemetry: CombatTelemetry::default(), rewards: vec![], market: vec![],
+            potions: 1, battle: None, action_history: Some(vec![]), doctrine: None, telemetry: CombatTelemetry::default(), rewards: vec![], market: vec![],
             log: vec![format!("{}率部出征，征途由此开始。", hero.name())],
             ascension: ascension.min(10), event_id: 0,
             potion_bag: vec!["healing".into()], shop_relic: None,
@@ -322,6 +326,24 @@ impl Game {
     }
     pub fn to_json(&self) -> Result<String, String> {
         serde_json::to_string_pretty(self).map_err(|e| e.to_string())
+    }
+    /// Rebuild the campaign exclusively from its seed and committed actions,
+    /// including reward RNG, combat event sequence, map topology and narrative.
+    /// No side effects; the caller's live game is never modified.
+    pub fn verify_action_replay(&self) -> Result<usize,String> {
+        let actions=self.action_history.as_ref().ok_or(
+            "该旧版存档没有起始操作日志，不能验证此前未记录的动作")?;
+        if actions.len()>50_000 { return Err("操作历史超过单次回放保护上限".into()); }
+        let mut replayed=Game::new_with_identity(
+            self.hero,self.seed,self.ascension,self.mode,self.run_id.clone());
+        for (index,action) in actions.iter().enumerate() {
+            replayed.apply(action.clone()).map_err(|e|
+                format!("重放第{}步失败：{e}",index+1))?;
+        }
+        if replayed.to_json()?!=self.to_json()? {
+            return Err("重放的实际状态与当前快照不一致：可能存在修改或版本规则变更".into());
+        }
+        Ok(actions.len())
     }
     pub fn from_json(raw: &str) -> Result<Self, String> {
         let mut g: Self = serde_json::from_str(raw).map_err(|e| format!("存档解析失败: {e}"))?;
@@ -345,6 +367,9 @@ impl Game {
             || self.potion_bag.iter().any(|id| !items::POTIONS.iter().any(|(valid,_)| valid == id))
         {
             return Err("存档属性无效".into());
+        }
+        if self.action_history.as_ref().is_some_and(|actions|actions.len()>50_000) {
+            return Err("操作日志长度超限".into());
         }
         if (self.stage == Stage::Combat) != self.battle.is_some() {
             return Err("存档战斗阶段与战斗快照不一致".into());
@@ -2053,7 +2078,10 @@ impl Game {
     /// revision, deck or potion slots. Frontends can perform CAS on revision.
     pub fn apply(&mut self, action: Action) -> Result<Vec<String>, String> {
         let mut draft = self.clone();
-        let messages = draft.apply_unchecked(action)?;
+        let messages = draft.apply_unchecked(action.clone())?;
+        if let Some(actions)=draft.action_history.as_mut() {
+            actions.push(action);
+        }
         draft.validate()?;
         *self = draft;
         Ok(messages)
@@ -3174,6 +3202,43 @@ mod tests {
         };MAX_RECENT_TURN_METRICS+1];
         assert!(Game::from_json(&bad.to_json().unwrap()).is_err());
         assert_eq!(migrated.to_json().unwrap(),g.to_json().unwrap());
+    }
+    #[test]
+    fn full_action_replay_reconstructs_seeded_combat_route_and_saves() {
+        let mut g=Game::new(Hero::SunShangxiang,99131);
+        assert_eq!(g.verify_action_replay(),Ok(0));
+        g.apply(Action::SetDoctrine{id:"sun_combo".into()}).unwrap();
+        g.apply(Action::Choose{index:1}).unwrap();
+        g.apply(Action::EndTurn).unwrap();
+        let snapshot=g.to_json().unwrap();
+        assert_eq!(Game::from_json(&snapshot).unwrap().verify_action_replay(),Ok(3));
+        let before=g.to_json().unwrap();
+        assert!(g.apply(Action::Play{index:9999,target:1}).is_err());
+        assert_eq!(g.to_json().unwrap(),before);
+        assert_eq!(g.verify_action_replay(),Ok(3));
+    }
+    #[test]
+    fn old_v2_saves_without_action_history_are_compatible_but_not_verifiable() {
+        let mut game=Game::new(Hero::GuanYu,99132);
+        game.apply(Action::Choose{index:1}).unwrap();
+        let mut value:serde_json::Value=serde_json::from_str(&game.to_json().unwrap()).unwrap();
+        value.as_object_mut().unwrap().remove("action_history");
+        let old=Game::from_json(&value.to_string()).unwrap();
+        assert!(old.action_history.is_none());
+        assert!(old.verify_action_replay().is_err());
+        // The feature must not invalidate or rewrite the campaign's state.
+        assert_eq!(old.floor,game.floor);
+        assert_eq!(old.rng_state,game.rng_state);
+        assert!(old.to_json().is_ok());
+    }
+    #[test]
+    fn replay_verifier_rejects_mutated_snapshot_without_touching_it() {
+        let mut g=Game::new(Hero::CaoCao,99133);
+        g.apply(Action::Choose{index:1}).unwrap();
+        g.gold+=1;
+        let before=g.to_json().unwrap();
+        assert!(g.verify_action_replay().is_err());
+        assert_eq!(before,g.to_json().unwrap());
     }
     #[test]
     fn doctrine_is_user_controlled_transactional_and_save_portable() {
