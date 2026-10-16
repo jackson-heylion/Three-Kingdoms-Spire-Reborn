@@ -2424,13 +2424,13 @@ mod tests {
         assert_eq!(g.route.len(),3);
         assert!(g.act_map.as_ref().is_some_and(|m| m.is_valid()));
         assert_eq!(g.route_lanes,vec![0,1,2]);
-        let next = g.act_map.as_ref().unwrap().rows[1];
+        let next = g.act_map.as_ref().unwrap().routes(1,Some(0));
         g.apply(Action::Choose { index: 1 }).unwrap();
-        // Simulate completing the scene without modifying the next row topology.
+        // New graph topology may have one or two explicit edges from lane zero.
         g.battle = None;
         g.finish_scene();
-        assert_eq!(g.route_lanes,vec![0,1]);
-        assert_eq!(g.route,vec![next[0],next[1]]);
+        assert_eq!(g.route_lanes,next.iter().map(|(lane,_)|*lane).collect::<Vec<_>>());
+        assert_eq!(g.route,next.iter().map(|(_,node)|*node).collect::<Vec<_>>());
         let json = g.to_json().unwrap();
         assert_eq!(Game::from_json(&json).unwrap().to_json().unwrap(),json);
     }
