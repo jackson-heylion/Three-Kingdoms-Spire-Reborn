@@ -574,7 +574,7 @@ impl Game {
             self.draw_cards(1);
         }
         if self.hero == Hero::SunShangxiang && attack
-            && self.battle.as_ref().expect("battle").combo.is_multiple_of(3) {
+            && self.battle.as_ref().expect("battle").combo % 3 == 0 {
             self.draw_cards(1);
         }
         if self.hero == Hero::CaoCao && self.battle.as_ref().expect("battle").command >= 3 {
@@ -823,7 +823,8 @@ impl Game {
                 self.gold += if event == 11 {45} else {30}; "获得金币。"
             }
             (3,3) | (9,2) => {
-                self.deck.push(Card::new(NEUTRAL_POOL[self.random(NEUTRAL_POOL.len())]));
+                let picked = NEUTRAL_POOL[self.random(NEUTRAL_POOL.len())];
+                self.deck.push(Card::new(picked));
                 "获得一张中立牌。"
             }
             (4,1) | (7,1) | (9,1) => {
