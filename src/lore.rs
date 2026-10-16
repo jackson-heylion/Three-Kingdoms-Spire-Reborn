@@ -176,7 +176,7 @@ mod tests {
         let no_flags = Vec::new();
         let seen = Vec::new();
         assert_eq!(next_beat(Hero::GuanYu, 0, &no_flags, &seen).unwrap().id,"taoyuan");
-        assert_eq!(next_beat(Hero::GuanYu, 1, &no_flags, &seen), None);
+        assert!(next_beat(Hero::GuanYu, 1, &no_flags, &seen).is_none());
         assert_eq!(next_beat(Hero::GuanYu, 1, &["baima_debt".into()], &seen).unwrap().id,"huarong");
     }
 }
