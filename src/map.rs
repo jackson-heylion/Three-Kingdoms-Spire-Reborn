@@ -69,6 +69,10 @@ impl ActMap {
                     _ => Terrain::Road,
                 };
             }
+            // Never close both entrances available to a right-hand lane.
+            if ground[1]==Terrain::Closed && ground[2]==Terrain::Closed {
+                ground[2]=Terrain::Road;
+            }
             // Defensive corridor near a boss prevents three locked entrances.
             if row==5 {ground[1]=Terrain::Road;choices[1]=Node::Camp;}
             rows.push(choices);
