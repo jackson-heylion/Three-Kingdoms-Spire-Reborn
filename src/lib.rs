@@ -1093,7 +1093,7 @@ mod tests {
         g.potion_bag = vec!["shield".into(), "poison".into()];
         g.potions = 2;
         g.apply(Action::UsePotionAt { slot: 1, target: 1 }).unwrap();
-        assert_eq!(g.battle.as_ref().unwrap().block >= 20, true);
+        assert!(g.battle.as_ref().unwrap().block >= 20);
         assert_eq!(g.potion_bag, vec!["poison".to_string()]);
         g.apply(Action::UsePotionAt { slot: 1, target: 1 }).unwrap();
         assert_eq!(g.potions, 0);
