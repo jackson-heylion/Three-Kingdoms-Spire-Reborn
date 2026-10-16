@@ -89,6 +89,11 @@ pub enum Effect {
     Tactics(i32),
     DiscardStrike(i32),
     Power(PowerId, i32),
+    XHit(i32),
+    XGuard(i32),
+    TutorAttack,
+    CopyDiscard,
+    Generate(&'static str, usize),
     Unplayable,
 }
 
@@ -209,6 +214,13 @@ pub fn card_spec(id: &str) -> Option<CardSpec> {
         "toxic_reversal" => ("七擒余毒", "持续：对敌军施加中毒时额外施加1层/层", 1, Effect::Power(PowerId::ToxicReversal, 1), true),
         "hold_line" => ("待命伏兵", "保留：获得6点护甲及1军令，不打出可留在下回合", 1, Effect::GuardEnergy(6), false),
         "fleeting_blade" => ("惊鸿一掠", "虚无：造成6点伤害并施加1层易伤，回合末未打出则消耗", 0, Effect::HitVulnerable(6, 1), false),
+        "yidao_x" => ("义绝连斩", "X费：消耗全部剩余军令，每点造成6伤害；可零费发动", -1, Effect::XHit(6), false),
+        "xingpan_tutor" => ("星盘识阵", "从抽牌堆指定检索一张攻击牌；不触发抽牌事件", 1, Effect::TutorAttack, false),
+        "feiyu_copy" => ("飞羽映射", "从弃牌堆指定复制一张可打出的牌至手中；复制品为临时牌", 1, Effect::CopyDiscard, true),
+        "muji" => ("募军敕令", "生成2张本场战斗临时招架；出牌或回合末消耗", 1, Effect::Generate("defend", 2), false),
+        "huaji_x" => ("无双蓄击", "X费：消耗全部剩余军令，每点造成8伤害；可零费发动", -1, Effect::XHit(8), false),
+        "x_bulwark" => ("长城连营", "X费：消耗全部剩余军令，每点获得5护甲", -1, Effect::XGuard(5), false),
+        "field_recruit" => ("战地征募", "生成1张本场战斗临时突刺；出牌或回合末消耗", 1, Effect::Generate("strike", 1), false),
         "cursed" => ("军心涣散", "无法主动打出", 0, Effect::Unplayable, false),
         _ => return None,
     };
@@ -221,18 +233,18 @@ pub const REWARD_POOL: &[&str] = &[
     "duji", "caochuan", "taoyuan", "junling", "tiebi", "jilie",
 ];
 
-pub const NEUTRAL_POOL: &[&str] = &["duanliang", "yingji", "guji", "zhuangji", "zhentu", "duyao", "bensi", "lianshe", "jianbi", "fengcheng", "shoucang", "zonghenggong"];
+pub const NEUTRAL_POOL: &[&str] = &["x_bulwark", "field_recruit", "duanliang", "yingji", "guji", "zhuangji", "zhentu", "duyao", "bensi", "lianshe", "jianbi", "fengcheng", "shoucang", "zonghenggong"];
 
 pub fn hero_pool(hero: Hero) -> &'static [&'static str] {
     match hero {
-        Hero::GuanYu => &["hold_line", "victory_drum", "oath_guard", "yanyue", "zhongyi", "qianli", "juyi", "danqi", "qinglongwu", "yibao", "pojun", "guanxi", "lianzhan", "yidao", "qinying"],
-        Hero::ZhugeLiang => &["toxic_reversal", "wisdom_on_draw", "thought_spring", "bagua", "kongcheng", "jiecaodong", "lianji", "shanchang", "xinghuo", "yingxin", "zhouyuji", "mouduan", "wuhou", "kuce", "fenglei"],
-        Hero::SunShangxiang => &["fleeting_blade", "arrows_on_discard", "huanshe", "jiecang", "feishi", "gonglian", "tupo", "jianshu", "liandao", "qiaoying", "yitian", "lianhua", "huashe", "lianying", "yidong", "chuanxin", "jibao"],
-        Hero::CaoCao => &["granary_support", "qingqi", "hujun", "longwei", "tuntian", "tieqi", "junjin", "xiongbi", "jianxiong", "xiaoling", "qunxiong", "shengming", "jianbing", "junshang", "wuwei", "zhaoxian"],
-        Hero::LuBu => &["blood_courage", "fennu", "huaji", "xuezhai", "chijian", "shuangji", "baonu", "ranxue", "tianxia", "xiongmeng", "yanren", "zhanqi", "dangguan"],
+        Hero::GuanYu => &["yidao_x", "hold_line", "victory_drum", "oath_guard", "yanyue", "zhongyi", "qianli", "juyi", "danqi", "qinglongwu", "yibao", "pojun", "guanxi", "lianzhan", "yidao", "qinying"],
+        Hero::ZhugeLiang => &["xingpan_tutor", "toxic_reversal", "wisdom_on_draw", "thought_spring", "bagua", "kongcheng", "jiecaodong", "lianji", "shanchang", "xinghuo", "yingxin", "zhouyuji", "mouduan", "wuhou", "kuce", "fenglei"],
+        Hero::SunShangxiang => &["feiyu_copy", "fleeting_blade", "arrows_on_discard", "huanshe", "jiecang", "feishi", "gonglian", "tupo", "jianshu", "liandao", "qiaoying", "yitian", "lianhua", "huashe", "lianying", "yidong", "chuanxin", "jibao"],
+        Hero::CaoCao => &["muji", "granary_support", "qingqi", "hujun", "longwei", "tuntian", "tieqi", "junjin", "xiongbi", "jianxiong", "xiaoling", "qunxiong", "shengming", "jianbing", "junshang", "wuwei", "zhaoxian"],
+        Hero::LuBu => &["huaji_x", "blood_courage", "fennu", "huaji", "xuezhai", "chijian", "shuangji", "baonu", "ranxue", "tianxia", "xiongmeng", "yanren", "zhanqi", "dangguan"],
     }
 }
-pub fn card_count() -> usize { 105 }
+pub fn card_count() -> usize { 112 }
 
 pub const ENEMY_IDS: &[&str] = &["bandit", "archer", "officer", "shaman", "yellow_turban", "pyromancer", "spearman", "cuirass", "raider", "crossbowman", "wolf", "tomb_guard", "firelancer", "tactician", "horse_archer", "assassin", "panther", "iron_guard", "witch", "sling", "elite", "war_elephant", "royal_guard", "tiger_general", "sacred_beast", "zhangjiao", "sunjian", "dongzhuo", "yuanshao", "simayi", "zuoci"];
 
