@@ -179,6 +179,8 @@ fn run_feature(source: &str, name: &str) -> Result<usize, String> {
             steps = 0;
             continue;
         }
+        // Gherkin allows free-form Feature descriptions before the first Scenario.
+        if scenario.is_empty() { continue; }
         let step = ["Given ","When ","Then ","And ","But "].iter()
             .find_map(|prefix| t.strip_prefix(prefix))
             .ok_or_else(||format!("{name}:{}: unsupported Gherkin syntax: {t}",line_index+1))?;
