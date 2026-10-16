@@ -758,28 +758,126 @@ impl Game {
             _ => Err("军市选项不存在".into()),
         }
     }
+
+    pub fn story_options(&self) -> &'static str {
+        match self.event_id {
+            0 => "驿站筹粮：1 购粮恢复 / 2 火攻古卷附诅咒 / 3 劫军资",
+            1 => "破庙祭祀：1 损血得遗物 / 2 恢复 / 3 离开",
+            2 => "渡江船工：1 购粮 / 2 损血赚金 / 3 专属牌",
+            3 => "流民投靠：1 买药 / 2 获金 / 3 中立牌",
+            4 => "军师论道：1 付费升级 / 2 专属牌 / 3 离开",
+            5 => "古战场：1 损血得遗物 / 2 金币附诅咒 / 3 离开",
+            6 => "雨夜守寨：1 恢复 / 2 损血增加最大生命 / 3 获金币",
+            7 => "奇门阵：1 免费升级 / 2 专属牌附诅咒 / 3 离开",
+            8 => "粮道纠纷：1 购粮 / 2 损血换金币 / 3 领药",
+            9 => "铁匠相逢：1 付费升级 / 2 中立牌 / 3 离开",
+            10 => "故旧重逢：1 恢复 / 2 增加最大生命 / 3 专属牌",
+            _ => "星象异变：1 损血得遗物 / 2 获金币 / 3 恢复",
+        }
+    }
     fn choose_story(&mut self, index: usize) -> Result<String, String> {
-        let msg = match index {
-            1 => {
-                if self.gold < 15 { return Err("需要15金购得补给".into()); }
-                self.gold -= 15;
-                self.hp = (self.hp + 14).min(self.max_hp);
-                "用15金向乡民购得粮草，回复14体力。".into()
-            }
-            2 => {
-                self.deck.push(Card::new("huogong"));
-                self.deck.push(Card::new("cursed"));
-                "得古卷《火攻》，但军心涣散混入牌组。".into()
-            }
-            3 => {
-                self.hp = (self.hp - 8).max(0);
-                self.gold += 65;
-                "冒险夺得军资65金，损失8体力。".into()
-            }
-            _ => return Err("奇遇：choose 1 粮草 / 2 古卷 / 3 劫粮".into()),
+        if !(1..=3).contains(&index) { return Err("奇遇请选 choose 1、2 或 3".into()); }
+        let event = self.event_id;
+        let cost = match (event,index) {
+            (0,1) => 15, (2,1) => 25, (3,1) => 30,
+            (4,1) => 40, (8,1) => 20, (9,1) => 40, _ => 0,
         };
+        if self.gold < cost { return Err(format!("需要{cost}金")); }
+        self.gold -= cost;
+        let msg = match (event,index) {
+            (0,1) | (2,1) | (8,1) => {
+                self.hp = (self.hp + 18).min(self.max_hp); "购得粮草，回复18体力。"
+            }
+            (0,2) => {
+                self.deck.push(Card::new("huogong")); self.deck.push(Card::new("cursed"));
+                "获得火攻古卷，但沾染军心涣散。"
+            }
+            (0,3) => {
+                self.hp = (self.hp - 8).max(0); self.gold += 65;
+                "损失8体力，获得65金。"
+            }
+            (1,1) | (5,1) | (11,1) => {
+                self.hp = (self.hp - if event == 1 { 6 } else { 10 }).max(0);
+                self.grant_relic(); "献祭体力，获得遗物。"
+            }
+            (1,2) | (6,1) | (10,1) | (11,3) => {
+                self.hp = (self.hp + 15).min(self.max_hp); "恢复15体力。"
+            }
+            (2,2) | (8,2) => {
+                self.hp = (self.hp - 7).max(0); self.gold += 40;
+                "失去7体力，得到40金。"
+            }
+            (2,3) | (4,2) | (7,2) | (10,3) => {
+                let pool = hero_pool(self.hero);
+                self.deck.push(Card::new(pool[self.random(pool.len())]));
+                if event == 7 { self.deck.push(Card::new("cursed")); }
+                "获得一张武将专属牌。"
+            }
+            (3,1) | (8,3) => {
+                if self.potions < 3 { self.potion_bag.push("healing".into()); self.potions += 1; }
+                else { self.gold += 15; }
+                "获得药剂，满栏则转换为15金。"
+            }
+            (3,2) | (6,3) | (11,2) => {
+                self.gold += if event == 11 {45} else {30}; "获得金币。"
+            }
+            (3,3) | (9,2) => {
+                self.deck.push(Card::new(NEUTRAL_POOL[self.random(NEUTRAL_POOL.len())]));
+                "获得一张中立牌。"
+            }
+            (4,1) | (7,1) | (9,1) => {
+                if let Some(card) = self.deck.iter_mut().find(|c| !c.upgraded && c.id != "cursed") {
+                    card.upgraded = true; "获得一次卡牌升级。"
+                } else { self.gold += cost; "没有可升级卡牌，退回所付费用。" }
+            }
+            (5,2) => { self.gold += 60; self.deck.push(Card::new("cursed")); "拾得60金，但附上诅咒。" }
+            (6,2) => { self.max_hp += 4; self.hp = (self.hp - 8).max(0); "最大体力加4，失去8体力。" }
+            (10,2) => { self.max_hp += 3; self.hp += 3; "最大体力增加3。" }
+            _ => "避开纷争，继续行军。",
+        };
+        if self.relics.iter().any(|r| r == "聚宝") && msg.contains("金") {
+            self.gold += 10;
+        }
         if self.hp == 0 { self.stage = Stage::Lost; } else { self.finish_scene(); }
-        Ok(msg)
+        Ok(msg.into())
+    }
+    fn use_potion(&mut self, slot: usize, target: usize) -> Result<String, String> {
+        if self.stage != Stage::Combat { return Err("只能战斗时使用药剂".into()); }
+        let idx = slot.checked_sub(1).ok_or("药剂编号从1开始")?;
+        let id = self.potion_bag.get(idx).ok_or("无效药剂编号")?.clone();
+        let foe_index = if matches!(id.as_str(), "fire" | "poison") {
+            Some(self.target_index(target)?)
+        } else { None };
+        self.potion_bag.remove(idx);
+        self.potions = self.potion_bag.len() as u8;
+        let label = items::potion_name(&id).to_string();
+        match id.as_str() {
+            "healing" => self.hp = (self.hp + 16).min(self.max_hp),
+            "fire" => self.damage_enemy(foe_index.expect("target"), 22),
+            "shield" => self.battle.as_mut().expect("battle").block += 20,
+            "energy" => self.battle.as_mut().expect("battle").energy += 2,
+            "poison" => self.battle.as_mut().expect("battle").foes[foe_index.expect("target")].poison += 12,
+            "strength" => self.battle.as_mut().expect("battle").strength += 3,
+            "insight" => self.draw_cards(3),
+            "weak" => for foe in &mut self.battle.as_mut().expect("battle").foes {
+                if foe.hp > 0 { foe.weak += 3; }
+            },
+            "cleanse" => {
+                self.hp = (self.hp + 8).min(self.max_hp);
+                let b = self.battle.as_mut().expect("battle");
+                b.weak = 0; b.vulnerable = 0;
+            }
+            "blood" => {
+                self.hp = (self.hp - 4).max(1);
+                self.battle.as_mut().expect("battle").strength += 5;
+            }
+            _ => return Err("未知药剂".into()),
+        }
+        if self.relics.iter().any(|r| r == "青囊") {
+            self.hp = (self.hp + 4).min(self.max_hp);
+        }
+        if self.defeated() { Ok(format!("{label}。{}", self.win_battle())) }
+        else { Ok(format!("使用药剂：{label}。")) }
     }
     pub fn apply(&mut self, action: Action) -> Result<Vec<String>, String> {
         let msg = match action {
@@ -796,14 +894,7 @@ impl Game {
             Action::Upgrade { index } => self.upgrade_card(index)?,
             Action::Remove { index } => self.remove_card(index)?,
             Action::UsePotionAt { slot, target } => self.use_potion(slot, target)?,
-            Action::UsePotion => {
-                if self.stage != Stage::Combat { return Err("仅战斗中可使用药剂".into()); }
-                if self.potions == 0 { return Err("没有药剂".into()); }
-                self.potions -= 1;
-                let healed = (self.max_hp - self.hp).min(16);
-                self.hp += healed;
-                format!("饮用军医药剂，回复{healed}体力。")
-            }
+            Action::UsePotion => self.use_potion(1, 1)?,
         };
         self.revision = self.revision.saturating_add(1);
         self.log.push(msg.clone());
