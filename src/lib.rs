@@ -530,7 +530,7 @@ impl Game {
             combo: 0, command: 0, fury: 0, thorns: 0, played: 0,
             played_this_turn: 0, last_turn_cards: 0, next_turn_energy_penalty: 0,
             troops_hp: if self.hero == Hero::CaoCao { 12 } else { 0 },
-            troops_attack: if self.hero == Hero::CaoCao { 3 } else { 0 },
+            troops_attack: if self.hero == Hero::CaoCao { 2 } else { 0 },
             discard_tokens: 0,
             powers: vec![], events: vec![], event_seq: 0, thought_used: false,
             turn: 1,
@@ -1136,6 +1136,10 @@ impl Game {
         }
         if self.hero == Hero::SunShangxiang && attack
             && self.battle.as_ref().expect("battle").combo % 3 == 0 {
+            // Combo mobility: the every-third-attack card draw now also gives
+            // a small guard. This rewards active combat without raising HP.
+            self.battle.as_mut().expect("battle").block += 3;
+            self.combat_event(EventKind::PowerTriggered,"sun_combo_guard",3,None);
             self.draw_cards(1);
         }
         if self.hero == Hero::CaoCao && self.battle.as_ref().expect("battle").command >= 3 {
@@ -1174,7 +1178,13 @@ impl Game {
             let b = self.battle.as_mut().expect("battle");
             b.discard_tokens -= 1;
             if temporary { b.exhausted.push(card); } else { b.discard.push(card); }
-            if self.hero == Hero::SunShangxiang { b.combo += 1; }
+            if self.hero == Hero::SunShangxiang {
+                b.combo += 1;
+                b.block += 2;
+            }
+        }
+        if self.hero == Hero::SunShangxiang {
+            self.combat_event(EventKind::PowerTriggered,"sun_discard_guard",2,None);
         }
         if temporary {
             self.combat_event(EventKind::CardExhausted,&card_id,1,None);
@@ -2069,10 +2079,10 @@ mod tests {
         g.apply(Action::Choose { index: 1 }).unwrap();
         let b = g.battle.as_ref().unwrap();
         assert_eq!(b.troops_hp, 12);
-        assert_eq!(b.troops_attack, 3);
+        assert_eq!(b.troops_attack, 2);
         let enemy_hp = b.foes[0].hp;
         g.troop_attack();
-        assert_eq!(g.battle.as_ref().unwrap().foes[0].hp, enemy_hp - 3);
+        assert_eq!(g.battle.as_ref().unwrap().foes[0].hp, enemy_hp - 2);
         let hp_before = g.hp;
         let dmg = g.enemy_attack(0, 8);
         assert_eq!(dmg, 0);
@@ -2812,6 +2822,45 @@ mod tests {
         let b=g.battle.as_ref().unwrap();
         assert_eq!(b.played_this_turn,0);
         assert_eq!(b.last_turn_cards,0);
+    }
+    #[test]
+    fn sun_three_attacks_give_guard_and_draw_once_with_rollback_safety() {
+        let mut g=Game::new(Hero::SunShangxiang,7711);
+        g.apply(Action::Choose{index:1}).unwrap();
+        let b=g.battle.as_mut().unwrap();
+        b.energy=10;
+        b.hand=vec![Card::new("strike");3];
+        b.foes[0].hp=500;
+        b.foes[0].max_hp=500;
+        let prior=b.block;
+        for _ in 0..3 {
+            g.apply(Action::Play{index:1,target:1}).unwrap();
+        }
+        let b=g.battle.as_ref().unwrap();
+        assert_eq!(b.combo,3);
+        assert_eq!(b.block,prior+3);
+        assert_eq!(b.events.iter().filter(|e|e.kind==EventKind::PowerTriggered
+            && e.source=="sun_combo_guard").count(),1);
+        let json=g.to_json().unwrap();
+        assert_eq!(Game::from_json(&json).unwrap().to_json().unwrap(),json);
+        assert!(g.apply(Action::Play{index:999,target:1}).is_err());
+        assert_eq!(g.to_json().unwrap(),json);
+    }
+    #[test]
+    fn sun_manual_discard_grants_guard_only_after_valid_token_use() {
+        let mut g=Game::new(Hero::SunShangxiang,7712);
+        g.apply(Action::Choose{index:1}).unwrap();
+        let b=g.battle.as_mut().unwrap();
+        b.hand=vec![Card::new("strike")];
+        let before=g.to_json().unwrap();
+        assert!(g.apply(Action::Discard{index:1}).is_err());
+        assert_eq!(g.to_json().unwrap(),before);
+        g.battle.as_mut().unwrap().discard_tokens=1;
+        let prior=g.battle.as_ref().unwrap().block;
+        g.apply(Action::Discard{index:1}).unwrap();
+        assert_eq!(g.battle.as_ref().unwrap().block,prior+2);
+        assert!(g.battle.as_ref().unwrap().events.iter().any(|e|
+            e.kind==EventKind::PowerTriggered && e.source=="sun_discard_guard"));
     }
     #[test]
     fn targeted_camp_upgrade_and_shop_removal_work() {
