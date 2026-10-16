@@ -208,16 +208,78 @@ pub fn hero_pool(hero: Hero) -> &'static [&'static str] {
 }
 pub fn card_count() -> usize { 87 }
 
+pub const ENEMY_IDS: &[&str] = &["bandit", "archer", "officer", "shaman", "yellow_turban", "pyromancer", "spearman", "cuirass", "raider", "crossbowman", "wolf", "tomb_guard", "firelancer", "tactician", "horse_archer", "assassin", "panther", "iron_guard", "witch", "sling", "elite", "war_elephant", "royal_guard", "tiger_general", "sacred_beast", "zhangjiao", "sunjian", "dongzhuo", "yuanshao", "simayi", "zuoci"];
+
+pub fn enemy_hp(id: &str) -> i32 {
+    match id {
+        "bandit" => 32,
+        "archer" => 23,
+        "officer" => 43,
+        "shaman" => 53,
+        "yellow_turban" => 38,
+        "pyromancer" => 34,
+        "spearman" => 35,
+        "cuirass" => 48,
+        "raider" => 49,
+        "crossbowman" => 42,
+        "wolf" => 49,
+        "tomb_guard" => 52,
+        "firelancer" => 57,
+        "tactician" => 48,
+        "horse_archer" => 45,
+        "assassin" => 43,
+        "panther" => 58,
+        "iron_guard" => 66,
+        "witch" => 47,
+        "sling" => 36,
+        "elite" => 58,
+        "war_elephant" => 76,
+        "royal_guard" => 70,
+        "tiger_general" => 68,
+        "sacred_beast" => 78,
+        "zhangjiao" => 75,
+        "sunjian" => 91,
+        "dongzhuo" => 106,
+        "yuanshao" => 115,
+        "simayi" => 142,
+        "zuoci" => 132,
+        _ => 30,
+    }
+}
+
 pub fn enemy_name(id: &str) -> &'static str {
     match id {
         "bandit" => "山贼",
         "archer" => "黄巾弓手",
         "officer" => "西凉校尉",
         "shaman" => "南蛮祭司",
+        "yellow_turban" => "黄巾力士",
+        "pyromancer" => "火符道士",
+        "spearman" => "枪兵",
+        "cuirass" => "重甲刀盾兵",
+        "raider" => "乌桓掠袭者",
+        "crossbowman" => "连弩手",
+        "wolf" => "南蛮狼骑",
+        "tomb_guard" => "陵卫",
+        "firelancer" => "火枪精锐",
+        "tactician" => "行军参谋",
+        "horse_archer" => "匈奴骑射",
+        "assassin" => "潜伏刺客",
+        "panther" => "豹骑前锋",
+        "iron_guard" => "铁甲军",
+        "witch" => "巫蛊师",
+        "sling" => "投石客",
         "elite" => "虎豹骑统领",
+        "war_elephant" => "战象统帅",
+        "royal_guard" => "禁卫长",
+        "tiger_general" => "猛将",
+        "sacred_beast" => "山中异兽",
         "zhangjiao" => "张角·天公将军",
+        "sunjian" => "孙坚·江东猛虎",
         "dongzhuo" => "董卓·暴虐之主",
+        "yuanshao" => "袁绍·四世三公",
         "simayi" => "司马懿·冢虎",
+        "zuoci" => "左慈·遁甲宗师",
         _ => "无名敌军",
     }
 }
