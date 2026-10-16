@@ -112,8 +112,8 @@ impl World {
             }
         } else if step.starts_with("battle ") && step.contains(" is at least ") {
             let chunks = step.split_whitespace().collect::<Vec<_>>();
-            if chunks.len() != 5 { return Err(format!("invalid battle resource step: {step}")); }
-            let expected: i32 = chunks[4].parse().map_err(|_| "bad threshold")?;
+            if chunks.len() != 6 { return Err(format!("invalid battle resource step: {step}")); }
+            let expected: i32 = chunks[5].parse().map_err(|_| "bad threshold")?;
             let battle = self.game()?.battle.as_ref().ok_or("not in battle")?;
             let got = match chunks[1] {
                 "guard" => battle.block,
