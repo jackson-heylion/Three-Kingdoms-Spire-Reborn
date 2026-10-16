@@ -2,11 +2,11 @@
 
 ## 可执行契约
 
-- 场景文件：`features/lore.feature`、`features/save_resume.feature`、`features/novel_provenance.feature`、`features/combat_powers.feature`、`features/advanced_combat.feature`
+- 场景文件：`features/lore.feature`、`features/save_resume.feature`、`features/novel_provenance.feature`、`features/combat_powers.feature`、`features/advanced_combat.feature`、`features/advanced_cards.feature`
 - 运行器：`tests/bdd.rs`，执行单一、严格的 Given / When / Then / And / But 子集。不是完整通用 Gherkin 解析器；不支持 Scenario Outline、Examples、Rule、Background、标签和数据表。遇到不认识的步骤，必须失败，不能自动跳过。
 - CI：`cargo test --test bdd -- --nocapture`，`cargo test --all-targets` 也会执行 BDD 验收。
 - 辅助质量门：Rust 单元测试、Clippy `-D warnings`、Release 构建、终端进度持久化冒烟、两平台各 1000 局种子模拟。
-- 本轮新增5个职业持久能力BDD：关羽攻击触发一次护阵，诸葛计策触发恢复，孙尚香主动弃换触发伤害，曹操后勤随存档，吕布浴血随存档；现在合计27个Gherkin场景；新增5个高级战斗案例覆盖保留/虚无、抽牌护甲、施毒增强、击杀回复、非法动作无副作用。
+- 本轮新增5个职业持久能力BDD：关羽攻击触发一次护阵，诸葛计策触发恢复，孙尚香主动弃换触发伤害，曹操后勤随存档，吕布浴血随存档；现在合计33个Gherkin场景；新增5个高级战斗案例覆盖保留/虚无、抽牌护甲、施毒增强、击杀回复、非法动作无副作用。
 - 内容审查：必须有小说回目 provenance；游戏虚构、小说演义、史实评价分开，不能写成已验证史实。
 
 ## 行为覆盖目录
@@ -66,3 +66,14 @@ cargo run --release --bin tks-sim -- 1000
 - 每个敌人第一次归零时产生一次 `FoeDefeated`；重复攻击阵亡目标没有再次奖励；
 - 卡牌被打出且完成效果后产生 `CardResolved`，随后触发依赖完整卡牌结算的持续能力；
 - 事件触发、敌方意图、卡牌生命周期必须在保存和恢复后保持确定性与严格单调序号。
+
+## 2026-10-16 新增高级卡牌 BDD 6 场景
+
+1. 关羽 X 重击按投入的军令数结算，结束后当前军令为0，单次攻击伤害可观测；
+2. 吕布零军令 X 重击合法，但不会无中生有地造成基础 X 伤害；
+3. 诸葛亮在明确指定抽牌堆第二张攻击牌前，先故意提交编号99；`Game::apply` 必须完整回滚，其后正确检索可跨存档恢复；
+4. 孙尚香选择弃牌堆第二张复制，复制品标记为临时，打出后必须消耗而非回到弃牌堆；
+5. 曹操临时募兵在结束回合后自动消耗，`CardGenerated` 与存档需保持一致；
+6. 中立 X 格挡遵守手牌、军令和护甲规则。
+
+附加单元测试验证 10 手牌上限、临时牌主动弃换消耗、X + 迅捷附魔、检索不触发 `CardDrawn` 类能力、临时保留牌的生命周期、无效动作 RNG/版本回滚。当前合计33个行为场景，另有数十项单元测试。
