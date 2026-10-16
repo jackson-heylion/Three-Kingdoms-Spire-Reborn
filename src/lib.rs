@@ -156,6 +156,7 @@ pub struct Game {
     #[serde(default)] pub lore_flags: Vec<String>,
     #[serde(default)] pub lore_seen: Vec<String>,
     #[serde(default)] pub lore_current: Option<String>,
+    #[serde(default)] pub easter_unlocked: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -203,6 +204,7 @@ impl Game {
             mode: RunMode::Standard, run_id: String::new(),
             act_map: None, map_lane: None, route_lanes: Vec::new(),
             lore_flags: vec![], lore_seen: vec![], lore_current: None,
+            easter_unlocked: Vec::new(),
         };
         game.refresh_route();
         game
@@ -246,6 +248,8 @@ impl Game {
         if !self.route_lanes.is_empty() && self.route_lanes.len() != self.route.len() {
             return Err("地图显示路线与可达车道数量不一致".into());
         }
+        if self.easter_unlocked.iter().any(|id| !lore::EASTER_EGGS.iter().any(|egg| egg.id == id))
+        { return Err("未知演义彩蛋".into()); }
         if self.lore_flags.iter().any(|flag| !lore::BEATS.iter().any(|b| b.flag == flag))
             || self.lore_seen.iter().any(|id| lore::beat(id).is_none())
             || self.lore_current.as_deref().is_some_and(|id| lore::beat(id).is_none())
@@ -1185,8 +1189,16 @@ impl Game {
                 self.hp = (self.hp + b.reward_heal).min(self.max_hp);
                 self.gold += b.reward_gold;
                 self.deck.push(Card::new(b.reward_card));
-                format!("{}：结下【{}】，获得{}金、恢复{}体力并得到【{}】。原著参考第{}回。",
-                    b.title,b.flag,b.reward_gold,b.reward_heal,card_spec(b.reward_card).map_or("未知",|spec| spec.name),b.chapter)
+                let mut narration = format!("{}：结下【{}】，获得{}金、恢复{}体力并得到【{}】。原著参考第{}回。",
+                    b.title,b.flag,b.reward_gold,b.reward_heal,card_spec(b.reward_card).map_or("未知",|spec| spec.name),b.chapter);
+                for egg in lore::newly_completed_eggs(self.hero,&self.lore_flags,&self.easter_unlocked) {
+                    self.easter_unlocked.push(egg.id.into());
+                    self.gold += egg.reward_gold;
+                    self.hp = (self.hp + egg.reward_heal).min(self.max_hp);
+                    narration.push_str(&format!(" 隐藏结局【{}】：{}（额外{}金、回复{}体力）",
+                        egg.name,egg.hint,egg.reward_gold,egg.reward_heal));
+                }
+                narration
             }
             2 => {
                 // Alternate choice pays immediately but never completes a future foreshadowing key.
@@ -1692,6 +1704,25 @@ mod tests {
         assert_eq!(g.to_json().unwrap(), snapshot);
         g.lore_current = Some("forged_chapter".into());
         assert!(Game::from_json(&g.to_json().unwrap()).is_err());
+    }
+
+    #[test]
+    fn hidden_ending_unlocked_once_when_baima_and_huarong_are_both_kept() {
+        let mut game = Game::new(Hero::GuanYu,77);
+        game.lore_flags.push("baima_debt".into());
+        game.stage = Stage::Story;
+        game.lore_current = Some("huarong".into());
+        let log = game.apply(Action::Choose { index:1 }).unwrap();
+        assert!(log[0].contains("隐藏结局【青龙旧债】"));
+        assert_eq!(game.easter_unlocked,vec!["sword_debt".to_string()]);
+        let result = game.to_json().unwrap();
+        let mut resumed = Game::from_json(&result).unwrap();
+        resumed.stage = Stage::Story;
+        resumed.lore_current = Some("huarong".into());
+        let before = resumed.gold;
+        resumed.apply(Action::Choose { index:1 }).unwrap();
+        assert_eq!(resumed.gold-before,16); // no duplicate hidden bonus
+        assert_eq!(resumed.easter_unlocked.len(),1);
     }
     #[test]
     fn targeted_camp_upgrade_and_shop_removal_work() {
