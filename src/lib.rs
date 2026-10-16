@@ -2,6 +2,7 @@
 //! Every authoritative mutation goes through Game::apply(Action).
 pub mod content;
 pub mod items;
+pub mod progression;
 
 use content::{Effect, Hero, REWARD_POOL, NEUTRAL_POOL, hero_pool, card_spec, enemy_name, enemy_hp};
 use serde::{Deserialize, Serialize};
