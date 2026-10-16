@@ -12,6 +12,7 @@ use three_kingdoms_spire_reborn::{
     content::{Hero, card_spec},
     items::potion_name,
     progression::Profile,
+    challenges::ChallengeModifier,
 };
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -269,7 +270,7 @@ impl App {
         };
         let result: Result<String, String> = match args[0].to_ascii_lowercase().as_str() {
             "quit" | "exit" | "q" => { let _ = self.save(); return false; }
-            "help" | "h" => Ok("new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 在出征前指定三幕变体；daily YYYY-MM-DD；load/save；choose N；play N [目标]；discard N 弃换；end；use [药剂号] [目标]；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看路径与评分；inventory 背包；achievements 成就；codex 图鉴；relics；lore 看纪事；bonds 看人物羁绊；chapter 1-120 回目索引；powers 持续能力；events 最近战斗结算；metrics 战役统计；verify 回放检验；history 最近操作；doctrine 查看流派 / doctrine auto|代码 选择；chronicle；theme dark|light；status；quit。".into()),
+            "help" | "h" => Ok("new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 在出征前指定三幕变体；daily YYYY-MM-DD；load/save；choose N；play N [目标]；discard N 弃换；end；use [药剂号] [目标]；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看路径与评分；inventory 背包；achievements 成就；codex 图鉴；relics；lore 看纪事；bonds 看人物羁绊；chapter 1-120 回目索引；powers 持续能力；events 最近战斗结算；metrics 战役统计；verify 回放检验；history 最近操作；doctrine 查看流派 / doctrine auto|代码 选择；chronicle；timeline 战功时间线；modifier 查看挑战 / modifier 代码 on|off；theme dark|light；status；quit。".into()),
             "new" | "custom" => {
                 let mode = if args[0] == "custom" {RunMode::Custom} else {RunMode::Standard};
                 let hero = args.get(1).and_then(|s| Hero::parse(s)).unwrap_or(Hero::GuanYu);
@@ -374,15 +375,44 @@ impl App {
                 format!("【战功成就】已解锁 {}/{}\n{}",
                     self.profile.achievements.len(),self.profile.achievement_progress().len(),lines)
             }),
+            "timeline" => Ok({
+                let milestones = [
+                    ("沙场初胜", self.profile.achievements.contains("first_battle")),
+                    ("天下归心", self.profile.achievements.contains("first_clear")),
+                    ("三次凯旋", self.profile.wins >= 3),
+                ];
+                let progress = milestones.iter().enumerate().map(|(index, (name, won))|
+                    format!("{}. {} {}", index + 1, if *won {"[已完成]"} else {"[未完成]"}, name))
+                    .collect::<Vec<_>>().join("\n");
+                let trophies = ChallengeModifier::ALL.iter().map(|modifier| {
+                    let unlocked = self.profile.can_use_modifier(*modifier);
+                    let collected = self.profile.challenge_trophies.contains(modifier.id());
+                    format!("{}【{}】{}：{}", if collected {"[已收藏]"} else if unlocked {"[可挑战]"} else {"[未解锁]"},
+                        modifier.name(), modifier.id(), modifier.description())
+                }).collect::<Vec<_>>().join("\n");
+                format!("【战役时间线】\n{progress}\n【永久挑战藏品】\n{trophies}")
+            }),
+            "modifier" | "modifiers" if args.len() == 1 => Ok({
+                let active = self.game.as_ref().map_or("无", |game| if game.modifiers.is_empty() {"无"} else {"已启用"});
+                let options = ChallengeModifier::ALL.iter().map(|modifier| {
+                    let status = if self.profile.can_use_modifier(*modifier) {"可用"} else {"未解锁"};
+                    let in_use = self.game.as_ref().is_some_and(|game| game.modifiers.contains(modifier));
+                    format!("{} {}【{}】—— {}{}", status, modifier.name(), modifier.id(), modifier.description(),
+                        if in_use {" [启用中]"} else {""})
+                }).collect::<Vec<_>>().join("\n");
+                format!("【自由挑战修饰符】当前：{active}\n{options}\n用法：custom 开局后输入 modifier 代码 on|off（仅第一层之前）；标准/每日模式不可使用。")
+            }),
             "codex" => Ok({
                 let cards=self.profile.seen_cards.iter().map(|id|{
                     let card=Card::new(id);
-                    format!("{} ({id})",card.name())
+                    format!("{} ({id})：{}", card.name(), card_spec(id).map_or("未知描述", |spec| spec.description))
                 }).collect::<Vec<_>>().join("、");
                 let foes=self.profile.seen_enemies.iter().map(|id|
                     three_kingdoms_spire_reborn::content::enemy_name(id)
                 ).collect::<Vec<_>>().join("、");
-                let relics=self.profile.discovered_relics.iter().cloned().collect::<Vec<_>>().join("、");
+                let relics=self.profile.discovered_relics.iter().map(|id|
+                    format!("{}：{}", id, three_kingdoms_spire_reborn::items::relic_name(id)))
+                    .collect::<Vec<_>>().join("\n");
                 format!("【图鉴】卡牌 {}/{}：{}\n敌军 {}/{}：{}\n遗物 {}/{}：{}",
                     self.profile.seen_cards.len(),
                     three_kingdoms_spire_reborn::content::card_count(),cards,
@@ -483,7 +513,7 @@ impl App {
             "relics" => Ok(self.game.as_ref().map_or("尚未开局".into(), |g| {
                 g.relics.iter().map(|r| format!("{}：{}",r, three_kingdoms_spire_reborn::items::relic_name(r))).collect::<Vec<_>>().join("\n")
             })),
-            "choose" | "c" | "play" | "p" | "end" | "use" | "upgrade" | "remove" | "enchant" | "discard" | "variant" | "doctrine" => {
+            "choose" | "c" | "play" | "p" | "end" | "use" | "upgrade" | "remove" | "enchant" | "discard" | "variant" | "doctrine" | "modifier" | "modifiers" => {
                 let action = match args[0] {
                     "choose" | "c" => parsed(1, 0).map(|index| Action::Choose { index }),
                     "play" | "p" => parsed(1, 0).and_then(|index| parsed(2, 1)
@@ -494,6 +524,18 @@ impl App {
                     "upgrade" => parsed(1, 0).map(|index| Action::Upgrade { index }),
                     "remove" => parsed(1, 0).map(|index| Action::Remove { index }),
                     "discard" => parsed(1, 0).map(|index| Action::Discard { index }),
+                    "modifier" | "modifiers" => match (args.get(1), args.get(2).copied().unwrap_or("on")) {
+                        (Some(id), state @ ("on" | "off")) =>
+                            ChallengeModifier::parse(id).ok_or_else(||"未知挑战代码".to_owned())
+                                .and_then(|modifier| {
+                                    if state == "on" && !self.profile.can_use_modifier(modifier) {
+                                        Err(format!("挑战【{}】尚未通过时间线解锁；输入 timeline 查看条件", modifier.name()))
+                                    } else {
+                                        Ok(Action::SetModifier { id: modifier.id().into(), enabled: state == "on" })
+                                    }
+                                }),
+                        _ => Err("用法：modifier no_rest|iron_legion|thin_supplies on|off".into()),
+                    },
                     "doctrine" => args.get(1)
                         .map_or(Err("输入 doctrine 查看可选战法".into()),
                             |id|Ok(Action::SetDoctrine{id:(*id).into()})),

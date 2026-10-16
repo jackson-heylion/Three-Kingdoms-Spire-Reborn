@@ -146,3 +146,7 @@ cargo run --release --bin tks-sim -- 1000
 - `src/bin/tks-sim.rs`：自动对局和确定性回归模拟。
 
 二期统一用同一 Rust 核心驱动 SwiftUI 与 WASM/HTML，协调服务保证单写者与修订号冲突检测。详情见 [架构](docs/ARCHITECTURE.md)。
+
+### 自由挑战、时间线与藏品（P1 增量）
+
+在终端输入 `timeline` 查看解锁路线和挑战藏品，`modifier` 查看已解锁难度。先以 `custom guanyu 42 0` 新开自由挑战，再用 `modifier no_rest on`、`modifier iron_legion on`、`modifier thin_supplies on` 选择可叠加规则；`off` 关闭。必须在进入第一层之前设置。标准战役与每日挑战禁止使用修饰符；自由挑战获胜记录独立藏品但不解锁标准飞升。旧存档在未设置时保持旧机制。每条规则在 `src/challenges.rs` 有明确说明，持续效果由游戏核心执行而非界面模拟。
