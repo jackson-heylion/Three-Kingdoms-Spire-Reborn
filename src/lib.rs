@@ -101,6 +101,9 @@ pub struct Battle {
     #[serde(default)] pub fury: i32,
     #[serde(default)] pub thorns: i32,
     #[serde(default)] pub played: u32,
+    #[serde(default)] pub troops_hp: i32,
+    #[serde(default)] pub troops_attack: i32,
+    #[serde(default)] pub discard_tokens: i32,
     pub turn: u32,
 }
 
@@ -144,6 +147,7 @@ pub enum Action {
     Upgrade { index: usize },
     Remove { index: usize },
     Enchant { index: usize, kind: String },
+    Discard { index: usize },
 }
 
 impl Game {
@@ -203,7 +207,8 @@ impl Game {
             for c in b.draw.iter().chain(b.hand.iter()).chain(b.discard.iter()).chain(b.exhausted.iter()) {
                 if card_spec(&c.id).is_none() { return Err(format!("未知战斗卡牌: {}", c.id)); }
             }
-            if b.energy < 0 || b.block < 0 || b.foes.is_empty() || b.foes.len() > 4
+            if b.energy < 0 || b.block < 0 || b.troops_hp < 0 || b.troops_attack < 0
+                || b.discard_tokens < 0 || b.foes.is_empty() || b.foes.len() > 4
                 || b.momentum < 0 || b.scheme < 0 || b.combo < 0 || b.command < 0 || b.fury < 0
                 || b.thorns < 0 || b.foes.iter().any(|f| f.hp < 0 || f.hp > f.max_hp || f.block < 0 || f.poison < 0)
             { return Err("无效战斗数据".into()); }
@@ -370,7 +375,10 @@ impl Game {
             foes, draw, hand: vec![], discard: vec![], exhausted: vec![],
             energy: 3, block: 0, strength: if self.hero == Hero::GuanYu { 1 } else { 0 },
             weak: 0, vulnerable: 0, momentum: 0, scheme: 0,
-            combo: 0, command: 0, fury: 0, thorns: 0, played: 0, turn: 1,
+            combo: 0, command: 0, fury: 0, thorns: 0, played: 0,
+            troops_hp: if self.hero == Hero::CaoCao { 12 } else { 0 },
+            troops_attack: if self.hero == Hero::CaoCao { 3 } else { 0 },
+            discard_tokens: 0, turn: 1,
         });
         self.roll_intents();
         let extra_draw = usize::from(self.relics.iter().any(|r| r == "虎翼"));
@@ -511,6 +519,7 @@ impl Game {
                 | Effect::MomentumStrike(_) | Effect::SchemeStrike(_) | Effect::ComboStrike(_)
                 | Effect::CommandStrike(_) | Effect::FuryStrike(_) | Effect::BloodPrice(_, _)
                 | Effect::Leech(_) | Effect::HitPoison(_, _) | Effect::Pierce(_)
+                | Effect::DiscardStrike(_)
         );
         let target_idx = if requires_target { Some(self.target_index(target)?) } else { None };
         {
@@ -626,6 +635,17 @@ impl Game {
                 self.draw_cards(n + usize::from(card.upgraded));
             }
             Effect::Energy(n) => self.battle.as_mut().expect("battle").energy += n + i32::from(card.upgraded),
+            Effect::Companion(amount) => {
+                let b = self.battle.as_mut().expect("battle");
+                b.troops_hp += amount + bonus;
+                b.troops_attack += (amount / 4).max(1);
+            }
+            Effect::Tactics(amount) => {
+                self.battle.as_mut().expect("battle").discard_tokens += amount;
+            }
+            Effect::DiscardStrike(amount) => {
+                self.damage_enemy(target_idx.expect("target"), amount + bonus);
+            }
             Effect::Unplayable => unreachable!(),
         }
         if card.enchantment.as_deref() == Some("护身") {
@@ -670,13 +690,54 @@ impl Game {
         }
         if self.defeated() { Ok(format!("{msg} {}", self.win_battle())) } else { Ok(msg) }
     }
+    fn discard_card(&mut self, index: usize) -> Result<String, String> {
+        if self.stage != Stage::Combat { return Err("仅战斗中可弃换".into()); }
+        let idx = index.checked_sub(1).ok_or("手牌编号从1开始")?;
+        let battle = self.battle.as_ref().expect("battle");
+        if battle.discard_tokens == 0 { return Err("没有弃换次数；需先打出换阵类卡牌".into()); }
+        if idx >= battle.hand.len() { return Err("无效手牌编号".into()); }
+        let card = self.battle.as_mut().expect("battle").hand.remove(idx);
+        let auto = card.id == "feishi";
+        let msg = if auto { format!("弃换【{}】：触发策应攻击", card.name()) }
+                  else { format!("弃换【{}】", card.name()) };
+        {
+            let b = self.battle.as_mut().expect("battle");
+            b.discard_tokens -= 1;
+            b.discard.push(card);
+            if self.hero == Hero::SunShangxiang { b.combo += 1; }
+        }
+        if auto {
+            let target = self.battle.as_ref().expect("battle").foes
+                .iter().position(|foe| foe.hp > 0);
+            if let Some(target) = target { self.damage_enemy(target, 7); }
+        }
+        self.draw_cards(1);
+        if self.defeated() { Ok(format!("{msg}。{}", self.win_battle())) }
+        else { Ok(msg) }
+    }
+    fn troop_attack(&mut self) {
+        let snapshot = self.battle.as_ref().expect("battle");
+        if snapshot.troops_hp <= 0 || snapshot.troops_attack <= 0 { return; }
+        if let Some(idx) = snapshot.foes.iter().position(|f| f.hp > 0) {
+            // Companions do not inherit the hero's strength or consume command.
+            let b = self.battle.as_mut().expect("battle");
+            let f = &mut b.foes[idx];
+            let damage = b.troops_attack;
+            let absorbed = damage.min(f.block);
+            f.block -= absorbed;
+            f.hp = (f.hp - damage + absorbed).max(0);
+        }
+    }
     fn enemy_attack(&mut self, foe_idx: usize, power: i32) -> i32 {
         let b = self.battle.as_mut().expect("battle");
         let reduced = if b.foes[foe_idx].weak > 0 { power * 3 / 4 } else { power };
         let modified = if b.vulnerable > 0 { reduced * 3 / 2 } else { reduced };
         let blocked = modified.min(b.block);
         b.block -= blocked;
-        let damage = (modified - blocked).max(0);
+        let incoming = (modified - blocked).max(0);
+        let protected = incoming.min(b.troops_hp);
+        b.troops_hp -= protected;
+        let damage = incoming - protected;
         self.hp = (self.hp - damage).max(0);
         if self.hero == Hero::LuBu { b.fury += damage / 2; }
         if b.thorns > 0 {
@@ -696,6 +757,8 @@ impl Game {
                 }
             }
         }
+        if self.defeated() { return Ok(self.win_battle()); }
+        self.troop_attack();
         if self.defeated() { return Ok(self.win_battle()); }
         if let Some(b) = self.battle.as_mut() {
             for f in &mut b.foes { f.block = 0; }
@@ -749,6 +812,7 @@ impl Game {
             b.vulnerable = b.vulnerable.saturating_sub(1);
             b.energy = 3 + i32::from(self.relics.iter().any(|r| r == "玉玺"));
             b.combo = 0;
+            b.discard_tokens = 0;
             b.turn += 1;
             for foe in &mut b.foes {
                 foe.vulnerable = foe.vulnerable.saturating_sub(1);
@@ -1013,6 +1077,7 @@ impl Game {
             Action::EndTurn => self.end_turn()?,
             Action::Upgrade { index } => self.upgrade_card(index)?,
             Action::Enchant { index, kind } => self.enchant_card(index, &kind)?,
+            Action::Discard { index } => self.discard_card(index)?,
             Action::Remove { index } => self.remove_card(index)?,
             Action::UsePotionAt { slot, target } => self.use_potion(slot, target)?,
             Action::UsePotion => self.use_potion(1, 1)?,
@@ -1075,7 +1140,7 @@ mod tests {
         for hero in classes { all.extend(hero_pool(hero).iter().copied()); }
         all.sort_unstable();
         all.dedup();
-        assert_eq!(all.len() + 1, content::card_count());
+        assert_eq!(all.len() + 3, content::card_count());
         for id in all {
             let mut g = Game::new(Hero::GuanYu, 42);
             g.apply(Action::Choose { index: 1 }).unwrap();
@@ -1193,6 +1258,35 @@ mod tests {
             assert_ne!(g.stage, Stage::Combat);
         }
         assert_eq!(g.deck.last().unwrap().id, "quest_resolved");
+    }
+
+    #[test]
+    fn cao_cao_troops_block_damage_and_attack() {
+        let mut g = Game::new(Hero::CaoCao, 123);
+        g.apply(Action::Choose { index: 1 }).unwrap();
+        let b = g.battle.as_ref().unwrap();
+        assert_eq!(b.troops_hp, 12);
+        assert_eq!(b.troops_attack, 3);
+        let enemy_hp = b.foes[0].hp;
+        g.troop_attack();
+        assert_eq!(g.battle.as_ref().unwrap().foes[0].hp, enemy_hp - 3);
+        let hp_before = g.hp;
+        let dmg = g.enemy_attack(0, 8);
+        assert_eq!(dmg, 0);
+        assert_eq!(g.hp, hp_before);
+        assert!(g.battle.as_ref().unwrap().troops_hp < 12);
+    }
+    #[test]
+    fn sun_shangxiang_discard_trigger_and_resume() {
+        let mut g = Game::new(Hero::SunShangxiang, 888);
+        g.apply(Action::Choose { index: 1 }).unwrap();
+        let b = g.battle.as_mut().unwrap();
+        b.discard_tokens = 1;
+        b.hand = vec![Card::new("feishi")];
+        let before = b.foes[0].hp;
+        g.apply(Action::Discard { index: 1 }).unwrap();
+        assert!(g.battle.as_ref().is_some_and(|b| b.foes[0].hp < before));
+        assert!(Game::from_json(&g.to_json().unwrap()).is_ok());
     }
     #[test]
     fn targeted_camp_upgrade_and_shop_removal_work() {
