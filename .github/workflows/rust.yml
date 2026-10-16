@@ -86,6 +86,28 @@ jobs:
           print('CLI selected-pile tutor integration passed')
           PY
 
+      - name: CLI doctrine selection persists across process restarts
+        shell: bash
+        run: |
+          SAVEDIR="$RUNNER_TEMP/tks-doctrine"
+          printf 'new sun 8391\ndoctrine\ndoctrine sun_discard\nquit\n' | cargo run --quiet -- --plain --save-dir "$SAVEDIR" > "$RUNNER_TEMP/tks-doctrine-first.log"
+          python3 - <<'PY'
+          import pathlib,json,os
+          p=pathlib.Path(os.environ['RUNNER_TEMP'])/'tks-doctrine'/'save.json'
+          g=json.loads(p.read_text())
+          assert g['hero']=='sun_shangxiang'
+          assert g['doctrine']=='sun_discard'
+          assert len(g['deck'])==10
+          print('CLI doctrine preference persisted without changing the starter deck')
+          PY
+          printf 'doctrine\nquit\n' | cargo run --quiet -- --plain --save-dir "$SAVEDIR" > "$RUNNER_TEMP/tks-doctrine-second.log"
+          python3 - <<'PY'
+          import pathlib,os
+          s=(pathlib.Path(os.environ['RUNNER_TEMP'])/'tks-doctrine-second.log').read_text()
+          assert '飞羽换阵' in s
+          print('CLI doctrine reload and display confirmed')
+          PY
+
       - name: Seeded autoplay and snapshot stability (1000 runs)
         run: cargo run --release --bin tks-sim -- 1000
       - name: Paired balance report by hero and ascension
@@ -137,12 +159,36 @@ jobs:
           print("Sun archetype fixtures tested on 495 independent deterministic runs")
           PY
 
+      - name: Natural Sun doctrine drafting study (495 runs)
+        run: cargo run --release --bin tks-sim -- --natural-drafting 15 "$RUNNER_TEMP/tks-natural.json"
+
+      - name: Validate normal starter builds and focus offer accounting
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,os,pathlib
+          doc=json.loads((pathlib.Path(os.environ['RUNNER_TEMP'])/'tks-natural.json').read_text())
+          assert doc['schema_version']==1
+          assert doc['samples_per_cell']==15
+          assert len(doc['cells'])==33
+          assert set(c['policy'] for c in doc['cells'])=={
+              'unfocused_tactical','choose_discard','choose_combo'}
+          assert len(set((c['policy'],c['ascension']) for c in doc['cells']))==33
+          assert sum(c['samples'] for c in doc['cells'])==495
+          assert all(0<=c['wins']<=15 and 0<=c['discard_formed']<=15
+                     and 0<=c['combo_formed']<=15 and
+                     0<=c['focus_picks']<=c['focus_offer_screens']<=c['reward_screens']
+                     for c in doc['cells'])
+          print('Normal starter, 33 stratified policies and honest offer/take accounting verified')
+          PY
+
       - uses: actions/upload-artifact@v4
         with:
           name: tks-balance-${{ matrix.os }}
           path: |
             ${{ runner.temp }}/tks-balance.json
             ${{ runner.temp }}/tks-sun.json
+            ${{ runner.temp }}/tks-natural.json
           retention-days: 30
 
 
@@ -168,5 +214,9 @@ jobs:
           sun_mac=base/'tks-balance-macos-14'/'tks-sun.json'
           assert sun_linux.exists() and sun_mac.exists()
           assert sun_linux.read_bytes()==sun_mac.read_bytes(), 'OS-specific Sun archetype divergence'
-          print('Portable paired balance and Sun archetype reports are identical on Linux and macOS')
+          natural_linux=base/'tks-balance-ubuntu-latest'/'tks-natural.json'
+          natural_mac=base/'tks-balance-macos-14'/'tks-natural.json'
+          assert natural_linux.exists() and natural_mac.exists()
+          assert natural_linux.read_bytes()==natural_mac.read_bytes(), 'OS-specific natural drafting divergence'
+          print('All three paired balance, curated archetype and normal draft reports match across OS')
           PY
