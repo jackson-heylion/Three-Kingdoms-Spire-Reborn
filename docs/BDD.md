@@ -2,11 +2,11 @@
 
 ## 可执行契约
 
-- 场景文件：`features/lore.feature`、`features/save_resume.feature`、`features/novel_provenance.feature`、`features/combat_powers.feature`、`features/advanced_combat.feature`、`features/advanced_cards.feature`、`features/boss_tactics.feature`
+- 场景文件：`features/lore.feature`、`features/save_resume.feature`、`features/novel_provenance.feature`、`features/combat_powers.feature`、`features/advanced_combat.feature`、`features/advanced_cards.feature`、`features/boss_tactics.feature`、`features/balance_guards.feature`
 - 运行器：`tests/bdd.rs`，执行单一、严格的 Given / When / Then / And / But 子集。不是完整通用 Gherkin 解析器；不支持 Scenario Outline、Examples、Rule、Background、标签和数据表。遇到不认识的步骤，必须失败，不能自动跳过。
 - CI：`cargo test --test bdd -- --nocapture`，`cargo test --all-targets` 也会执行 BDD 验收。
 - 辅助质量门：Rust 单元测试、Clippy `-D warnings`、Release 构建、终端进度持久化冒烟、两平台各 1000 局种子模拟。
-- 本轮新增5个职业持久能力BDD：关羽攻击触发一次护阵，诸葛计策触发恢复，孙尚香主动弃换触发伤害，曹操后勤随存档，吕布浴血随存档；现在合计41个Gherkin场景；新增5个高级战斗案例覆盖保留/虚无、抽牌护甲、施毒增强、击杀回复、非法动作无副作用。
+- 本轮新增5个职业持久能力BDD：关羽攻击触发一次护阵，诸葛计策触发恢复，孙尚香主动弃换触发伤害，曹操后勤随存档，吕布浴血随存档；现在合计44个Gherkin场景；新增5个高级战斗案例覆盖保留/虚无、抽牌护甲、施毒增强、击杀回复、非法动作无副作用。
 - 内容审查：必须有小说回目 provenance；游戏虚构、小说演义、史实评价分开，不能写成已验证史实。
 
 ## 行为覆盖目录
@@ -76,10 +76,16 @@ cargo run --release --bin tks-sim -- 1000
 5. 曹操临时募兵在结束回合后自动消耗，`CardGenerated` 与存档需保持一致；
 6. 中立 X 格挡遵守手牌、军令和护甲规则。
 
-附加单元测试验证 10 手牌上限、临时牌主动弃换消耗、X + 迅捷附魔、检索不触发 `CardDrawn` 类能力、临时保留牌的生命周期、无效动作 RNG/版本回滚。当前合计41个行为场景，另有数十项单元测试。
+附加单元测试验证 10 手牌上限、临时牌主动弃换消耗、X + 迅捷附魔、检索不触发 `CardDrawn` 类能力、临时保留牌的生命周期、无效动作 RNG/版本回滚。当前合计44个行为场景，另有数十项单元测试。
 
 ## 六首领 + 敌军协同（8个新场景）
 
 `features/boss_tactics.feature` 使用真实 `Game::apply(Action::Choose)` 进入各幕Boss关卡（通过本轮 BDD 专用 fixture 设定关底和章节变体），断言六种不同的可预告专属招式实际产生的弱化、连段、扣金、护阵、延期军令、回复效果。另断言：司马懿对玩家当回合连续四次出牌的下一回合反制；至少两名存活敌军时校尉能为其他敌军上护甲。每个技能的身份与时序使用 `EnemyTechnique` 事件和递增序号校核，相关状态经 JSON 往返仍一致。
 
 同时增加10个 Rust 单元测试，覆盖六 Boss 意图序列化与双实例确定性重放、虚弱必须受真实生命损失才生效、双连击、军资不为负、友军护甲、二阶段护甲保留与一次性转换、恢复上限以及本地协同。此版本仍缺跨Boss所有卡牌/遗物交叉组合的完整穷举。
+
+## 固定种子职业平衡与三项验收
+
+- `features/balance_guards.feature` 验证孙尚香三次攻击触发一次护甲、主动弃换增护甲及跨存档状态一致；曹操开场基础亲兵攻击为2；
+- `src/bin/tks-sim.rs` 支持 `--balance 20 <path.json>`，每职业11飞升20种子、两种策略配对，输出55个分层单元及失败遭遇；JSON数据由双系统CI保留30日；
+- 技能效果与“机器人通关率”必须区分；参见 [平衡试验](BALANCE_FINDINGS_2026-10-16.md)。
