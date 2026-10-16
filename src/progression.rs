@@ -5,6 +5,24 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const PROFILE_VERSION: u32 = 1;
+/// Stable identity + player-readable unlock criteria. New items can be added
+/// without changing the persisted profile version.
+pub const ACHIEVEMENTS: &[(&str,&str,&str)] = &[
+    ("first_step","初出茅庐","完成首次出征"),
+    ("first_battle","沙场初胜","完成至少一场战斗"),
+    ("first_elite","猛将破阵","击败至少一名精英敌人"),
+    ("first_act","黄巾初定","首次抵达第二幕"),
+    ("final_act","三分天命","首次抵达第三幕"),
+    ("first_clear","天下归心","首次通关完整三幕"),
+    ("five_heroes","五虎英豪","五名武将各完成至少一次通关"),
+    ("ascension_five","逆境突围","标准战役通关飞升5或更高难度"),
+    ("ascension_ten","问鼎巅峰","标准战役通关飞升10"),
+    ("discover_40","博闻强识","收集至少40种卡牌图鉴"),
+    ("relic_10","古物收藏","收集至少10种遗物图鉴"),
+    ("story_10","演义拾遗","单局见证至少10则剧情"),
+    ("hundred_turns","百战之师","单次战役完成累计100回合"),
+];
+
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -22,6 +40,9 @@ pub struct Profile {
     pub discovered_relics: BTreeSet<String>,
     pub recorded_results: BTreeSet<String>,
     pub records: Vec<RunRecord>,
+    /// Unlocked permanent achievements; compatible with old V1 profiles.
+    pub achievements: BTreeSet<String>,
+    pub longest_campaign: u8,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -46,6 +67,7 @@ impl Default for Profile {
             hero_wins: BTreeMap::new(), seen_cards: BTreeSet::new(),
             seen_enemies: BTreeSet::new(), discovered_relics: BTreeSet::new(),
             recorded_results: BTreeSet::new(), records: Vec::new(),
+            achievements: BTreeSet::new(), longest_campaign: 0,
         }
     }
 }
@@ -53,8 +75,12 @@ impl Profile {
     pub fn new() -> Self { Self::default() }
 
     pub fn from_json(source: &str) -> Result<Self, String> {
-        let result: Self = serde_json::from_str(source).map_err(|e| format!("战功簿解析失败: {e}"))?;
+        let mut result: Self = serde_json::from_str(source).map_err(|e| format!("战功簿解析失败: {e}"))?;
         if result.version != PROFILE_VERSION { return Err(format!("战功簿版本不兼容: {}", result.version)); }
+        if result.achievements.iter().any(|id|!ACHIEVEMENTS.iter().any(|(known,_,_)|known==id)) {
+            return Err("战功簿包含未知成就代码".into());
+        }
+        result.refresh_achievements();
         Ok(result)
     }
 
@@ -66,14 +92,37 @@ impl Profile {
         self.started += 1;
         self.observe(game);
     }
+    pub fn achievement_progress(&self)->Vec<(&'static str,&'static str,&'static str,bool)> {
+        ACHIEVEMENTS.iter().map(|(id,name,desc)|
+            (*id,*name,*desc,self.achievements.contains(*id))).collect()
+    }
+    fn refresh_achievements(&mut self) {
+        let mut add=|id|{self.achievements.insert(id.to_string());};
+        if self.started>0 {add("first_step");}
+        if self.longest_campaign>=2 {add("first_act");}
+        if self.longest_campaign>=3 {add("final_act");}
+        if self.wins>0 {add("first_clear");}
+        if self.records.iter().any(|r|r.won && r.mode==RunMode::Standard && r.ascension>=5) {add("ascension_five");}
+        if self.records.iter().any(|r|r.won && r.mode==RunMode::Standard && r.ascension==10) {add("ascension_ten");}
+        if self.hero_wins.len()>=5 {add("five_heroes");}
+        if self.seen_cards.len()>=40 {add("discover_40");}
+        if self.discovered_relics.len()>=10 {add("relic_10");}
+    }
 
     pub fn observe(&mut self, game: &Game) {
         self.best_floor = self.best_floor.max(game.floor);
+        self.longest_campaign=self.longest_campaign.max(if game.floor==0 {0} else {(game.floor-1)/7+1});
+        if game.telemetry.totals.battles_won>0 {self.achievements.insert("first_battle".into());}
+        if game.telemetry.totals.battles_won>0 && game.telemetry.totals.battles_started>1
+            && game.relics.len()>1 {self.achievements.insert("first_elite".into());}
+        if game.lore_seen.len()>=10 {self.achievements.insert("story_10".into());}
+        if game.telemetry.totals.turns_completed>=100 {self.achievements.insert("hundred_turns".into());}
         for c in &game.deck { self.seen_cards.insert(c.id.clone()); }
         if let Some(b) = &game.battle {
             for foe in &b.foes { self.seen_enemies.insert(foe.id.clone()); }
         }
         for relic in &game.relics { self.discovered_relics.insert(relic.clone()); }
+        self.refresh_achievements();
     }
 
     /// identity is frontend-independent: a coordinator can supply a unique persistent ID;
@@ -102,6 +151,7 @@ impl Profile {
             relics: game.relics.clone(),
         });
         if self.records.len() > 100 { self.records.remove(0); }
+        self.refresh_achievements();
         Ok(true)
     }
 
@@ -126,6 +176,29 @@ mod tests {
     use super::*;
     use crate::content::Hero;
 
+    #[test]
+    fn achievement_unlocks_are_persistent_and_old_profiles_migrate() {
+        let mut p=Profile::new();
+        let mut g=Game::new(Hero::GuanYu,1);
+        p.on_start(&g);
+        assert!(p.achievements.contains("first_step"));
+        assert!(!p.achievements.contains("first_clear"));
+        g.floor=15;
+        p.observe(&g);
+        assert!(p.achievements.contains("final_act"));
+        g.stage=Stage::Won;
+        p.record(&g,"achievement-1".into()).unwrap();
+        assert!(p.achievements.contains("first_clear"));
+        let restored=Profile::from_json(&p.to_json().unwrap()).unwrap();
+        assert_eq!(restored.achievements,p.achievements);
+        let mut old:serde_json::Value=serde_json::from_str(&p.to_json().unwrap()).unwrap();
+        old.as_object_mut().unwrap().remove("achievements");
+        old.as_object_mut().unwrap().remove("longest_campaign");
+        let old=Profile::from_json(&old.to_string()).unwrap();
+        assert!(old.achievements.contains("first_clear"));
+        assert!(!old.achievements.contains("final_act"));
+        assert!(old.achievement_progress().len()>=12);
+    }
     #[test]
     fn progression_counts_once_and_unlocks_ascension() {
         let mut profile = Profile::new();
