@@ -35,7 +35,8 @@ fn preferred_action(game: &Game) -> Result<Action, String> {
                 .map_or(1, |i| i+1);
             let playable = battle.hand.iter().enumerate().find(|(_,card)| {
                 card_spec(&card.id).is_some_and(|spec| {
-                    let cost = if card.enchantment.as_deref() == Some("迅捷") {
+                    let cost = if spec.cost == -1 { battle.energy }
+                    else if card.enchantment.as_deref() == Some("迅捷") {
                         (spec.cost - 1).max(0)
                     } else { spec.cost };
                     !matches!(spec.effect,Effect::Unplayable) && cost <= battle.energy
