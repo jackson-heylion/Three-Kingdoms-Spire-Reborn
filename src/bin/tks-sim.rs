@@ -234,8 +234,47 @@ fn preferred_action_policy(game:&Game,policy:Policy)->Result<Action,String> {
 fn simulate(hero: Hero, seed: u64, ascension: u8) -> Result<Outcome, String> {
     simulate_policy(hero,seed,ascension,Policy::FirstPlayable)
 }
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+enum SunPackage { Standard, Discard, Combo }
+impl SunPackage {
+    const ALL: [Self;3] = [Self::Standard,Self::Discard,Self::Combo];
+    fn id(self)->&'static str {
+        match self {Self::Standard=>"standard",Self::Discard=>"discard",Self::Combo=>"combo"}
+    }
+    fn cards(self)->Option<[&'static str;4]> {
+        match self {
+            Self::Standard=>None,
+            Self::Discard=>Some(["huanshe","feishi","arrows_on_discard","jiecang"]),
+            Self::Combo=>Some(["liandao","gonglian","lianhua","fleeting_blade"]),
+        }
+    }
+}
+fn apply_sun_package(game:&mut Game,package:SunPackage)->Result<(),String> {
+    if game.hero!=Hero::SunShangxiang {
+        return Err("Sun package experiments require Sun Shangxiang".into());
+    }
+    if let Some(cards)=package.cards() {
+        // Equal deck size; swap two strikes and two guards for a curated package.
+        // This changes the starting deck and is NOT a normal-mode victory claim.
+        for (idx,id) in [0usize,1,5,6].into_iter().zip(cards) {
+            let expected=if idx<5 {"strike"} else {"defend"};
+            if game.deck[idx].id!=expected {
+                return Err("unexpected baseline starter slots".into());
+            }
+            if card_spec(id).is_none() {return Err(format!("unknown Sun package card {id}"));}
+            game.deck[idx]=Card::new(id);
+        }
+    }
+    Ok(())
+}
 fn simulate_policy(hero:Hero,seed:u64,ascension:u8,policy:Policy)->Result<Outcome,String> {
+    simulate_policy_package(hero,seed,ascension,policy,SunPackage::Standard)
+}
+fn simulate_policy_package(hero:Hero,seed:u64,ascension:u8,policy:Policy,package:SunPackage)
+    ->Result<Outcome,String>
+{
     let mut game = Game::new_with_ascension(hero, seed, ascension);
+    if package!=SunPackage::Standard {apply_sun_package(&mut game,package)?;}
     let mut death_context:Option<(String,Node)>=None;
     for count in 0..MAX_ACTIONS {
         if matches!(game.stage,Stage::Won | Stage::Lost) {
@@ -408,8 +447,85 @@ fn print_balance(report:&BalanceReport) {
         report.tactical_death_encounters.iter().take(8)
             .map(|e|format!("{}:{}",e.encounter,e.deaths)).collect::<Vec<_>>());
 }
+
+#[derive(Debug,Serialize)]
+struct SunArchetypeCell {
+    package:String,
+    ascension:u8,
+    samples:usize,
+    wins:usize,
+    floor_sum:u64,
+    telemetry:CombatCounters,
+}
+#[derive(Debug,Serialize)]
+struct SunArchetypeReport {
+    schema_version:u8,
+    sample_policy:String,
+    rules:String,
+    samples_per_cell:usize,
+    cells:Vec<SunArchetypeCell>,
+}
+fn build_sun_archetypes(samples:usize)->Result<SunArchetypeReport,String> {
+    let mut cells=Vec::new();
+    for ascension in 0..=10_u8 {
+        for package in SunPackage::ALL {
+            let mut cell=SunArchetypeCell {package:package.id().into(),ascension,samples,
+                wins:0,floor_sum:0,telemetry:CombatCounters::default()};
+            for trial in 0..samples {
+                let ordinal=3_000_000u64+u64::from(ascension)*10_000+trial as u64+1;
+                let seed=ordinal.wrapping_mul(0x9E3779B97F4A7C15);
+                let run=simulate_policy_package(Hero::SunShangxiang,seed,ascension,
+                    Policy::Tactical,package)?;
+                cell.wins+=usize::from(run.won);
+                cell.floor_sum+=u64::from(run.floor);
+                cell.telemetry.accumulate(&run.telemetry);
+            }
+            cells.push(cell);
+        }
+    }
+    Ok(SunArchetypeReport {
+        schema_version:1,
+        sample_policy:"tactical_heuristic".into(),
+        rules:"Curated package swaps precisely two strikes and two guards; different starting decks; identical seeds, not a normal-mode win-rate estimate".into(),
+        samples_per_cell:samples,
+        cells,
+    })
+}
+fn print_sun_archetypes(report:&SunArchetypeReport) {
+    println!("SUN ARCHETYPES: 33 cells, {} trials per tier/package ({} total), equal-size curated starting decks; experimental, not human win rates.",
+        report.samples_per_cell,report.samples_per_cell*33);
+    println!("Package | Tier | Wins | Mean floor | Manual discards | Combo triggers | Guard from hero passives");
+    for package in SunPackage::ALL {
+        for (tier,start,end) in [("0-3",0,3),("4-7",4,7),("8-10",8,10)] {
+            let rows=report.cells.iter().filter(|c|c.package==package.id()
+                && c.ascension>=start && c.ascension<=end).collect::<Vec<_>>();
+            let samples=rows.iter().map(|c|c.samples).sum::<usize>();
+            let wins=rows.iter().map(|c|c.wins).sum::<usize>();
+            let floor=rows.iter().map(|c|c.floor_sum).sum::<u64>();
+            let mut sum=CombatCounters::default();
+            for cell in rows {sum.accumulate(&cell.telemetry);}
+            println!("{} | {} | {}/{} ({:.1}%) | {:.2} | {} | {} | {}",
+                package.id(),tier,wins,samples,100.0*wins as f64/samples as f64,
+                floor as f64/samples as f64,
+                sum.sun_discards,sum.sun_combo_procs,sum.sun_discard_block+sum.sun_combo_block);
+        }
+    }
+}
+
 fn main() {
     let arguments=std::env::args().collect::<Vec<_>>();
+    if arguments.get(1).is_some_and(|arg|arg=="--sun-archetypes") {
+        let samples=arguments.get(2).and_then(|raw|raw.parse::<usize>().ok())
+            .unwrap_or(15).clamp(1,200);
+        let report=build_sun_archetypes(samples)
+            .unwrap_or_else(|e|panic!("Sun archetype simulation failed: {e}"));
+        print_sun_archetypes(&report);
+        if let Some(path)=arguments.get(3) {
+            let json=serde_json::to_string_pretty(&report).expect("serialize Sun report");
+            fs::write(path,json).unwrap_or_else(|e|panic!("write Sun report {path}: {e}"));
+        }
+        return;
+    }
     if arguments.get(1).is_some_and(|arg|arg=="--balance") {
         let samples=arguments.get(2).and_then(|raw|raw.parse::<usize>().ok())
             .unwrap_or(20).clamp(1,200);
@@ -479,6 +595,25 @@ mod tests {
                 assert_eq!(first.death_encounter,repeated.death_encounter);
             }
         }
+    }
+    #[test]
+    fn sun_experimental_decks_have_equal_size_and_distinct_cards() {
+        let original=Game::new_with_ascension(Hero::SunShangxiang,77,4);
+        for package in SunPackage::ALL {
+            let mut game=original.clone();
+            apply_sun_package(&mut game,package).unwrap();
+            assert_eq!(game.deck.len(),original.deck.len());
+            assert_eq!(Game::from_json(&game.to_json().unwrap()).unwrap().deck.len(),
+                original.deck.len());
+            if package==SunPackage::Standard {
+                assert!(game.deck.iter().zip(&original.deck).all(|(a,b)|a.id==b.id));
+            } else {
+                assert_ne!(game.deck[0].id,original.deck[0].id);
+                assert_ne!(game.deck[5].id,original.deck[5].id);
+            }
+        }
+        let mut outsider=Game::new(Hero::CaoCao,1);
+        assert!(apply_sun_package(&mut outsider,SunPackage::Discard).is_err());
     }
     #[test]
     fn run_counters_survive_replay_and_sum_without_double_counting() {
