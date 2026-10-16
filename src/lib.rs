@@ -571,6 +571,8 @@ impl Game {
         }
         let mut draw = self.deck.clone();
         self.shuffle(&mut draw);
+        self.telemetry.current_turn = CombatCounters::default();
+        self.record_metric(|c| c.battles_started = c.battles_started.saturating_add(1));
         self.battle = Some(Battle {
             foes, draw, hand: vec![], discard: vec![], exhausted: vec![],
             energy: 3, block: 0, strength: if self.hero == Hero::GuanYu { 1 } else { 0 },
@@ -687,6 +689,29 @@ impl Game {
         } else { Ok(idx) }
     }
 
+
+    fn record_metric(&mut self, action: impl Fn(&mut CombatCounters)) {
+        action(&mut self.telemetry.totals);
+        action(&mut self.telemetry.current_turn);
+    }
+
+    fn capture_turn_metrics(&mut self, completed: bool) {
+        let Some(b) = &self.battle else { return };
+        let turn=b.turn;
+        let troop_hp=b.troops_hp;
+        if completed {
+            self.record_metric(|c| c.turns_completed = c.turns_completed.saturating_add(1));
+        }
+        let entry=TurnTelemetry {
+            floor: self.floor, turn, completed,
+            hero_hp_after: self.hp, troop_hp_after: troop_hp,
+            counters: std::mem::take(&mut self.telemetry.current_turn),
+        };
+        self.telemetry.recent_turns.push(entry);
+        if self.telemetry.recent_turns.len()>MAX_RECENT_TURN_METRICS {
+            self.telemetry.recent_turns.remove(0);
+        }
+    }
 
     fn combat_event(&mut self, kind: EventKind, source: &str, amount: i32, target: Option<String>) {
         // One synchronous, bounded trigger pipeline. All observers see the original
@@ -893,6 +918,8 @@ impl Game {
     }
     fn win_battle(&mut self) -> String {
         let node = self.last_node.unwrap_or(Node::Battle);
+        self.record_metric(|c| c.battles_won = c.battles_won.saturating_add(1));
+        self.capture_turn_metrics(false);
         self.battle = None;
         let payout = match node { Node::Boss => 100, Node::Elite => 60, _ => 24 + self.random(15) as i32 };
         self.gold += payout;
@@ -992,6 +1019,7 @@ impl Game {
             b.energy -= cost;
             b.hand.remove(hand_idx);
         }
+        self.record_metric(|c| c.cards_played = c.cards_played.saturating_add(1));
         self.combat_event(EventKind::CardPlayed, &card.id, cost, None);
         let bonus = if card.upgraded { 3 } else { 0 }
             + if card.enchantment.as_deref() == Some("锐锋") { 3 } else { 0 };
@@ -1187,14 +1215,26 @@ impl Game {
             // Combo mobility: the every-third-attack card draw now also gives
             // a small guard. This rewards active combat without raising HP.
             self.battle.as_mut().expect("battle").block += 3;
+            self.record_metric(|c| {
+                c.sun_combo_procs = c.sun_combo_procs.saturating_add(1);
+                c.sun_combo_block = c.sun_combo_block.saturating_add(3);
+            });
             self.combat_event(EventKind::PowerTriggered,"sun_combo_guard",3,None);
+            let old_len=self.battle.as_ref().expect("battle").hand.len();
             self.draw_cards(1);
+            let added=self.battle.as_ref().expect("battle").hand.len().saturating_sub(old_len) as u64;
+            self.record_metric(|c| c.sun_combo_draws = c.sun_combo_draws.saturating_add(added));
         }
         if self.hero == Hero::CaoCao && self.battle.as_ref().expect("battle").command >= 3 {
             let b = self.battle.as_mut().expect("battle");
             b.command -= 3;
             b.block += 5;
             b.energy += 1;
+            self.record_metric(|c| {
+                c.command_procs = c.command_procs.saturating_add(1);
+                c.command_energy = c.command_energy.saturating_add(1);
+                c.command_block = c.command_block.saturating_add(5);
+            });
         }
         if self.relics.iter().any(|r| r == "百战") && attack {
             self.battle.as_mut().expect("battle").strength += 1;
@@ -1232,6 +1272,10 @@ impl Game {
             }
         }
         if self.hero == Hero::SunShangxiang {
+            self.record_metric(|c| {
+                c.sun_discards = c.sun_discards.saturating_add(1);
+                c.sun_discard_block = c.sun_discard_block.saturating_add(2);
+            });
             self.combat_event(EventKind::PowerTriggered,"sun_discard_guard",2,None);
         }
         if temporary {
@@ -1263,6 +1307,10 @@ impl Game {
                 foe.hp -= actual;
                 (actual, actual>0 && foe.hp==0)
             };
+            self.record_metric(|c| {
+                c.troop_attacks = c.troop_attacks.saturating_add(1);
+                c.troop_damage = c.troop_damage.saturating_add(damage as u64);
+            });
             self.combat_event(EventKind::DamageDealt,"troops",damage,Some(format!("foe:{idx}")));
             if killed {
                 self.combat_event(EventKind::FoeDefeated,"troops",1,Some(format!("foe:{idx}")));
@@ -1271,7 +1319,7 @@ impl Game {
     }
 
     fn enemy_attack(&mut self, foe_idx: usize, power: i32) -> i32 {
-        let (damage,reflected,killed) = {
+        let (damage,protected,reflected,killed) = {
             let b = self.battle.as_mut().expect("battle");
             let reduced = if b.foes[foe_idx].weak > 0 { power * 3 / 4 } else { power };
             let modified = if b.vulnerable > 0 { reduced * 3 / 2 } else { reduced };
@@ -1285,8 +1333,12 @@ impl Game {
             if self.hero == Hero::LuBu { b.fury += damage/2; }
             let reflected = b.thorns.min(b.foes[foe_idx].hp);
             b.foes[foe_idx].hp -= reflected;
-            (damage,reflected,reflected>0 && b.foes[foe_idx].hp==0)
+            (damage,protected,reflected,reflected>0 && b.foes[foe_idx].hp==0)
         };
+        self.record_metric(|c| {
+            c.hero_hp_damage = c.hero_hp_damage.saturating_add(damage as u64);
+            c.troop_absorbed = c.troop_absorbed.saturating_add(protected as u64);
+        });
         self.combat_event(EventKind::DamageReceived,&format!("foe:{foe_idx}"),
             damage,Some("hero".into()));
         if reflected > 0 {
@@ -1540,6 +1592,8 @@ impl Game {
                 }
             }
             if self.hp == 0 {
+                self.record_metric(|c| c.battles_lost = c.battles_lost.saturating_add(1));
+                self.capture_turn_metrics(true);
                 self.stage = Stage::Lost;
                 self.battle = None;
                 return Ok(format!("{}。将星陨落，征途结束。", messages.join("；")));
@@ -1564,6 +1618,7 @@ impl Game {
                 foe.weak = foe.weak.saturating_sub(1);
             }
         }
+        self.capture_turn_metrics(true);
         self.roll_intents();
         self.draw_cards(5 + usize::from(self.relics.iter().any(|r| r == "虎翼")));
         self.combat_event(EventKind::TurnStarted, "hero", 0, None);
