@@ -55,7 +55,9 @@ fn card_label(card: &Card) -> String {
     match card_spec(&card.id) {
         Some(spec) => format!("{} [费{}] {}{}{}{}",
             card.name(),
-            if card.enchantment.as_deref() == Some("迅捷") { (spec.cost - 1).max(0) } else { spec.cost },
+            if spec.cost == -1 { "X".to_string() }
+            else if card.enchantment.as_deref() == Some("迅捷") { (spec.cost - 1).max(0).to_string() }
+            else { spec.cost.to_string() },
             if spec.retain { "[保留] " } else { "" },
             if spec.ethereal { "[虚无] " } else { "" },
             spec.description,
@@ -164,7 +166,7 @@ impl App {
                     for (i, card) in b.hand.iter().enumerate() {
                         println!("   {}. {}", i + 1, card_label(card));
                     }
-                    println!(" 输入 play <手牌编号> [敌方编号] / end / use [药剂编号] [敌方编号]");
+                    println!(" 输入 play <手牌编号> [敌方编号] [副选牌编号] / piles / end / use");
                 }
                 Stage::Reward => {
                     println!(" 【战利品】");
@@ -282,6 +284,16 @@ impl App {
                     }).collect::<Vec<_>>().join("\n")
                 })
             })),
+            "piles" => Ok(self.game.as_ref().and_then(|g| g.battle.as_ref())
+                .map_or("当前没有战斗中的可选牌堆。".into(), |b| {
+                    format!("【抽牌堆·顶牌优先】\n{}\n【弃牌堆·最新优先】\n{}",
+                        b.draw.iter().rev().enumerate()
+                            .map(|(i,c)|format!("{}. {}",i+1,card_label(c)))
+                            .collect::<Vec<_>>().join("\n"),
+                        b.discard.iter().rev().enumerate()
+                            .map(|(i,c)|format!("{}. {}",i+1,card_label(c)))
+                            .collect::<Vec<_>>().join("\n"))
+                })),
             "deck" => Ok(self.game.as_ref().map_or("尚未开局".into(), |g| {
                 g.deck.iter().enumerate().map(|(i,c)| format!("{}. {}", i+1, card_label(c))).collect::<Vec<_>>().join("\n")
             })),
@@ -362,7 +374,9 @@ impl App {
                 let action = match args[0] {
                     "choose" | "c" => parsed(1, 0).map(|index| Action::Choose { index }),
                     "play" | "p" => parsed(1, 0).and_then(|index| parsed(2, 1)
-                        .map(|target| Action::Play { index, target })),
+                        .and_then(|target| args.get(3).map_or(Ok(Action::Play { index,target }), |_| {
+                            parsed(3, 0).map(|selection| Action::PlaySelected { index,target,selection })
+                        }))),
                     "end" => Ok(Action::EndTurn),
                     "upgrade" => parsed(1, 0).map(|index| Action::Upgrade { index }),
                     "remove" => parsed(1, 0).map(|index| Action::Remove { index }),
