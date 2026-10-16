@@ -104,8 +104,9 @@ fn typed_command()->io::Result<String> {
             b'\r'|b'\n'=>{println!();return Ok(value);}
             27=>{println!();return Ok(String::new());}
             8|127=>{if value.pop().is_some(){print!("\x08 \x08");}}
-            byte if byte.is_ascii_graphic()||byte==b' '=>{
-                if value.len()<300 {value.push(char::from(byte));print!("{}",char::from(byte));}
+            byte if (byte.is_ascii_graphic()||byte==b' ') && value.len()<300 =>{
+                value.push(char::from(byte));
+                print!("{}",char::from(byte));
             }
             _=>{}
         }
