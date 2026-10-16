@@ -17,11 +17,11 @@ use three_kingdoms_spire_reborn::{
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-enum Theme { Dark, Light }
+enum Theme { Dark, Light, HighContrast }
 impl Theme {
-    fn name(self) -> &'static str { match self { Self::Dark => "暗色", Self::Light => "亮色" } }
+    fn name(self) -> &'static str { match self { Self::Dark => "暗色", Self::Light => "亮色", Self::HighContrast => "高对比度" } }
     fn style(self) -> &'static str {
-        match self { Self::Dark => "\x1b[97;40m", Self::Light => "\x1b[30;107m" }
+        match self { Self::Dark => "\x1b[97;40m", Self::Light => "\x1b[30;107m", Self::HighContrast => "\x1b[1;97;40m" }
     }
 }
 #[derive(Serialize, Deserialize)]
@@ -52,7 +52,19 @@ fn new_run_id() -> String {
 }
 fn default_dir() -> PathBuf {
     let home = env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
-    home.join("Library/Application Support/ThreeKingdomsSpireReborn")
+    #[cfg(target_os = "macos")]
+    { home.join("Library/Application Support/ThreeKingdomsSpireReborn") }
+    #[cfg(not(target_os = "macos"))]
+    {
+        // Prefer XDG on Linux; never silently strand saves written by earlier
+        // releases at the former macOS-style path.
+        let legacy = home.join("Library/Application Support/ThreeKingdomsSpireReborn");
+        let parent = env::var_os("XDG_DATA_HOME").map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .unwrap_or_else(|| home.join(".local/share"));
+        let modern = parent.join("ThreeKingdomsSpireReborn");
+        if !modern.exists() && legacy.is_dir() { legacy } else { modern }
+    }
 }
 fn card_label(card: &Card) -> String {
     match card_spec(&card.id) {
@@ -143,6 +155,10 @@ impl App {
             println!(" 模式：{:?}  飞升难度：{}  已完成战役：{}  存档协议：V{}",
                 g.mode, g.ascension, g.victories, g.version);
             println!(" {}",g.doctrine_status());
+            if !g.modifiers.is_empty() {
+                println!(" 【自由挑战】{}", g.modifiers.iter().map(|m| m.name())
+                    .collect::<Vec<_>>().join("、"));
+            }
             println!(" 章节：{}；变体：{}",
                 g.act_name(),
                 g.variants.map_or("随种子".into(),|choices| format!("{}/{}/{}",choices[0],choices[1],choices[2])));
@@ -233,7 +249,11 @@ impl App {
                     println!(" 输入 choose <编号> 购买，remove <牌组序号> 定向移牌，choose 0 离开");
                 }
                 Stage::Camp => {
-                    println!(" 【营寨】choose 1 休整；choose 2 升级首张牌；choose 3 操练+2生命上限");
+                    if g.modifiers.contains(&ChallengeModifier::NoRest) {
+                        println!(" 【营寨·行军不息】休整被禁用；choose 2 升级；choose 3 操练+2生命上限");
+                    } else {
+                        println!(" 【营寨】choose 1 休整；choose 2 升级首张牌；choose 3 操练+2生命上限");
+                    }
                     println!(" upgrade N 定向升级；enchant N 迅捷|锐锋|护身|明悟（35金）");
                 }
                 Stage::Story => {
@@ -270,7 +290,7 @@ impl App {
         };
         let result: Result<String, String> = match args[0].to_ascii_lowercase().as_str() {
             "quit" | "exit" | "q" => { let _ = self.save(); return false; }
-            "help" | "h" => Ok("new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 在出征前指定三幕变体；daily YYYY-MM-DD；load/save；choose N；play N [目标]；discard N 弃换；end；use [药剂号] [目标]；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看路径与评分；inventory 背包；achievements 成就；codex 图鉴；relics；lore 看纪事；bonds 看人物羁绊；chapter 1-120 回目索引；powers 持续能力；events 最近战斗结算；metrics 战役统计；verify 回放检验；history 最近操作；doctrine 查看流派 / doctrine auto|代码 选择；chronicle；timeline 战功时间线；modifier 查看挑战 / modifier 代码 on|off；theme dark|light；status；quit。".into()),
+            "help" | "h" => Ok("new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 在出征前指定三幕变体；daily YYYY-MM-DD；load/save；choose N；play N [目标]；discard N 弃换；end；use [药剂号] [目标]；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看路径与评分；inventory 背包；achievements 成就；codex 图鉴；relics；lore 看纪事；bonds 看人物羁绊；chapter 1-120 回目索引；powers 持续能力；events 最近战斗结算；metrics 战役统计；verify 回放检验；history 最近操作；doctrine 查看流派 / doctrine auto|代码 选择；chronicle；timeline 战功时间线；modifier 查看挑战 / modifier 代码 on|off；theme dark|light|highcontrast；status；quit。".into()),
             "new" | "custom" => {
                 let mode = if args[0] == "custom" {RunMode::Custom} else {RunMode::Standard};
                 let hero = args.get(1).and_then(|s| Hero::parse(s)).unwrap_or(Hero::GuanYu);
@@ -311,7 +331,8 @@ impl App {
             "theme" => match args.get(1).copied() {
                 Some("light") => { self.theme = Theme::Light; self.preferences().map(|_| "亮色主题已保存。".into()) }
                 Some("dark") => { self.theme = Theme::Dark; self.preferences().map(|_| "暗色主题已保存。".into()) }
-                _ => Err("用法：theme light 或 theme dark".into()),
+                Some("highcontrast") => { self.theme = Theme::HighContrast; self.preferences().map(|_| "高对比度主题已保存。".into()) }
+                _ => Err("用法：theme light|dark|highcontrast".into()),
             },
             "status" => Ok(self.game.as_ref().map_or("尚未开局".into(), |g| {
                 format!("{}，第{}层，体力{}/{}，{}金，{}张卡牌，版本{}。",

@@ -1,6 +1,8 @@
 //! Optional full-keyboard terminal menu for macOS/Linux without platform crates.
 //! Raw mode is scoped by RAII, and the existing plain line CLI remains supported.
 use super::{App, Stage, card_label};
+use three_kingdoms_spire_reborn::challenges::ChallengeModifier;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use std::{fs::File,io::{self, Read, Write, IsTerminal},process::{Command,Stdio}};
 
 struct RawTerminal { original: String }
@@ -59,11 +61,15 @@ pub(super) fn choices(app:&App,target:usize)->Vec<(String,String)> {
             options.push(("放弃奖励".into(),"choose 0".into()));
             options
         }
-        Stage::Camp=>vec![
-            ("扎营休整".into(),"choose 1".into()),
-            ("强化牌组首张可升级卡".into(),"choose 2".into()),
-            ("操练体魄：生命上限+2".into(),"choose 3".into()),
-        ],
+        Stage::Camp=>{
+            let mut options = Vec::new();
+            if !game.modifiers.contains(&ChallengeModifier::NoRest) {
+                options.push(("扎营休整".into(), "choose 1".into()));
+            }
+            options.push(("强化牌组首张可升级卡".into(), "choose 2".into()));
+            options.push(("操练体魄：生命上限+2".into(), "choose 3".into()));
+            options
+        },
         Stage::Market=> {
             let mut offers=game.market.iter().enumerate()
                 .map(|(index,card)|(format!("购买 {} / {} 金",card_label(card),45+15*index),
@@ -90,6 +96,27 @@ pub(super) fn choices(app:&App,target:usize)->Vec<(String,String)> {
         ],
     }
 }
+/// Truncate by display cells rather than bytes; never split a Han character.
+fn fitting_label(label: &str, available: usize) -> String {
+    if UnicodeWidthStr::width(label) <= available { return label.to_owned(); }
+    let mut out = String::new();
+    let mut width = 0;
+    for ch in label.chars() {
+        let cells = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if width + cells > available.saturating_sub(1) { break; }
+        out.push(ch);
+        width += cells;
+    }
+    out.push('…');
+    out
+}
+fn current_columns() -> usize {
+    RawTerminal::stty(&["size"]).ok()
+        .and_then(|out| String::from_utf8(out.stdout).ok())
+        .and_then(|raw| raw.split_whitespace().nth(1)?.parse::<usize>().ok())
+        .unwrap_or(80)
+        .max(24)
+}
 fn read_byte()->io::Result<u8> {
     let mut byte=[0_u8;1];
     io::stdin().read_exact(&mut byte)?;
@@ -99,14 +126,36 @@ fn typed_command()->io::Result<String> {
     print!("\r\n: ");
     io::stdout().flush()?;
     let mut value=String::new();
+    let mut pending_utf8=Vec::new();
     loop {
         match read_byte()? {
             b'\r'|b'\n'=>{println!();return Ok(value);}
             27=>{println!();return Ok(String::new());}
-            8|127=>{if value.pop().is_some(){print!("\x08 \x08");}}
+            8|127=>{
+                if !pending_utf8.is_empty() { pending_utf8.clear(); }
+                else if let Some(ch)=value.pop() {
+                    for _ in 0..UnicodeWidthChar::width(ch).unwrap_or(1).max(1) {
+                        print!("\x08 \x08");
+                    }
+                }
+            }
             byte if (byte.is_ascii_graphic()||byte==b' ') && value.len()<300 =>{
+                pending_utf8.clear();
                 value.push(char::from(byte));
                 print!("{}",char::from(byte));
+            }
+            byte if byte >= 0x80 && value.len()<300 => {
+                pending_utf8.push(byte);
+                match std::str::from_utf8(&pending_utf8) {
+                    Ok(utf8) => {
+                        let complete=utf8.to_owned();
+                        pending_utf8.clear();
+                        value.push_str(&complete);
+                        print!("{complete}");
+                    }
+                    Err(err) if err.error_len().is_some() || pending_utf8.len()>=4 => pending_utf8.clear(),
+                    Err(_) => {}
+                }
             }
             _=>{}
         }
@@ -125,8 +174,14 @@ pub(super) fn run(app:&mut App)->Result<(),String> {
         if options.is_empty() {cursor=0;}
         else {cursor=cursor.min(options.len()-1);}
         app.draw();
-        println!("\n【键盘操作】↑/↓ 或 j/k 选择，回车确认；数字1–9快捷选择；t 切换敌方目标；: 输命令；? 帮助；q 退出");
+        let columns=current_columns();
+        if columns < 65 {
+            println!("\n↑↓/jk 选项 | 回车确认 | t目标 | :命令 | ?帮助 | q退出");
+        } else {
+            println!("\n【键盘操作】↑/↓ 或 j/k 选择，回车确认；数字1–9快捷选择；t 切换敌方目标；: 输命令；? 帮助；q 退出");
+        }
         for (idx,(label,_)) in options.iter().enumerate() {
+            let label=fitting_label(label,columns.saturating_sub(10));
             let selection=if idx==cursor {">"} else {" "};
             let accent=if idx==cursor && app.use_ansi {"\x1b[7m"} else {""};
             let reset=if idx==cursor && app.use_ansi {"\x1b[0m"} else {""};
@@ -194,5 +249,38 @@ mod tests {
         let battle=choices(&app(Some(game)),2);
         assert!(battle.iter().any(|(_,cmd)|cmd=="end"));
         assert!(battle.iter().any(|(_,cmd)|cmd=="play 1 2"));
+    }
+}
+
+#[cfg(test)]
+mod p1_accessibility_tests {
+    use super::*;
+    use three_kingdoms_spire_reborn::{Action, Game, RunMode, content::Hero};
+
+    #[test]
+    fn narrow_tty_clips_cjk_without_splitting_codepoints() {
+        let label = "大战·孙尚香出征";
+        let short = fitting_label(label, 8);
+        assert!(UnicodeWidthStr::width(short.as_str()) <= 8);
+        assert!(short.ends_with('…'));
+        assert_eq!(fitting_label(label, 80), label);
+    }
+
+    #[test]
+    fn disabled_camp_rest_is_not_selectable_by_keyboard() {
+        let mut game = Game::new_with_mode(Hero::GuanYu, 77, 0, RunMode::Custom);
+        game.apply(Action::SetModifier { id: "no_rest".into(), enabled: true }).unwrap();
+        game.stage = Stage::Camp;
+        let app = App {
+            game: Some(game),
+            profile: crate::Profile::new(),
+            theme: crate::Theme::Dark,
+            dir: std::path::PathBuf::new(),
+            use_ansi: false,
+            message: String::new(),
+        };
+        let options = choices(&app, 1);
+        assert!(!options.iter().any(|(_, action)|action == "choose 1"));
+        assert!(options.iter().any(|(_, action)|action == "choose 2"));
     }
 }
