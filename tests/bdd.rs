@@ -189,6 +189,12 @@ impl World {
             if prior-remaining < expected {
                 return Err(format!("expected damage >= {expected}, got {}",prior-remaining));
             }
+        } else if step == "the first enemy health is unchanged" {
+            let previous = self.foe_hp.ok_or("no remembered enemy health")?;
+            let current = self.game()?.battle.as_ref().ok_or("not in combat")?.foes[0].hp;
+            if previous != current {
+                return Err(format!("expected unchanged health {previous}, got {current}"));
+            }
         } else if step == "I manually discard the last card" {
             let game = self.game_mut()?;
             let idx = game.battle.as_ref().ok_or("no battle")?.hand.len();
