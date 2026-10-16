@@ -652,19 +652,20 @@ impl Game {
             }
             EventKind::StatusApplied if event.source == "poison" && event.amount > 0 => {
                 let amount = self.power_stacks(PowerId::ToxicReversal);
-                if amount > 0 {
-                    if let Some(idx) = event.target.as_deref()
-                        .and_then(|text|text.strip_prefix("foe:"))
-                        .and_then(|text|text.parse::<usize>().ok())
-                    {
-                        let b = self.battle.as_mut().expect("battle");
-                        if let Some(foe) = b.foes.get_mut(idx) {
-                            if foe.hp > 0 {
-                                foe.poison += amount;
-                                self.combat_event(EventKind::PowerTriggered,"toxic_reversal",
-                                    amount,Some(format!("foe:{idx}")));
-                            }
-                        }
+                let idx = event.target.as_deref()
+                    .and_then(|text| text.strip_prefix("foe:"))
+                    .and_then(|text| text.parse::<usize>().ok());
+                if let Some(idx) = idx.filter(|_| amount > 0) {
+                    let applied = self.battle.as_mut().expect("battle")
+                        .foes.get_mut(idx).map_or(0, |foe| {
+                            if foe.hp <= 0 { return 0; }
+                            let before = foe.poison;
+                            foe.poison = foe.poison.saturating_add(amount).min(9999);
+                            foe.poison - before
+                        });
+                    if applied > 0 {
+                        self.combat_event(EventKind::PowerTriggered,"toxic_reversal",
+                            applied,Some(format!("foe:{idx}")));
                     }
                 }
             }
