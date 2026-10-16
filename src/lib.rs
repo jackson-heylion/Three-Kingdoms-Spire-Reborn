@@ -3145,7 +3145,7 @@ mod tests {
         let mut g=Game::new(Hero::SunShangxiang,8001);
         assert_eq!(g.effective_doctrine(),None);
         let saved=g.to_json().unwrap();
-        assert!(!saved.contains("\\"doctrine\\""));
+        assert!(!saved.contains(r#""doctrine""#));
         assert!(g.apply(Action::SetDoctrine{id:"cao_troops".into()}).is_err());
         assert!(g.apply(Action::SetDoctrine{id:"unknown".into()}).is_err());
         assert_eq!(g.to_json().unwrap(),saved);
