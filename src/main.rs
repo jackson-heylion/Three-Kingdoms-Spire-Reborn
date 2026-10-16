@@ -159,9 +159,15 @@ impl App {
             match g.stage {
                 Stage::Map => {
                     println!(" 【征战路线】选择下一站：");
+                    let next_row=usize::from(g.floor%7);
                     for (i, node) in g.route.iter().enumerate() {
-                        let lane = g.route_lanes.get(i).map_or(i + 1, |n| usize::from(*n)+1);
-                        println!("   {}. {}（路径{}）", i + 1, node.name(),lane);
+                        let lane = g.route_lanes.get(i).map_or(i as u8,|n|*n);
+                        let (terrain,risk)=g.act_map.as_ref().map_or(
+                            ("平道".to_string(),None),|map|(
+                                map.terrain_at(next_row,lane).label().to_owned(),
+                                Some(map.score_route(next_row,lane,g.hp,g.max_hp,g.gold))));
+                        println!("   {}. {}（道{} / {} / 三层路线评分{}）",
+                            i+1,node.name(),lane+1,terrain,risk.map_or("-".into(),|score|score.to_string()));
                     }
                     println!(" 输入 map 查看本幕七层完整路线图");
                     println!(" 输入 choose <编号>");
@@ -263,7 +269,7 @@ impl App {
         };
         let result: Result<String, String> = match args[0].to_ascii_lowercase().as_str() {
             "quit" | "exit" | "q" => { let _ = self.save(); return false; }
-            "help" | "h" => Ok("new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 在出征前指定三幕变体；daily YYYY-MM-DD；load/save；choose N；play N [目标]；discard N 弃换；end；use [药剂号] [目标]；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看连通路线；relics；lore 看纪事；bonds 看人物羁绊；chapter 1-120 回目索引；powers 持续能力；events 最近战斗结算；metrics 战役统计；verify 回放检验；history 最近操作；doctrine 查看流派 / doctrine auto|代码 选择；chronicle；theme dark|light；status；quit。".into()),
+            "help" | "h" => Ok("new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 在出征前指定三幕变体；daily YYYY-MM-DD；load/save；choose N；play N [目标]；discard N 弃换；end；use [药剂号] [目标]；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看路径与评分；inventory 背包；achievements 成就；codex 图鉴；relics；lore 看纪事；bonds 看人物羁绊；chapter 1-120 回目索引；powers 持续能力；events 最近战斗结算；metrics 战役统计；verify 回放检验；history 最近操作；doctrine 查看流派 / doctrine auto|代码 选择；chronicle；theme dark|light；status；quit。".into()),
             "new" | "custom" => {
                 let mode = if args[0] == "custom" {RunMode::Custom} else {RunMode::Standard};
                 let hero = args.get(1).and_then(|s| Hero::parse(s)).unwrap_or(Hero::GuanYu);
@@ -316,8 +322,12 @@ impl App {
                         let cells = row.iter().enumerate().map(|(lane,n)| {
                             let current = g.floor == graph.act*7 + r as u8 + 1
                                 && g.map_lane == Some(lane as u8);
-                            format!("{}{}{}",if current {"["} else {""},
-                                n.name(),if current {"]"} else {""})
+                            let ground=graph.terrain_at(r,lane as u8);
+                            if ground==three_kingdoms_spire_reborn::map::Terrain::Closed {
+                                return "× 断道".into();
+                            }
+                            format!("{}{}·{}{}",if current {"["} else {""},
+                                n.name(),ground.label(),if current {"]"} else {""})
                         }).collect::<Vec<_>>().join("  ─  ");
                         format!("第{:02}层  {}",graph.act*7+r as u8+1,cells)
                     }).collect::<Vec<_>>().join("\n")
@@ -345,6 +355,42 @@ impl App {
                         .iter().rev().map(|(idx,a)|format!("{}. {a:?}",idx+1))
                         .collect::<Vec<_>>().join("\n")))
             })),
+            "inventory" | "bag" => Ok(self.game.as_ref().map_or("请先开局".into(),|g|{
+                let equipment=if g.relics.is_empty(){"无".into()}else{g.relics.iter().map(|r|
+                    format!("{r}：{}",three_kingdoms_spire_reborn::items::relic_name(r)))
+                    .collect::<Vec<_>>().join("\n")};
+                let potions=if g.potion_bag.is_empty(){"无".into()}else{g.potion_bag.iter()
+                    .enumerate().map(|(i,p)|format!("{}. {}",i+1,potion_name(p)))
+                    .collect::<Vec<_>>().join("\n")};
+                let boons=if g.boons.is_empty(){"无".into()}else{g.boons.iter().map(|b|
+                    three_kingdoms_spire_reborn::items::boon_name(b)).collect::<Vec<_>>().join("\n")};
+                format!("【全局背包】体力{}/{}，金币{}。\n【遗物】\n{}\n【药剂】\n{}\n【先贤赐福】\n{}",
+                    g.hp,g.max_hp,g.gold,equipment,potions,boons)
+            })),
+            "achievements" | "trophies" => Ok({
+                let lines=self.profile.achievement_progress().into_iter()
+                    .map(|(_,name,desc,won)|format!("{} {} —— {}",if won {"[已达成]"}else{"[未达成]"},name,desc))
+                    .collect::<Vec<_>>().join("\n");
+                format!("【战功成就】已解锁 {}/{}\n{}",
+                    self.profile.achievements.len(),self.profile.achievement_progress().len(),lines)
+            }),
+            "codex" => Ok({
+                let cards=self.profile.seen_cards.iter().map(|id|{
+                    let card=Card::new(id);
+                    format!("{} ({id})",card.name())
+                }).collect::<Vec<_>>().join("、");
+                let foes=self.profile.seen_enemies.iter().map(|id|
+                    three_kingdoms_spire_reborn::content::enemy_name(id)
+                ).collect::<Vec<_>>().join("、");
+                let relics=self.profile.discovered_relics.iter().cloned().collect::<Vec<_>>().join("、");
+                format!("【图鉴】卡牌 {}/{}：{}\n敌军 {}/{}：{}\n遗物 {}/{}：{}",
+                    self.profile.seen_cards.len(),
+                    three_kingdoms_spire_reborn::content::card_count(),cards,
+                    self.profile.seen_enemies.len(),
+                    three_kingdoms_spire_reborn::content::ENEMY_IDS.len(),foes,
+                    self.profile.discovered_relics.len(),
+                    three_kingdoms_spire_reborn::items::RELICS.len(),relics)
+            }),
             "deck" => Ok(self.game.as_ref().map_or("尚未开局".into(), |g| {
                 g.deck.iter().enumerate().map(|(i,c)| format!("{}. {}", i+1, card_label(c))).collect::<Vec<_>>().join("\n")
             })),
