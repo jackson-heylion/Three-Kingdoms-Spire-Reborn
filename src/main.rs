@@ -1,4 +1,5 @@
 //! macOS terminal frontend. All rules remain in the library.
+mod tui;
 use serde::{Deserialize, Serialize};
 use std::{
     env, fs,
@@ -476,7 +477,7 @@ impl App {
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.iter().any(|a| a == "--help" || a == "-h") {
-        println!("三国登塔录 TKS — macOS Rust terminal roguelike\n用法：tks [--plain] [--save-dir <目录>]\n游戏内输入 help 查看指令。");
+        println!("三国登塔录 TKS — macOS/Linux Rust terminal roguelike\n用法：tks [--tui] [--plain] [--save-dir <目录>]\n--tui 启用上下键菜单，:输入指令；--plain 适用于脚本管道。\n游戏内输入 help 查看指令。");
         return;
     }
     let mut dir = default_dir();
@@ -500,6 +501,13 @@ fn main() {
         && let Err(err) = app.load()
     {
         app.message = format!("存档未能加载：{err}；可输入 new 开新局。");
+    }
+    if args.iter().any(|arg|arg=="--tui") {
+        if let Err(err)=tui::run(&mut app) {
+            eprintln!("TUI 启动失败：{err}；请使用默认行命令模式或 --plain");
+        } else {
+            return;
+        }
     }
     loop {
         app.draw();
