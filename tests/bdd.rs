@@ -120,6 +120,63 @@ impl World {
             if !b.exhausted.iter().any(|c|c.id==id) {
                 return Err(format!("{id} was not exhausted at end turn"));
             }
+        } else if step.starts_with("I replace hand with \"") {
+            let id = quoted(step)?;
+            let b = self.game_mut()?.battle.as_mut().ok_or("not in combat")?;
+            b.hand = vec![Card::new(id)];
+            b.energy = b.energy.max(3);
+        } else if step.starts_with("I replace draw pile with \"") {
+            let ids = quoted(step)?.split(',').collect::<Vec<_>>();
+            let cards = ids.iter().map(|id| {
+                if three_kingdoms_spire_reborn::content::card_spec(id).is_none() {
+                    Err(format!("unknown draw fixture card {id}"))
+                } else { Ok(Card::new(id)) }
+            }).collect::<Result<Vec<_>,_>>()?;
+            self.game_mut()?.battle.as_mut().ok_or("not in combat")?.draw = cards;
+        } else if step.starts_with("I replace discard pile with \"") {
+            let ids = quoted(step)?.split(',').collect::<Vec<_>>();
+            let cards = ids.iter().map(|id| {
+                if three_kingdoms_spire_reborn::content::card_spec(id).is_none() {
+                    Err(format!("unknown discard fixture card {id}"))
+                } else { Ok(Card::new(id)) }
+            }).collect::<Result<Vec<_>,_>>()?;
+            self.game_mut()?.battle.as_mut().ok_or("not in combat")?.discard = cards;
+        } else if step.starts_with("I set combat energy to ") {
+            let energy: i32 = parse_after(step,"I set combat energy to ")?
+                .parse().map_err(|_|"invalid energy amount")?;
+            if !(0..=99).contains(&energy) { return Err("energy out of fixture range".into()); }
+            self.game_mut()?.battle.as_mut().ok_or("not in combat")?.energy = energy;
+        } else if step == "I make the first enemy healthy with 200 HP" {
+            let b = self.game_mut()?.battle.as_mut().ok_or("not in combat")?;
+            b.foes[0].max_hp = 200;
+            b.foes[0].hp = 200;
+            b.foes[0].block = 0;
+        } else if step.starts_with("battle energy equals ") {
+            let expected: i32 = parse_after(step,"battle energy equals ")?
+                .parse().map_err(|_|"bad energy assertion")?;
+            let actual = self.game()?.battle.as_ref().ok_or("not in combat")?.energy;
+            if actual != expected { return Err(format!("expected {expected} energy, got {actual}")); }
+        } else if step == "I play the last card selecting 2" {
+            let game = self.game_mut()?;
+            let index = game.battle.as_ref().ok_or("not in combat")?.hand.len();
+            game.apply(Action::PlaySelected {index,target:1,selection:2})?;
+        } else if step == "I attempt to play the last card selecting 99" {
+            let game = self.game_mut()?;
+            let index = game.battle.as_ref().ok_or("not in combat")?.hand.len();
+            self.error = game.apply(Action::PlaySelected {index,target:1,selection:99}).err();
+            if self.error.is_none() { return Err("invalid pile choice was accepted".into()); }
+        } else if step.starts_with("my hand has a temporary \"") {
+            let id = quoted(step)?;
+            let b = self.game()?.battle.as_ref().ok_or("not in combat")?;
+            if !b.hand.iter().any(|card|card.id==id && card.temporary) {
+                return Err(format!("expected temporary {id} in hand"));
+            }
+        } else if step.starts_with("my exhaust pile has a temporary \"") {
+            let id = quoted(step)?;
+            let b = self.game()?.battle.as_ref().ok_or("not in combat")?;
+            if !b.exhausted.iter().any(|card|card.id==id && card.temporary) {
+                return Err(format!("expected temporary {id} exhausted"));
+            }
         } else if step == "I gain one manual discard token" {
             self.game_mut()?.battle.as_mut().ok_or("not in combat")?.discard_tokens += 1;
         } else if step == "I remember the first enemy health" {
@@ -173,6 +230,9 @@ impl World {
                 "card_exhausted" => EventKind::CardExhausted,
                 "status_applied" => EventKind::StatusApplied,
                 "foe_defeated" => EventKind::FoeDefeated,
+                "card_tutored" => EventKind::CardTutored,
+                "card_copied" => EventKind::CardCopied,
+                "card_generated" => EventKind::CardGenerated,
                 _ => return Err(format!("unknown event kind {kind}")),
             };
             let count = self.game()?.battle.as_ref().ok_or("not in combat")?
@@ -352,13 +412,14 @@ fn gherkin_bdd_acceptance_suite() {
     let documents = [
         ("features/combat_powers.feature", include_str!("../features/combat_powers.feature")),
         ("features/advanced_combat.feature", include_str!("../features/advanced_combat.feature")),
+        ("features/advanced_cards.feature", include_str!("../features/advanced_cards.feature")),
         ("features/lore.feature", include_str!("../features/lore.feature")),
         ("features/save_resume.feature", include_str!("../features/save_resume.feature")),
         ("features/novel_provenance.feature", include_str!("../features/novel_provenance.feature")),
     ];
     let scenarios: usize = documents.iter().map(|(name,text)|
         run_feature(text,name).unwrap_or_else(|error|panic!("{error}"))).sum();
-    assert!(scenarios >= 27, "BDD suite lost scenarios: {scenarios}");
+    assert!(scenarios >= 33, "BDD suite lost scenarios: {scenarios}");
     println!("Verified {scenarios} executable Given/When/Then acceptance scenarios");
 }
 
