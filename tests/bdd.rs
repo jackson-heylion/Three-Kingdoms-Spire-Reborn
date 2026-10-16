@@ -160,6 +160,11 @@ impl World {
             if self.game()?.to_json()? != previous {
                 return Err("invalid action mutated the game".into());
             }
+        } else if step.starts_with("my deck contains \"") {
+            let card = quoted(step)?;
+            if !self.game()?.deck.iter().any(|existing|existing.id == card) {
+                return Err(format!("expected narrative reward card {card} in deck"));
+            }
         } else if step.starts_with("the flag \"") && step.ends_with(" was earned earlier") {
             let key = quoted(step)?;
             if !lore::BEATS.iter().any(|beat| beat.flag == key) {
