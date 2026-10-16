@@ -69,10 +69,10 @@ cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test --all-targets
 cargo build --release
-cargo run --release --bin tks-sim -- 100
+cargo run --release --bin tks-sim -- 1000
 ```
 
-每次更新由 GitHub Actions 在 macOS + Linux 下编译、测试、终端存档恢复与自动模拟上进行验证。CI 状态：[GitHub Actions](https://github.com/jackson-heylion/Three-Kingdoms-Spire-Reborn/actions)。
+每次更新由 GitHub Actions 在 macOS + Linux 下编译、测试、终端存档恢复、长期战功簿检查与每平台1000局种子自动模拟上进行验证。CI 状态：[GitHub Actions](https://github.com/jackson-heylion/Three-Kingdoms-Spire-Reborn/actions)。
 
 ## 技术边界
 
