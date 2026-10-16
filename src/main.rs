@@ -194,8 +194,10 @@ fn main() {
         return;
     }
     let mut dir = default_dir();
-    if let Some(i) = args.iter().position(|a| a == "--save-dir") {
-        if let Some(value) = args.get(i + 1) { dir = PathBuf::from(value); }
+    if let Some(i) = args.iter().position(|a| a == "--save-dir")
+        && let Some(value) = args.get(i + 1)
+    {
+        dir = PathBuf::from(value);
     }
     let theme = fs::read_to_string(prefs_path(&dir)).ok()
         .and_then(|s| serde_json::from_str::<Preferences>(&s).ok())
@@ -205,8 +207,10 @@ fn main() {
         use_ansi: io::stdout().is_terminal() && !args.iter().any(|a| a == "--plain"),
         message: String::new(),
     };
-    if save_path(&app.dir).exists() {
-        if let Err(err) = app.load() { app.message = format!("存档未能加载：{err}；可输入 new 开新局。"); }
+    if save_path(&app.dir).exists()
+        && let Err(err) = app.load()
+    {
+        app.message = format!("存档未能加载：{err}；可输入 new 开新局。");
     }
     loop {
         app.draw();
