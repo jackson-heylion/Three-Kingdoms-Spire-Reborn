@@ -309,13 +309,14 @@ fn run_feature(source: &str, name: &str) -> Result<usize, String> {
 #[test]
 fn gherkin_bdd_acceptance_suite() {
     let documents = [
+        ("features/combat_powers.feature", include_str!("../features/combat_powers.feature")),
         ("features/lore.feature", include_str!("../features/lore.feature")),
         ("features/save_resume.feature", include_str!("../features/save_resume.feature")),
         ("features/novel_provenance.feature", include_str!("../features/novel_provenance.feature")),
     ];
     let scenarios: usize = documents.iter().map(|(name,text)|
         run_feature(text,name).unwrap_or_else(|error|panic!("{error}"))).sum();
-    assert!(scenarios >= 12, "BDD suite lost scenarios: {scenarios}");
+    assert!(scenarios >= 22, "BDD suite lost scenarios: {scenarios}");
     println!("Verified {scenarios} executable Given/When/Then acceptance scenarios");
 }
 
