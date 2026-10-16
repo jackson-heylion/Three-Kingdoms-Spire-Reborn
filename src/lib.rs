@@ -1599,6 +1599,7 @@ impl Game {
                 return Ok(format!("{}。将星陨落，征途结束。", messages.join("；")));
             }
         }
+        self.capture_turn_metrics(true);
         {
             let b = self.battle.as_mut().expect("battle");
             b.block = 0;
@@ -1618,7 +1619,6 @@ impl Game {
                 foe.weak = foe.weak.saturating_sub(1);
             }
         }
-        self.capture_turn_metrics(true);
         self.roll_intents();
         self.draw_cards(5 + usize::from(self.relics.iter().any(|r| r == "虎翼")));
         self.combat_event(EventKind::TurnStarted, "hero", 0, None);
