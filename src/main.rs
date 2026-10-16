@@ -1,5 +1,6 @@
 //! macOS terminal frontend. All rules remain in the library.
 mod tui;
+mod hud;
 use serde::{Deserialize, Serialize};
 use std::{
     env, fs,

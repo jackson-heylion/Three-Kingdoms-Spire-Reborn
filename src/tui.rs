@@ -1,8 +1,9 @@
 //! Optional full-keyboard terminal menu for macOS/Linux without platform crates.
 //! Raw mode is scoped by RAII, and the existing plain line CLI remains supported.
-use super::{App, Stage, card_label};
+use super::{App, Stage, Card, card_label, card_spec, hud, potion_name};
 use three_kingdoms_spire_reborn::challenges::ChallengeModifier;
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use unicode_width::UnicodeWidthChar;
+#[cfg(test)] use unicode_width::UnicodeWidthStr;
 use std::{fs::File,io::{self, Read, Write, IsTerminal},process::{Command,Stdio}};
 
 struct RawTerminal { original: String }
@@ -45,11 +46,11 @@ pub(super) fn choices(app:&App,target:usize)->Vec<(String,String)> {
         Stage::Combat=>{
             let mut options=game.battle.as_ref().map_or(vec![],|b|
                 b.hand.iter().enumerate()
-                    .map(|(index,card)|(format!("{}（目标敌军{}）",card_label(card),target),
+                    .map(|(index,card)|(combat_card_label(card,b.energy),
                         format!("play {} {target}",index+1))).collect::<Vec<_>>());
             options.push(("结束本回合".into(),"end".into()));
             for (index,potion) in game.potion_bag.iter().enumerate() {
-                options.push((format!("药剂{}：{}",index+1,potion),
+                options.push((format!("药剂{}：{}",index+1,potion_name(potion)),
                     format!("use {} {target}",index+1)));
             }
             options
@@ -96,7 +97,18 @@ pub(super) fn choices(app:&App,target:usize)->Vec<(String,String)> {
         ],
     }
 }
-/// Truncate by display cells rather than bytes; never split a Han character.
+fn combat_card_label(card:&Card,energy:i32)->String {
+    let Some(spec)=card_spec(&card.id) else {return card_label(card)};
+    let cost=if spec.cost==-1 {"X".to_string()}
+        else if card.enchantment.as_deref()==Some("迅捷") {(spec.cost-1).max(0).to_string()}
+        else {spec.cost.to_string()};
+    let unavailable=cost.parse::<i32>().is_ok_and(|value|value>energy);
+    format!("{}[{}] {}{} · {}",
+        if unavailable {"× "} else {""},cost,card.name(),
+        if card.upgraded {" ↑"} else {""},spec.description)
+}
+/// Legacy cell-width regression helper. Production clipping is now done by HUD.
+#[cfg(test)]
 fn fitting_label(label: &str, available: usize) -> String {
     if UnicodeWidthStr::width(label) <= available { return label.to_owned(); }
     let mut out = String::new();
@@ -110,12 +122,13 @@ fn fitting_label(label: &str, available: usize) -> String {
     out.push('…');
     out
 }
-fn current_columns() -> usize {
+fn terminal_size()->(usize,usize) {
     RawTerminal::stty(&["size"]).ok()
-        .and_then(|out| String::from_utf8(out.stdout).ok())
-        .and_then(|raw| raw.split_whitespace().nth(1)?.parse::<usize>().ok())
-        .unwrap_or(80)
-        .max(24)
+        .and_then(|out|String::from_utf8(out.stdout).ok())
+        .and_then(|raw|{
+            let mut cols=raw.split_whitespace();
+            Some((cols.next()?.parse::<usize>().ok()?,cols.next()?.parse::<usize>().ok()?))
+        }).map_or((24,80),|(rows,width)|(rows.max(16),width.max(28)))
 }
 fn read_byte()->io::Result<u8> {
     let mut byte=[0_u8;1];
@@ -173,20 +186,9 @@ pub(super) fn run(app:&mut App)->Result<(),String> {
         let options=choices(app,target);
         if options.is_empty() {cursor=0;}
         else {cursor=cursor.min(options.len()-1);}
-        app.draw();
-        let columns=current_columns();
-        if columns < 65 {
-            println!("\n↑↓/jk 选项 | 回车确认 | t目标 | :命令 | ?帮助 | q退出");
-        } else {
-            println!("\n【键盘操作】↑/↓ 或 j/k 选择，回车确认；数字1–9快捷选择；t 切换敌方目标；: 输命令；? 帮助；q 退出");
-        }
-        for (idx,(label,_)) in options.iter().enumerate() {
-            let label=fitting_label(label,columns.saturating_sub(10));
-            let selection=if idx==cursor {">"} else {" "};
-            let accent=if idx==cursor && app.use_ansi {"\x1b[7m"} else {""};
-            let reset=if idx==cursor && app.use_ansi {"\x1b[0m"} else {""};
-            println!(" {} {accent}{}. {}{reset}",selection,idx+1,label);
-        }
+        let (rows,columns)=terminal_size();
+        print!("\x1b[2J\x1b[H{}{}\x1b[0m",app.theme.style(),
+            hud::render(app,columns,rows,target,&options,cursor));
         io::stdout().flush().map_err(|e|e.to_string())?;
         let key=read_byte().map_err(|e|e.to_string())?;
         let decision=match key {
