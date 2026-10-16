@@ -31,7 +31,7 @@ jobs:
         run: |
           SAVE_DIR="$RUNNER_TEMP/tks-smoke"
           printf 'new guanyu 777\nchoose 1\nend\nquit\n' | cargo run --quiet -- --plain --save-dir "$SAVE_DIR" > "$RUNNER_TEMP/tks-first.log"
-          printf 'status\npowers\nevents\ntheme light\nquit\n' | cargo run --quiet -- --plain --save-dir "$SAVE_DIR" > "$RUNNER_TEMP/tks-second.log"
+          printf 'status\npowers\nevents\npiles\ntheme light\nquit\n' | cargo run --quiet -- --plain --save-dir "$SAVE_DIR" > "$RUNNER_TEMP/tks-second.log"
           python3 - <<'PY'
           import json, os, pathlib
           directory = pathlib.Path(os.environ['RUNNER_TEMP']) / 'tks-smoke'
@@ -49,6 +49,7 @@ jobs:
           assert profile['best_floor'] >= 1
           assert '读取进度成功' in (pathlib.Path(os.environ['RUNNER_TEMP']) / 'tks-second.log').read_text()
           assert '结算' in (pathlib.Path(os.environ['RUNNER_TEMP']) / 'tks-second.log').read_text()
+          assert '抽牌堆' in (pathlib.Path(os.environ['RUNNER_TEMP']) / 'tks-second.log').read_text()
           print('CLI mid-combat save/theme/resume smoke test passed')
           PY
 
