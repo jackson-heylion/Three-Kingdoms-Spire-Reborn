@@ -317,7 +317,7 @@ impl App {
                 Some(index) if (1..=120).contains(&index) => {
                     let line = include_str!("../data/novel_chapters.tsv").lines()
                         .filter(|line| line.chars().next().is_some_and(|ch| ch.is_ascii_digit()))
-                        .nth(index-1).ok_or("章节索引不完整");
+                        .nth(index-1).ok_or_else(|| "章节索引不完整".to_string());
                     line.map(|raw| {
                         let parts: Vec<_> = raw.split('\t').collect();
                         let events = three_kingdoms_spire_reborn::lore::BEATS.iter()
