@@ -84,7 +84,8 @@ fn next_enemy_damage(game: &Game) -> i32 {
 }
 fn tactical_card_value(game:&Game,card:&Card,threat:i32)->i32 {
     let spec=match card_spec(&card.id){Some(s)=>s,None=>return -999};
-    let available=game.battle.as_ref().map_or(0,|b|b.energy);
+    // Outside combat, estimate reward value against a standard 3-energy turn.
+    let available=game.battle.as_ref().map_or(3,|b|b.energy);
     let cost=card_energy(card,available).unwrap_or(999);
     if cost>available {return -999;}
     let upfront=match spec.effect {
