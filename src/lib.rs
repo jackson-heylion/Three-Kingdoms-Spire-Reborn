@@ -1,11 +1,13 @@
 //! UI-free deterministic game engine. Safe to reuse from Swift/UniFFI and wasm.
 //! Every authoritative mutation goes through Game::apply(Action).
+pub mod combat;
 pub mod content;
 pub mod items;
 pub mod lore;
 pub mod map;
 pub mod progression;
 
+use combat::{CombatEvent, EventKind, MAX_RECENT_EVENTS, PowerId, PowerStack};
 use content::{Effect, Hero, REWARD_POOL, NEUTRAL_POOL, hero_pool, card_spec, enemy_name, enemy_hp};
 use serde::{Deserialize, Serialize};
 
@@ -115,6 +117,10 @@ pub struct Battle {
     #[serde(default)] pub troops_hp: i32,
     #[serde(default)] pub troops_attack: i32,
     #[serde(default)] pub discard_tokens: i32,
+    #[serde(default)] pub powers: Vec<PowerStack>,
+    #[serde(default)] pub events: Vec<CombatEvent>,
+    #[serde(default)] pub event_seq: u64,
+    #[serde(default)] pub thought_used: bool,
     pub turn: u32,
 }
 
@@ -273,6 +279,9 @@ impl Game {
             }
             if b.energy < 0 || b.block < 0 || b.troops_hp < 0 || b.troops_attack < 0
                 || b.discard_tokens < 0 || b.foes.is_empty() || b.foes.len() > 4
+                || b.powers.len() > 5 || b.powers.iter().any(|power| power.stacks <= 0 || power.stacks > 99)
+                || b.events.len() > MAX_RECENT_EVENTS
+                || b.events.iter().any(|event| event.seq > b.event_seq)
                 || b.momentum < 0 || b.scheme < 0 || b.combo < 0 || b.command < 0 || b.fury < 0
                 || b.thorns < 0 || b.foes.iter().any(|f| f.hp < 0 || f.hp > f.max_hp || f.block < 0 || f.poison < 0 || f.phase > 1)
             { return Err("无效战斗数据".into()); }
@@ -445,7 +454,9 @@ impl Game {
             combo: 0, command: 0, fury: 0, thorns: 0, played: 0,
             troops_hp: if self.hero == Hero::CaoCao { 12 } else { 0 },
             troops_attack: if self.hero == Hero::CaoCao { 3 } else { 0 },
-            discard_tokens: 0, turn: 1,
+            discard_tokens: 0,
+            powers: vec![], events: vec![], event_seq: 0, thought_used: false,
+            turn: 1,
         });
         self.roll_intents();
         let extra_draw = usize::from(self.relics.iter().any(|r| r == "虎翼"));
@@ -550,17 +561,89 @@ impl Game {
             Err("无效目标：敌军不存在或已阵亡".into())
         } else { Ok(idx) }
     }
+
+    fn combat_event(&mut self, kind: EventKind, source: &str, amount: i32, target: Option<String>) {
+        if let Some(b) = &mut self.battle {
+            b.event_seq = b.event_seq.saturating_add(1);
+            b.events.push(CombatEvent {
+                seq: b.event_seq, kind, source: source.to_owned(), amount, target,
+            });
+            if b.events.len() > MAX_RECENT_EVENTS {
+                b.events.drain(..b.events.len()-MAX_RECENT_EVENTS);
+            }
+        }
+    }
+    fn power_stacks(&self, id: PowerId) -> i32 {
+        self.battle.as_ref().map_or(0, |b|
+            b.powers.iter().find(|p| p.id == id).map_or(0, |p| p.stacks))
+    }
+    fn gain_power(&mut self, id: PowerId, stacks: i32) {
+        let b = self.battle.as_mut().expect("battle");
+        if let Some(existing) = b.powers.iter_mut().find(|p| p.id == id) {
+            existing.stacks = (existing.stacks + stacks).min(99);
+        } else {
+            b.powers.push(PowerStack { id, stacks: stacks.min(99) });
+        }
+        self.combat_event(EventKind::PowerGained, id.name(), stacks, None);
+    }
+    // Order for resolving one card:
+    // card-played event -> card effect(s) and damage -> class passives ->
+    // persistent powers (once/card) -> card moved into discard/exhaust.
+    fn trigger_card_powers(&mut self, attack: bool) {
+        if attack {
+            let guard = self.power_stacks(PowerId::OathGuard) * 3;
+            if guard > 0 {
+                self.battle.as_mut().expect("battle").block += guard;
+                self.combat_event(EventKind::PowerTriggered, "oath_guard", guard, None);
+            }
+        } else {
+            let stacks = self.power_stacks(PowerId::ThoughtSpring);
+            let eligible = self.battle.as_ref().is_some_and(|b| !b.thought_used);
+            if stacks > 0 && eligible {
+                let b = self.battle.as_mut().expect("battle");
+                b.energy += stacks;
+                b.thought_used = true;
+                self.combat_event(EventKind::PowerTriggered, "thought_spring", stacks, None);
+                self.draw_cards(1);
+            }
+        }
+    }
+    fn trigger_discard_powers(&mut self) {
+        let amount = self.power_stacks(PowerId::ArrowsOnDiscard) * 4;
+        if amount == 0 { return; }
+        let target = self.battle.as_ref().expect("battle").foes
+            .iter().position(|foe| foe.hp > 0);
+        if let Some(idx) = target {
+            self.combat_event(EventKind::PowerTriggered, "arrows_on_discard", amount, Some(format!("foe:{idx}")));
+            self.damage_enemy(idx, amount);
+        }
+    }
+    fn trigger_granary(&mut self) {
+        let stacks = self.power_stacks(PowerId::GranarySupport);
+        if stacks == 0 { return; }
+        let b = self.battle.as_mut().expect("battle");
+        if b.troops_hp == 0 { return; }
+        let restored = (40 - b.troops_hp).max(0).min(stacks * 4);
+        b.troops_hp += restored;
+        if restored > 0 {
+            self.combat_event(EventKind::PowerTriggered, "granary_support", restored, None);
+        }
+    }
+
     fn damage_enemy(&mut self, idx: usize, base: i32) {
         let b = self.battle.as_mut().expect("battle");
         let raw = base + b.strength
             + if self.hero == Hero::GuanYu { b.momentum / 3 } else { 0 }
             + if self.hero == Hero::LuBu { b.fury / 4 } else { 0 };
         let foe = &mut b.foes[idx];
+        if foe.hp == 0 { return; }
         let raw = if b.weak > 0 { raw.max(0) * 3 / 4 } else { raw.max(0) };
         let damage = if foe.vulnerable > 0 { raw * 3 / 2 } else { raw };
-        let absorbed = damage.min(foe.block);
-        foe.block -= absorbed;
-        foe.hp = (foe.hp - damage + absorbed).max(0);
+        let blocked = damage.min(foe.block);
+        foe.block -= blocked;
+        let actual = (foe.hp).min((damage-blocked).max(0));
+        foe.hp -= actual;
+        self.combat_event(EventKind::DamageDealt, "hero", actual, Some(format!("foe:{idx}")));
     }
     fn defeated(&self) -> bool {
         self.battle.as_ref().is_some_and(|b| b.foes.iter().all(|f| f.hp <= 0))
@@ -643,6 +726,7 @@ impl Game {
             b.energy -= cost;
             b.hand.remove(hand_idx);
         }
+        self.combat_event(EventKind::CardPlayed, &card.id, cost, None);
         let bonus = if card.upgraded { 3 } else { 0 }
             + if card.enchantment.as_deref() == Some("锐锋") { 3 } else { 0 };
         match spec.effect {
@@ -763,6 +847,9 @@ impl Game {
             Effect::DiscardStrike(amount) => {
                 self.damage_enemy(target_idx.expect("target"), amount + bonus);
             }
+            Effect::Power(id, stacks) => {
+                self.gain_power(id, stacks + i32::from(card.upgraded));
+            }
             Effect::Unplayable => unreachable!(),
         }
         if card.enchantment.as_deref() == Some("护身") {
@@ -799,6 +886,7 @@ impl Game {
         if self.relics.iter().any(|r| r == "百战") && attack {
             self.battle.as_mut().expect("battle").strength += 1;
         }
+        self.trigger_card_powers(attack);
         let msg = format!("使用了【{}】。", card.name());
         if spec.exhaust {
             self.battle.as_mut().expect("battle").exhausted.push(card);
@@ -815,6 +903,7 @@ impl Game {
         if idx >= battle.hand.len() { return Err("无效手牌编号".into()); }
         let card = self.battle.as_mut().expect("battle").hand.remove(idx);
         let auto = card.id == "feishi";
+        self.combat_event(EventKind::CardDiscarded, &card.id, 1, None);
         let msg = if auto { format!("弃换【{}】：触发策应攻击", card.name()) }
                   else { format!("弃换【{}】", card.name()) };
         {
@@ -828,6 +917,7 @@ impl Game {
                 .iter().position(|foe| foe.hp > 0);
             if let Some(target) = target { self.damage_enemy(target, 7); }
         }
+        self.trigger_discard_powers();
         self.draw_cards(1);
         if self.defeated() { Ok(format!("{msg}。{}", self.win_battle())) }
         else { Ok(msg) }
