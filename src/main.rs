@@ -149,6 +149,14 @@ impl App {
                     if b.discard_tokens > 0 {
                         println!(" 【弃换】剩余{}次，discard N 弃换手牌并抽1张",b.discard_tokens);
                     }
+                    if !b.powers.is_empty() {
+                        println!(" 【持续军略】{}", b.powers.iter().map(|p|
+                            format!("{}×{}",p.id.name(),p.stacks)).collect::<Vec<_>>().join("、"));
+                    }
+                    if let Some(event) = b.events.last() {
+                        println!(" 【战斗结算】#{:03} {:?} 来源={} 数值={}",
+                            event.seq,event.kind,event.source,event.amount);
+                    }
                     println!(" 【手牌】抽牌堆{} / 弃牌堆{} / 消耗{}",
                         b.draw.len(), b.discard.len(), b.exhausted.len());
                     for (i, card) in b.hand.iter().enumerate() {
@@ -212,7 +220,7 @@ impl App {
         };
         let result: Result<String, String> = match args[0].to_ascii_lowercase().as_str() {
             "quit" | "exit" | "q" => { let _ = self.save(); return false; }
-            "help" | "h" => Ok("new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 在出征前指定三幕变体；daily YYYY-MM-DD；load/save；choose N；play N [目标]；discard N 弃换；end；use [药剂号] [目标]；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看连通路线；relics；lore 看纪事；bonds 看人物羁绊；chapter 1-120 回目索引；chronicle；theme dark|light；status；quit。".into()),
+            "help" | "h" => Ok("new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 在出征前指定三幕变体；daily YYYY-MM-DD；load/save；choose N；play N [目标]；discard N 弃换；end；use [药剂号] [目标]；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看连通路线；relics；lore 看纪事；bonds 看人物羁绊；chapter 1-120 回目索引；powers 持续能力；events 最近战斗结算；chronicle；theme dark|light；status；quit。".into()),
             "new" | "custom" => {
                 let mode = if args[0] == "custom" {RunMode::Custom} else {RunMode::Standard};
                 let hero = args.get(1).and_then(|s| Hero::parse(s)).unwrap_or(Hero::GuanYu);
@@ -330,6 +338,21 @@ impl App {
                 }
                 _ => Err("用法：chapter 1～120 查看原著回目索引和对应游戏章节".into()),
             },
+            "powers" => Ok(self.game.as_ref().and_then(|g|g.battle.as_ref())
+                .map_or("当前没有战斗中的持续能力。".into(),|b| {
+                    if b.powers.is_empty() { "尚未激活持续军略。".into() }
+                    else { b.powers.iter().map(|p|
+                        format!("{}×{}：{}",p.id.name(),p.stacks,p.id.description()))
+                        .collect::<Vec<_>>().join("\n") }
+                })),
+            "events" => Ok(self.game.as_ref().and_then(|g|g.battle.as_ref())
+                .map_or("当前没有可用的战斗事件记录。".into(),|b| {
+                    if b.events.is_empty() { "尚无事件记录。".into() }
+                    else { b.events.iter().rev().take(30).rev().map(|e|
+                        format!("#{} {:?} 来源:{} 结算:{} 目标:{}",
+                            e.seq,e.kind,e.source,e.amount,e.target.as_deref().unwrap_or("-")))
+                        .collect::<Vec<_>>().join("\n") }
+                })),
             "relics" => Ok(self.game.as_ref().map_or("尚未开局".into(), |g| {
                 g.relics.iter().map(|r| format!("{}：{}",r, three_kingdoms_spire_reborn::items::relic_name(r))).collect::<Vec<_>>().join("\n")
             })),
