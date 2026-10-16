@@ -3615,6 +3615,8 @@ mod summon_turn_order_p1_tests {
         assert!(battle.events.iter().any(|event|
             event.kind == EventKind::FoeSummoned && event.source == "yellow_turban"
                 && event.target.as_deref() == Some("foe:2")));
+        // Isolate the summon's action from its existing ally's shield effect.
+        game.battle.as_mut().unwrap().foes[1].intent = Intent::Attack(0);
         game.battle.as_mut().unwrap().foes[2].intent = Intent::Guard(7);
         game.end_turn().unwrap();
         let battle = game.battle.as_ref().unwrap();
