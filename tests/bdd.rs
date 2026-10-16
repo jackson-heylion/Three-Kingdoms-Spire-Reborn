@@ -3,7 +3,7 @@
 //! Every .feature step must be recognized; unknown steps FAIL instead of being silently skipped.
 //! No additional runtime/test dependency is required for CLI, macOS native, or WASM builds.
 use three_kingdoms_spire_reborn::{
-    Action, Card, Game, Stage, content::Hero, lore,
+    Action, BossMove, Card, Foe, Game, Intent, Node, Stage, content::{Hero, enemy_hp}, lore,
     combat::{EventKind, PowerId},
 };
 
@@ -84,6 +84,84 @@ impl World {
                 *node == three_kingdoms_spire_reborn::Node::Battle)
                 .ok_or("first map has no combat")? + 1;
             game.apply(Action::Choose { index })?;
+        } else if step.starts_with("I deploy boss \"") {
+            let id = quoted(step)?;
+            let (floor, branch) = match id {
+                "zhangjiao" => (7,0), "sunjian" => (7,1),
+                "dongzhuo" => (14,0), "yuanshao" => (14,1),
+                "simayi" => (21,0), "zuoci" => (21,1),
+                _ => return Err(format!("unknown boss {id}")),
+            };
+            let g = self.game_mut()?;
+            if g.stage != Stage::Map {return Err("boss encounter must start from map".into());}
+            g.floor=floor-1;
+            g.variants=Some([branch;3]);
+            g.route=vec![Node::Boss];
+            g.route_lanes=vec![0];
+            g.apply(Action::Choose {index:1})?;
+            if g.battle.as_ref().ok_or("missing boss battle")?.foes[0].id != id {
+                return Err("staged boss does not match selected variant".into());
+            }
+        } else if step == "I clear my guard" {
+            self.game_mut()?.battle.as_mut().ok_or("not in combat")?.block=0;
+        } else if step == "I wound the boss by 8 health" {
+            let boss = &mut self.game_mut()?.battle.as_mut().ok_or("not in combat")?.foes[0];
+            boss.hp=(boss.hp-8).max(1);
+        } else if step == "I play four free cards" {
+            let game=self.game_mut()?;
+            let b=game.battle.as_mut().ok_or("not in combat")?;
+            b.hand=vec![Card::new("guji");4];
+            for _ in 0..4 {
+                game.apply(Action::Play {index:1,target:1})?;
+            }
+        } else if step == "I stage coordinated officers" {
+            let b=self.game_mut()?.battle.as_mut().ok_or("not in combat")?;
+            let hp=enemy_hp("officer");
+            b.foes=vec![
+                Foe {id:"officer".into(),hp,max_hp:hp,block:0,strength:0,poison:0,
+                    vulnerable:0,weak:0,intent:Intent::Assist(4),phase:0},
+                Foe {id:"bandit".into(),hp:32,max_hp:32,block:0,strength:0,poison:0,
+                    vulnerable:0,weak:0,intent:Intent::Attack(1),phase:0},
+            ];
+        } else if step.starts_with("the first foe telegraphs \"") {
+            let wanted=quoted(step)?;
+            let battle=self.game()?.battle.as_ref().ok_or("not in combat")?;
+            let description=battle.foes[0].intent.label();
+            if !description.contains(wanted) {
+                return Err(format!("expected boss telegraph {wanted}, got {description}"));
+            }
+        } else if step.starts_with("the first foe has at least ") && step.ends_with(" guard") {
+            let threshold: i32 = parse_after(step,"the first foe has at least ")?
+                .split_whitespace().next().ok_or("no guard threshold")?
+                .parse().map_err(|_|"invalid guard threshold")?;
+            let actual=self.game()?.battle.as_ref().ok_or("not in combat")?.foes[0].block;
+            if actual<threshold {return Err(format!("enemy guard {actual} below {threshold}"));}
+        } else if step.starts_with("the second foe has at least ") && step.ends_with(" guard") {
+            let threshold: i32 = parse_after(step,"the second foe has at least ")?
+                .split_whitespace().next().ok_or("no guard threshold")?
+                .parse().map_err(|_|"invalid guard threshold")?;
+            let actual=self.game()?.battle.as_ref().ok_or("not in combat")?
+                .foes.get(1).ok_or("second foe absent")?.block;
+            if actual<threshold {return Err(format!("second foe guard {actual} below {threshold}"));}
+        } else if step == "the hero is weakened" {
+            if self.game()?.battle.as_ref().ok_or("not in combat")?.weak == 0 {
+                return Err("boss failed to inflict lasting weakness".into());
+            }
+        } else if step.starts_with("hero gold is at most ") {
+            let maximum: i32=parse_after(step,"hero gold is at most ")?
+                .parse().map_err(|_|"invalid gold assertion")?;
+            if self.game()?.gold>maximum {
+                return Err(format!("gold {} exceeds {maximum}",self.game()?.gold));
+            }
+        } else if step == "boss health has increased" {
+            let before=self.foe_hp.ok_or("boss health not remembered")?;
+            let after=self.game()?.battle.as_ref().ok_or("not in combat")?.foes[0].hp;
+            if after<=before{return Err(format!("expected boss recovery, got {before} -> {after}"));}
+        } else if step == "the first enemy telegraphs calculated sabotage" {
+            let intent=&self.game()?.battle.as_ref().ok_or("not in combat")?.foes[0].intent;
+            if !matches!(intent,Intent::Boss(BossMove::HiddenScheme(_))) {
+                return Err(format!("expected anti-spam hidden scheme, got {intent:?}"));
+            }
         } else if step.starts_with("I put card \"") && step.ends_with(" in hand") {
             let id = quoted(step)?;
             if three_kingdoms_spire_reborn::content::card_spec(id).is_none() {
@@ -239,6 +317,7 @@ impl World {
                 "card_tutored" => EventKind::CardTutored,
                 "card_copied" => EventKind::CardCopied,
                 "card_generated" => EventKind::CardGenerated,
+                "enemy_technique" => EventKind::EnemyTechnique,
                 _ => return Err(format!("unknown event kind {kind}")),
             };
             let count = self.game()?.battle.as_ref().ok_or("not in combat")?
@@ -419,13 +498,14 @@ fn gherkin_bdd_acceptance_suite() {
         ("features/combat_powers.feature", include_str!("../features/combat_powers.feature")),
         ("features/advanced_combat.feature", include_str!("../features/advanced_combat.feature")),
         ("features/advanced_cards.feature", include_str!("../features/advanced_cards.feature")),
+        ("features/boss_tactics.feature", include_str!("../features/boss_tactics.feature")),
         ("features/lore.feature", include_str!("../features/lore.feature")),
         ("features/save_resume.feature", include_str!("../features/save_resume.feature")),
         ("features/novel_provenance.feature", include_str!("../features/novel_provenance.feature")),
     ];
     let scenarios: usize = documents.iter().map(|(name,text)|
         run_feature(text,name).unwrap_or_else(|error|panic!("{error}"))).sum();
-    assert!(scenarios >= 33, "BDD suite lost scenarios: {scenarios}");
+    assert!(scenarios >= 41, "BDD suite lost scenarios: {scenarios}");
     println!("Verified {scenarios} executable Given/When/Then acceptance scenarios");
 }
 
