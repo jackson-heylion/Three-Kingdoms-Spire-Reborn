@@ -84,6 +84,9 @@ pub enum Effect {
     Pierce(i32),
     DrawEnergy(usize, i32),
     Energy(i32),
+    Companion(i32),
+    Tactics(i32),
+    DiscardStrike(i32),
     Unplayable,
 }
 
@@ -186,6 +189,12 @@ pub fn card_spec(id: &str) -> Option<CardSpec> {
         "zonghenggong" => ("纵横弓", "穿透伤害10", 2, Effect::Pierce(10), false),
         "quest_tulu" => ("军情图录", "计谋：经历3次奇遇后蜕变为军情决断；不可打出", 0, Effect::Unplayable, false),
         "quest_resolved" => ("军情决断", "抽3张牌并获得1军令，使用后消耗", 1, Effect::DrawEnergy(3, 1), true),
+        "qingqi" => ("轻骑扈从", "提升亲兵战力与护卫体力4点", 1, Effect::Companion(4), false),
+        "hujun" => ("护军屯驻", "提升亲兵战力与护卫体力8点", 2, Effect::Companion(8), false),
+        "longwei" => ("龙骧飞骑", "提升亲兵战力与护卫体力12点", 3, Effect::Companion(12), false),
+        "huanshe" => ("幻影换阵", "获得2次弃换行动", 1, Effect::Tactics(2), false),
+        "jiecang" => ("借势回旋", "获得1次弃换行动", 0, Effect::Tactics(1), false),
+        "feishi" => ("策应飞矢", "造成7点伤害；被弃换时自动触发", 1, Effect::DiscardStrike(7), false),
         "cursed" => ("军心涣散", "无法主动打出", 0, Effect::Unplayable, false),
         _ => return None,
     };
@@ -203,12 +212,12 @@ pub fn hero_pool(hero: Hero) -> &'static [&'static str] {
     match hero {
         Hero::GuanYu => &["yanyue", "zhongyi", "qianli", "juyi", "danqi", "qinglongwu", "yibao", "pojun", "guanxi", "lianzhan", "yidao", "qinying"],
         Hero::ZhugeLiang => &["bagua", "kongcheng", "jiecaodong", "lianji", "shanchang", "xinghuo", "yingxin", "zhouyuji", "mouduan", "wuhou", "kuce", "fenglei"],
-        Hero::SunShangxiang => &["gonglian", "tupo", "jianshu", "liandao", "qiaoying", "yitian", "lianhua", "huashe", "lianying", "yidong", "chuanxin", "jibao"],
-        Hero::CaoCao => &["tuntian", "tieqi", "junjin", "xiongbi", "jianxiong", "xiaoling", "qunxiong", "shengming", "jianbing", "junshang", "wuwei", "zhaoxian"],
+        Hero::SunShangxiang => &["huanshe", "jiecang", "feishi", "gonglian", "tupo", "jianshu", "liandao", "qiaoying", "yitian", "lianhua", "huashe", "lianying", "yidong", "chuanxin", "jibao"],
+        Hero::CaoCao => &["qingqi", "hujun", "longwei", "tuntian", "tieqi", "junjin", "xiongbi", "jianxiong", "xiaoling", "qunxiong", "shengming", "jianbing", "junshang", "wuwei", "zhaoxian"],
         Hero::LuBu => &["fennu", "huaji", "xuezhai", "chijian", "shuangji", "baonu", "ranxue", "tianxia", "xiongmeng", "yanren", "zhanqi", "dangguan"],
     }
 }
-pub fn card_count() -> usize { 89 }
+pub fn card_count() -> usize { 95 }
 
 pub const ENEMY_IDS: &[&str] = &["bandit", "archer", "officer", "shaman", "yellow_turban", "pyromancer", "spearman", "cuirass", "raider", "crossbowman", "wolf", "tomb_guard", "firelancer", "tactician", "horse_archer", "assassin", "panther", "iron_guard", "witch", "sling", "elite", "war_elephant", "royal_guard", "tiger_general", "sacred_beast", "zhangjiao", "sunjian", "dongzhuo", "yuanshao", "simayi", "zuoci"];
 
