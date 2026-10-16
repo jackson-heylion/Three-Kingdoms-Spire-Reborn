@@ -335,7 +335,7 @@ impl App {
                 })),
             "doctrine" if args.len()==1 => Ok(self.game.as_ref()
                 .map_or("请先输入 new 开局".into(),|g|g.doctrine_status())),
-            "verify" => self.game.as_ref().ok_or("请先开局")
+            "verify" => self.game.as_ref().ok_or_else(||"请先开局".to_owned())
                 .and_then(|game|game.verify_action_replay()
                     .map(|count|format!("全战役操作回放校验通过，共{count}步；随机数、地图、卡牌、战斗事件和剧情结果一致。"))),
             "history" => Ok(self.game.as_ref().map_or("尚未开局".into(),|g|{
