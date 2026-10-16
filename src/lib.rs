@@ -158,6 +158,49 @@ pub struct Battle {
     pub turn: u32,
 }
 
+/// Lifetime-of-run counters. Fields are monotonic and old V2 saves default to zero.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CombatCounters {
+    pub battles_started: u64,
+    pub battles_won: u64,
+    pub battles_lost: u64,
+    pub turns_completed: u64,
+    pub cards_played: u64,
+    pub hero_hp_damage: u64,
+    pub troop_attacks: u64,
+    pub troop_damage: u64,
+    pub troop_absorbed: u64,
+    pub command_procs: u64,
+    pub command_energy: u64,
+    pub command_block: u64,
+    pub sun_discards: u64,
+    pub sun_discard_block: u64,
+    pub sun_combo_procs: u64,
+    pub sun_combo_block: u64,
+    pub sun_combo_draws: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TurnTelemetry {
+    pub floor: u8,
+    pub turn: u32,
+    pub completed: bool,
+    pub hero_hp_after: i32,
+    pub troop_hp_after: i32,
+    pub counters: CombatCounters,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CombatTelemetry {
+    pub totals: CombatCounters,
+    pub current_turn: CombatCounters,
+    /// Bounded diagnostic trace, not a full event-sourcing replay.
+    pub recent_turns: Vec<TurnTelemetry>,
+}
+pub const MAX_RECENT_TURN_METRICS: usize = 24;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Game {
     pub version: u32,
@@ -176,6 +219,7 @@ pub struct Game {
     pub relics: Vec<String>,
     pub potions: u8,
     pub battle: Option<Battle>,
+    #[serde(default)] pub telemetry: CombatTelemetry,
     pub rewards: Vec<Card>,
     pub market: Vec<Card>,
     pub log: Vec<String>,
@@ -236,7 +280,7 @@ impl Game {
             version: SAVE_VERSION, revision: 0, seed, rng_state: seed.max(1),
             hero, hp: max_hp, max_hp, gold: 90, floor: 0, stage: Stage::Map,
             last_node: None, route: vec![], deck, relics: vec!["军旗".into()],
-            potions: 1, battle: None, rewards: vec![], market: vec![],
+            potions: 1, battle: None, telemetry: CombatTelemetry::default(), rewards: vec![], market: vec![],
             log: vec![format!("{}率部出征，征途由此开始。", hero.name())],
             ascension: ascension.min(10), event_id: 0,
             potion_bag: vec!["healing".into()], shop_relic: None,
@@ -309,6 +353,10 @@ impl Game {
                 return Err(format!("未知附魔: {:?}", c.enchantment));
             }
         }
+        if self.telemetry.recent_turns.len() > MAX_RECENT_TURN_METRICS
+            || self.telemetry.recent_turns.iter().any(|entry|
+                entry.floor > MAX_FLOOR || entry.hero_hp_after < 0 || entry.troop_hp_after < 0)
+        { return Err("战斗统计记录无效".into()); }
         if let Some(b) = &self.battle {
             for c in b.draw.iter().chain(b.hand.iter()).chain(b.discard.iter()).chain(b.exhausted.iter()) {
                 if card_spec(&c.id).is_none() { return Err(format!("未知战斗卡牌: {}", c.id)); }
