@@ -77,6 +77,7 @@ pub struct Foe {
     #[serde(default)]
     pub weak: u8,
     pub intent: Intent,
+    #[serde(default)] pub phase: u8,
 }
 impl Foe {
     pub fn name(&self) -> &'static str { enemy_name(&self.id) }
@@ -225,7 +226,7 @@ impl Game {
             if b.energy < 0 || b.block < 0 || b.troops_hp < 0 || b.troops_attack < 0
                 || b.discard_tokens < 0 || b.foes.is_empty() || b.foes.len() > 4
                 || b.momentum < 0 || b.scheme < 0 || b.combo < 0 || b.command < 0 || b.fury < 0
-                || b.thorns < 0 || b.foes.iter().any(|f| f.hp < 0 || f.hp > f.max_hp || f.block < 0 || f.poison < 0)
+                || b.thorns < 0 || b.foes.iter().any(|f| f.hp < 0 || f.hp > f.max_hp || f.block < 0 || f.poison < 0 || f.phase > 1)
             { return Err("无效战斗数据".into()); }
         }
         Ok(())
@@ -335,7 +336,7 @@ impl Game {
             let hp = enemy_hp(id);
             Foe {
                 id: id.to_string(), hp, max_hp: hp, block: 0, strength: 0,
-                poison: 0, vulnerable: 0, weak: 0, intent: Intent::Attack(6),
+                poison: 0, vulnerable: 0, weak: 0, intent: Intent::Attack(6), phase: 0,
             }
         }).collect()
     }
@@ -358,7 +359,9 @@ impl Game {
                 | "zhangjiao" | "simayi" | "zuoci");
             let swift = matches!(foe.id.as_str(),
                 "archer" | "crossbowman" | "horse_archer" | "assassin" | "panther");
-            foe.intent = if spellcaster && (roll < 26 || turn.is_multiple_of(4)) {
+            foe.intent = if foe.phase > 0 && matches!(foe.id.as_str(), "sunjian" | "dongzhuo") {
+                Intent::MultiAttack((attack / 2).max(3), 2)
+            } else if spellcaster && (roll < 26 || turn.is_multiple_of(4)) {
                 Intent::Hex(1 + u8::from(act > 0), u8::from(act > 0))
             } else if swift && roll < 45 {
                 Intent::MultiAttack((attack / 2).max(2), 2 + u8::from(act > 0))
@@ -777,6 +780,59 @@ impl Game {
         }
         damage
     }
+
+    fn boss_phase_transitions(&mut self) -> Vec<String> {
+        let changes: Vec<(usize,String)> = self.battle.as_ref().expect("battle").foes
+            .iter().enumerate().filter(|(_,foe)|
+                foe.hp > 0 && foe.phase == 0 && foe.hp * 2 <= foe.max_hp
+                && matches!(foe.id.as_str(),"zhangjiao"|"sunjian"|"dongzhuo"|"yuanshao"|"simayi"|"zuoci"))
+            .map(|(i,foe)| (i,foe.id.clone())).collect();
+        let mut messages = vec![];
+        for (idx,id) in changes {
+            let b = self.battle.as_mut().expect("battle");
+            b.foes[idx].phase = 1;
+            match id.as_str() {
+                "zhangjiao" | "yuanshao" | "zuoci" => {
+                    let ally = match id.as_str() {
+                        "zhangjiao" => "yellow_turban",
+                        "yuanshao" => "officer", _ => "shaman",
+                    };
+                    if b.foes.len() < 4 {
+                        let hp = enemy_hp(ally);
+                        b.foes.push(Foe {
+                            id: ally.into(), hp, max_hp: hp, block: 0, strength: 0,
+                            poison: 0, vulnerable: 0, weak: 0,
+                            intent: Intent::Guard(4), phase: 0,
+                        });
+                    }
+                    if id == "zuoci" {
+                        let foe = &mut b.foes[idx];
+                        foe.hp = (foe.hp + 18).min(foe.max_hp);
+                    }
+                    messages.push(format!("{}进入第二阶段并呼叫援军",enemy_name(&id)));
+                }
+                "sunjian" => {
+                    b.foes[idx].strength += 4;
+                    b.foes[idx].block += 8;
+                    messages.push("孙坚激发虎威，获得4武勇和8护甲".into());
+                }
+                "dongzhuo" => {
+                    b.foes[idx].strength += 3;
+                    b.weak += 2;
+                    self.gold = (self.gold - 30).max(0);
+                    messages.push("董卓暴虐：我军虚弱两回合并损失最多30金".into());
+                }
+                "simayi" => {
+                    b.discard.push(Card::new("cursed"));
+                    b.discard.push(Card::new("cursed"));
+                    b.vulnerable += 2;
+                    messages.push("司马懿奇袭：两张军心涣散混入弃牌堆，我军易伤两回合".into());
+                }
+                _ => {}
+            }
+        }
+        messages
+    }
     fn end_turn(&mut self) -> Result<String, String> {
         if self.stage != Stage::Combat { return Err("当前不在战斗中".into()); }
         {
@@ -792,13 +848,14 @@ impl Game {
         if self.defeated() { return Ok(self.win_battle()); }
         self.troop_attack();
         if self.defeated() { return Ok(self.win_battle()); }
+        let phase_messages = self.boss_phase_transitions();
         if let Some(b) = self.battle.as_mut() {
             for f in &mut b.foes { f.block = 0; }
         }
         let intents: Vec<(usize, Intent)> = self.battle.as_ref().expect("battle").foes.iter()
             .enumerate().filter(|(_, f)| f.hp > 0)
             .map(|(i, f)| (i, f.intent.clone())).collect();
-        let mut messages = vec![];
+        let mut messages = phase_messages;
         for (i, intent) in intents {
             if self.battle.as_ref().is_some_and(|b| b.foes[i].hp == 0) { continue; }
             let name = self.battle.as_ref().expect("battle").foes[i].name().to_string();
@@ -1434,6 +1491,31 @@ mod tests {
         assert_eq!(loaded.to_json().unwrap(), before);
         g.floor = 1;
         assert!(g.apply(Action::SetVariants { act1:0,act2:0,act3:0 }).is_err());
+    }
+
+    #[test]
+    fn six_bosses_transition_once_and_preserve_summons_in_snapshot() {
+        for (id,ally) in [
+            ("zhangjiao",true),("sunjian",false),("dongzhuo",false),
+            ("yuanshao",true),("simayi",false),("zuoci",true),
+        ] {
+            let mut g = Game::new(Hero::GuanYu, 88);
+            g.floor = 7;
+            g.start_battle(Node::Boss);
+            let b = g.battle.as_mut().unwrap();
+            let hp = enemy_hp(id);
+            b.foes[0] = Foe {
+                id: id.into(), hp: hp/2, max_hp: hp, block: 0,
+                strength: 0, poison: 0, vulnerable: 0, weak: 0,
+                intent: Intent::Guard(0), phase: 0,
+            };
+            assert!(!g.boss_phase_transitions().is_empty());
+            assert_eq!(g.battle.as_ref().unwrap().foes[0].phase,1);
+            assert_eq!(g.battle.as_ref().unwrap().foes.len() > 1,ally);
+            assert!(g.boss_phase_transitions().is_empty());
+            let snapshot = g.to_json().unwrap();
+            assert_eq!(Game::from_json(&snapshot).unwrap().to_json().unwrap(),snapshot);
+        }
     }
     #[test]
     fn targeted_camp_upgrade_and_shop_removal_work() {
