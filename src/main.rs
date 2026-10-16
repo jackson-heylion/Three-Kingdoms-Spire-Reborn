@@ -9,6 +9,7 @@ use std::{
 use three_kingdoms_spire_reborn::{
     Action, Card, Game, Stage,
     content::{Hero, card_spec},
+    items::potion_name,
 };
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -77,6 +78,10 @@ impl App {
             println!(" 幕：{}  层：{}/21  牌组：{}  遗物：{}  存档修订：{}",
                 (g.floor.saturating_sub(1) / 7 + 1).min(3), g.floor, g.deck.len(),
                 g.relics.join("、"), g.revision);
+            println!(" 飞升难度：{}  已完成战役：{}  存档协议：V{}", g.ascension, g.victories, g.version);
+            for (i,p) in g.potion_bag.iter().enumerate() {
+                println!("   药剂{}：{}", i + 1, potion_name(p));
+            }
             println!("────────────────────────────────────────────────────");
             match g.stage {
                 Stage::Map => {
@@ -95,12 +100,14 @@ impl App {
                             i + 1, foe.name(), foe.hp, foe.max_hp, foe.block, foe.poison,
                             foe.intent.label(), if foe.hp == 0 { " [阵亡]" } else { "" });
                     }
+                    println!(" 【职业资源】战意{} 谋略{} 连段{} 统御{} 怒气{} 反击{}",
+                        b.momentum,b.scheme,b.combo,b.command,b.fury,b.thorns);
                     println!(" 【手牌】抽牌堆{} / 弃牌堆{} / 消耗{}",
                         b.draw.len(), b.discard.len(), b.exhausted.len());
                     for (i, card) in b.hand.iter().enumerate() {
                         println!("   {}. {}", i + 1, card_label(card));
                     }
-                    println!(" 输入 play <手牌编号> [敌方编号] / end / use");
+                    println!(" 输入 play <手牌编号> [敌方编号] / end / use [药剂编号] [敌方编号]");
                 }
                 Stage::Reward => {
                     println!(" 【战利品】");
@@ -114,13 +121,17 @@ impl App {
                     for (i, card) in g.market.iter().enumerate() {
                         println!("   {}. {} / {}金", i + 1, card_label(card), 45 + i * 15);
                     }
-                    println!(" 输入 choose <编号> 购买，choose 0 离开");
+                    println!("   4. 随机药剂 / 55金");
+                    println!("   5. 遗物 {} / 155金",
+                        g.shop_relic.as_deref().unwrap_or("已售罄"));
+                    println!("   6. 移除诅咒或普通突刺 / 75金");
+                    println!(" 输入 choose <编号> 购买，remove <牌组序号> 定向移牌，choose 0 离开");
                 }
                 Stage::Camp => {
-                    println!(" 【营寨】choose 1 休整回复30%最大体力；choose 2 升级一张卡牌");
+                    println!(" 【营寨】choose 1 休整；choose 2 升级首张可升级牌；choose 3 操练+2生命上限；upgrade <牌组序号> 定向升级");
                 }
                 Stage::Story => {
-                    println!(" 【驿道奇遇】choose 1 以15金补给；choose 2 取火攻古卷（附带诅咒）；choose 3 损失8体力夺65金");
+                    println!(" 【驿道奇遇】{}", g.story_options());
                 }
                 Stage::Won => println!(" 【胜利】三幕皆定，江山已平！输入 new 开始新征程。"),
                 Stage::Lost => println!(" 【败北】胜败乃兵家常事。输入 new 开始新征程。"),
@@ -128,7 +139,7 @@ impl App {
             println!("────────────────────────────────────────────────────");
             for msg in g.log.iter().rev().take(3).rev() { println!(" > {msg}"); }
         } else {
-            println!(" 尚无存档。输入 new [guanyu|zhuge|sun|cao|lubu] [随机种子] 开始。");
+            println!(" 尚无存档。输入 new [guanyu|zhuge|sun|cao|lubu] [随机种子] [飞升0-10] 开始。");
         }
         if !self.message.is_empty() { println!(" 提示：{}", self.message); }
         if self.use_ansi { print!("\x1b[0m"); }
@@ -146,14 +157,15 @@ impl App {
         };
         let result: Result<String, String> = match args[0].to_ascii_lowercase().as_str() {
             "quit" | "exit" | "q" => { let _ = self.save(); return false; }
-            "help" | "h" => Ok("new [武将] [seed] 新局；load 读档；save 保存；choose N 选择；play N [目标] 出牌；end 结束回合；use 饮药；theme dark|light 主题；status 状态；quit 退出。编号从1开始。".into()),
+            "help" | "h" => Ok("new [武将] [seed] [难度0-10] 新局；load 读档；save 保存；choose N 选择；play N [目标] 出牌；end 结束回合；use [药剂号] [目标] 饮药；upgrade N 升级；remove N 移牌；deck 查牌组；relics 查遗物；theme dark|light 主题；status 状态；quit 退出。编号从1开始。".into()),
             "new" => {
                 let hero = args.get(1).and_then(|s| Hero::parse(s)).unwrap_or(Hero::GuanYu);
                 let seed = args.get(2).and_then(|s| s.parse::<u64>().ok()).unwrap_or_else(|| {
                     SystemTime::now().duration_since(UNIX_EPOCH).map_or(1, |t| t.as_secs().max(1))
                 });
-                self.game = Some(Game::new(hero, seed));
-                self.save().map(|_| format!("以 {} 开始新征程，种子 {seed}。", hero.name()))
+                let ascension = args.get(3).and_then(|s| s.parse::<u8>().ok()).unwrap_or(0).min(10);
+                self.game = Some(Game::new_with_ascension(hero, seed, ascension));
+                self.save().map(|_| format!("以 {} 开始新征程，种子 {seed}，难度 {ascension}。", hero.name()))
             }
             "load" => self.load().map(|_| "已读档。".into()),
             "save" => self.save().map(|_| "已保存。".into()),
@@ -166,13 +178,22 @@ impl App {
                 format!("{}，第{}层，体力{}/{}，{}金，{}张卡牌，版本{}。",
                     g.hero.name(), g.floor, g.hp, g.max_hp, g.gold, g.deck.len(), g.version)
             })),
-            "choose" | "c" | "play" | "p" | "end" | "use" => {
+            "deck" => Ok(self.game.as_ref().map_or("尚未开局".into(), |g| {
+                g.deck.iter().enumerate().map(|(i,c)| format!("{}. {}", i+1, card_label(c))).collect::<Vec<_>>().join("\n")
+            })),
+            "relics" => Ok(self.game.as_ref().map_or("尚未开局".into(), |g| {
+                g.relics.iter().map(|r| format!("{}：{}",r, three_kingdoms_spire_reborn::items::relic_name(r))).collect::<Vec<_>>().join("\n")
+            })),
+            "choose" | "c" | "play" | "p" | "end" | "use" | "upgrade" | "remove" => {
                 let action = match args[0] {
                     "choose" | "c" => parsed(1, 0).map(|index| Action::Choose { index }),
                     "play" | "p" => parsed(1, 0).and_then(|index| parsed(2, 1)
                         .map(|target| Action::Play { index, target })),
                     "end" => Ok(Action::EndTurn),
-                    _ => Ok(Action::UsePotion),
+                    "upgrade" => parsed(1, 0).map(|index| Action::Upgrade { index }),
+                    "remove" => parsed(1, 0).map(|index| Action::Remove { index }),
+                    _ => parsed(1, 1).and_then(|slot| parsed(2, 1)
+                        .map(|target| Action::UsePotionAt { slot, target })),
                 };
                 action.and_then(|action| {
                     let messages = self.game.as_mut().ok_or("请先输入 new 开局")?.apply(action)?;
