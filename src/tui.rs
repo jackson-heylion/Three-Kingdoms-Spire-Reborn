@@ -270,7 +270,9 @@ mod p1_accessibility_tests {
         game.apply(Action::Choose { index: 1 }).unwrap();
         game.potion_bag = vec!["poison".into(), "weak".into()];
         game.potions = 2;
-        let menu = choices(&app(Some(game)), 2);
+        let menu = choices(&App { game: Some(game), profile: Profile::new(),
+            theme: Theme::Dark, dir: std::path::PathBuf::new(),
+            use_ansi: false, message: String::new() }, 2);
         assert!(menu.iter().any(|(label, command)|
             label.contains("→目标2") && command == "use 1 2"));
         assert!(menu.iter().any(|(label, command)|
