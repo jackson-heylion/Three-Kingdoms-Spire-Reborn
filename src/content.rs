@@ -184,6 +184,8 @@ pub fn card_spec(id: &str) -> Option<CardSpec> {
         "fengcheng" => ("烽城", "全体虚弱2", 2, Effect::WeakAll(2), false),
         "shoucang" => ("收仓", "抽2军令加1", 1, Effect::DrawEnergy(2, 1), false),
         "zonghenggong" => ("纵横弓", "穿透伤害10", 2, Effect::Pierce(10), false),
+        "quest_tulu" => ("军情图录", "计谋：经历3次奇遇后蜕变为军情决断；不可打出", 0, Effect::Unplayable, false),
+        "quest_resolved" => ("军情决断", "抽3张牌并获得1军令，使用后消耗", 1, Effect::DrawEnergy(3, 1), true),
         "cursed" => ("军心涣散", "无法主动打出", 0, Effect::Unplayable, false),
         _ => return None,
     };
@@ -206,7 +208,7 @@ pub fn hero_pool(hero: Hero) -> &'static [&'static str] {
         Hero::LuBu => &["fennu", "huaji", "xuezhai", "chijian", "shuangji", "baonu", "ranxue", "tianxia", "xiongmeng", "yanren", "zhanqi", "dangguan"],
     }
 }
-pub fn card_count() -> usize { 87 }
+pub fn card_count() -> usize { 89 }
 
 pub const ENEMY_IDS: &[&str] = &["bandit", "archer", "officer", "shaman", "yellow_turban", "pyromancer", "spearman", "cuirass", "raider", "crossbowman", "wolf", "tomb_guard", "firelancer", "tactician", "horse_archer", "assassin", "panther", "iron_guard", "witch", "sling", "elite", "war_elephant", "royal_guard", "tiger_general", "sacred_beast", "zhangjiao", "sunjian", "dongzhuo", "yuanshao", "simayi", "zuoci"];
 
