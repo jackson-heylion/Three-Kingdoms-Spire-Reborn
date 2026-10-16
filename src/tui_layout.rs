@@ -81,7 +81,7 @@ impl ScreenRow {
 pub(super) fn render_frame(app:&App,target:usize,cursor:usize,options:&[(String,String)],
     rows:usize,columns:usize)->String {
     let height=rows.max(1);
-    let width=columns.max(1);
+    let width=columns.saturating_sub(1).max(1);
     let line="─".repeat(width);
     let mut output=Vec::<ScreenRow>::new();
     output.push(ScreenRow::normal(format!("╭─ 三国登塔录 / THREE KINGDOMS SPIRE {}", "─".repeat(width.saturating_sub(34)))));
@@ -133,9 +133,9 @@ pub(super) fn render_frame(app:&App,target:usize,cursor:usize,options:&[(String,
     }
     output.push(ScreenRow::normal(line));
     output.push(ScreenRow::normal(if width<65 {
-        "↑↓/jk 选  Enter 执行  t 目标  : 命令  ? 帮助  q 退出".into()
+        "↑↓/jk 选  Enter 执行  t 目标  : 命令  ? 帮助  q 退出"
     } else {
-        "↑↓/jk 选择  Enter 执行  1-9 快选  t 切目标  : 高级命令  ? 帮助  q 退出".into()
+        "↑↓/jk 选择  Enter 执行  1-9 快选  t 切目标  : 高级命令  ? 帮助  q 退出"
     }));
     output.truncate(height);
     let mut frame=String::new();
