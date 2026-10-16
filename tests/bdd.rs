@@ -262,6 +262,33 @@ impl World {
             if !b.exhausted.iter().any(|card|card.id==id && card.temporary) {
                 return Err(format!("expected temporary {id} exhausted"));
             }
+        } else if step == "I set command to two" {
+            self.game_mut()?.battle.as_mut().ok_or("not in combat")?.command=2;
+        } else if step == "the previous turn telemetry has completed turn one" {
+            let g=self.game()?;
+            let sample=g.telemetry.recent_turns.last().ok_or("missing turn telemetry")?;
+            if !sample.completed || sample.turn!=1 || sample.floor!=1 {
+                return Err(format!("unexpected turn telemetry: {sample:?}"));
+            }
+        } else if step == "run troop attacks are at least one" {
+            if self.game()?.telemetry.totals.troop_attacks==0 {
+                return Err("missing actual troop attack telemetry".into());
+            }
+        } else if step == "run command energy refunds equal one" {
+            let m=&self.game()?.telemetry.totals;
+            if m.command_energy!=1 || m.command_procs!=1 || m.command_block!=5 {
+                return Err(format!("unexpected command refund counters: {m:?}"));
+            }
+        } else if step == "run Sun discards equal one" {
+            let m=&self.game()?.telemetry.totals;
+            if m.sun_discards!=1 || m.sun_discard_block!=2 {
+                return Err(format!("unexpected Sun discard counters: {m:?}"));
+            }
+        } else if step == "run Sun combo triggers equal one" {
+            let m=&self.game()?.telemetry.totals;
+            if m.sun_combo_procs!=1 || m.sun_combo_block!=3 {
+                return Err(format!("unexpected Sun combo counters: {m:?}"));
+            }
         } else if step == "I gain one manual discard token" {
             self.game_mut()?.battle.as_mut().ok_or("not in combat")?.discard_tokens += 1;
         } else if step == "I remember the first enemy health" {
@@ -507,13 +534,14 @@ fn gherkin_bdd_acceptance_suite() {
         ("features/advanced_cards.feature", include_str!("../features/advanced_cards.feature")),
         ("features/boss_tactics.feature", include_str!("../features/boss_tactics.feature")),
         ("features/balance_guards.feature", include_str!("../features/balance_guards.feature")),
+        ("features/combat_telemetry.feature", include_str!("../features/combat_telemetry.feature")),
         ("features/lore.feature", include_str!("../features/lore.feature")),
         ("features/save_resume.feature", include_str!("../features/save_resume.feature")),
         ("features/novel_provenance.feature", include_str!("../features/novel_provenance.feature")),
     ];
     let scenarios: usize = documents.iter().map(|(name,text)|
         run_feature(text,name).unwrap_or_else(|error|panic!("{error}"))).sum();
-    assert!(scenarios >= 44, "BDD suite lost scenarios: {scenarios}");
+    assert!(scenarios >= 48, "BDD suite lost scenarios: {scenarios}");
     println!("Verified {scenarios} executable Given/When/Then acceptance scenarios");
 }
 
