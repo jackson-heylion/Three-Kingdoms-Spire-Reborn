@@ -1,6 +1,6 @@
 //! Campaign progression independent of terminal, files and frontends.
 //! Stored separately from in-progress snapshots so the same state model works over FFI/WASM.
-use crate::{Game, Stage, content::Hero};
+use crate::{Game, RunMode, Stage, content::Hero};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -33,6 +33,7 @@ pub struct RunRecord {
     pub floor: u8,
     pub score: u64,
     pub won: bool,
+    #[serde(default)] pub mode: RunMode,
     pub deck_size: usize,
     pub relics: Vec<String>,
 }
@@ -90,12 +91,14 @@ impl Profile {
             let key = game.hero.name().to_string();
             *self.hero_wins.entry(key.clone()).or_default() += 1;
             let difficulty = self.ascensions.entry(key).or_default();
-            *difficulty = (*difficulty).max((game.ascension + 1).min(10));
+            if game.mode == RunMode::Standard {
+                *difficulty = (*difficulty).max((game.ascension + 1).min(10));
+            }
         } else { self.losses += 1; }
         self.best_score = self.best_score.max(score);
         self.records.push(RunRecord {
             identity, hero: game.hero, seed: game.seed, ascension: game.ascension,
-            floor: game.floor, score, won, deck_size: game.deck.len(),
+            floor: game.floor, score, won, mode: game.mode, deck_size: game.deck.len(),
             relics: game.relics.clone(),
         });
         if self.records.len() > 100 { self.records.remove(0); }
@@ -140,6 +143,18 @@ mod tests {
         assert_eq!(restored.best_score, score(&g));
     }
 
+
+    #[test]
+    fn custom_and_daily_runs_do_not_unlock_ranked_difficulties() {
+        let mut p = Profile::new();
+        for mode in [RunMode::Daily,RunMode::Custom] {
+            let mut g = Game::new_with_mode(Hero::LuBu,123,10,mode);
+            g.stage = Stage::Won;
+            p.record(&g,format!("{mode:?}")).unwrap();
+        }
+        assert_eq!(p.next_ascension(Hero::LuBu),0);
+        assert_eq!(p.wins,2);
+    }
     #[test]
     fn unfinished_games_cannot_be_recorded() {
         let mut profile = Profile::new();
