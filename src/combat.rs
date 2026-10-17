@@ -65,6 +65,8 @@ pub enum EventKind {
     FoeDefeated,
     /// A new foe has entered combat; its first actionable intent is next turn.
     FoeSummoned,
+    /// A consumed potion, emitted before its effects and subsequent status triggers.
+    PotionUsed,
     CardTutored,
     CardCopied,
     CardGenerated,

@@ -2122,17 +2122,27 @@ impl Game {
         } else { None };
         self.potion_bag.remove(idx);
         self.potions = self.potion_bag.len() as u8;
+        // All potions enter the same ordered combat journal as cards and powers.
+        // Targeted potions were validated before consuming the inventory slot.
+        let event_target = foe_index.map(|index| format!("foe:{index}"))
+            .or_else(|| (id == "weak").then(|| "all_foes".to_owned()));
+        self.combat_event(EventKind::PotionUsed, &id, 1, event_target);
         let label = items::potion_name(&id).to_string();
         match id.as_str() {
             "healing" => self.hp = (self.hp + 16).min(self.max_hp),
             "fire" => self.damage_enemy(foe_index.expect("target"), 22),
             "shield" => self.battle.as_mut().expect("battle").block += 20,
             "energy" => self.battle.as_mut().expect("battle").energy += 2,
-            "poison" => self.battle.as_mut().expect("battle").foes[foe_index.expect("target")].poison += 12,
+            "poison" => self.apply_foe_status(foe_index.expect("target"), "poison", 12),
             "strength" => self.battle.as_mut().expect("battle").strength += 3,
             "insight" => self.draw_cards(3),
-            "weak" => for foe in &mut self.battle.as_mut().expect("battle").foes {
-                if foe.hp > 0 { foe.weak += 3; }
+            "weak" => {
+                // Use the saturating status pipeline for every living foe.
+                // This also records one StatusApplied event per affected target.
+                let count = self.battle.as_ref().expect("battle").foes.len();
+                for index in 0..count {
+                    self.apply_foe_status(index, "weak", 3);
+                }
             },
             "cleanse" => {
                 self.hp = (self.hp + 8).min(self.max_hp);
@@ -2235,6 +2245,66 @@ impl Game {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn poison_potion_uses_status_pipeline_and_triggers_power_once() {
+        let mut game = Game::new(Hero::ZhugeLiang, 8181);
+        game.apply(Action::Choose { index: 1 }).unwrap();
+        game.gain_power(PowerId::ToxicReversal, 2);
+        game.potion_bag = vec!["poison".into()];
+        game.potions = 1;
+        let previous_seq = game.battle.as_ref().unwrap().event_seq;
+        game.apply(Action::UsePotionAt { slot: 1, target: 1 }).unwrap();
+        let battle = game.battle.as_ref().unwrap();
+        assert_eq!(battle.foes[0].poison, 14);
+        let emitted = battle.events.iter().filter(|event| event.seq > previous_seq)
+            .collect::<Vec<_>>();
+        assert_eq!(emitted.iter().map(|event| event.kind).collect::<Vec<_>>(),
+            vec![EventKind::PotionUsed, EventKind::StatusApplied, EventKind::PowerTriggered]);
+        assert_eq!(emitted[0].source, "poison");
+        assert_eq!(emitted[0].target.as_deref(), Some("foe:0"));
+        assert_eq!(emitted[1].amount, 12);
+        assert_eq!(emitted[2].amount, 2);
+        assert_eq!(game.potions, 0);
+        let snapshot = game.to_json().unwrap();
+        assert_eq!(Game::from_json(&snapshot).unwrap().to_json().unwrap(), snapshot);
+    }
+    #[test]
+    fn weak_potion_saturates_and_records_only_living_targets() {
+        let mut game = Game::new(Hero::GuanYu, 8182);
+        game.apply(Action::Choose { index: 1 }).unwrap();
+        let battle = game.battle.as_mut().unwrap();
+        let foe = battle.foes[0].clone();
+        battle.foes = vec![foe.clone(), foe.clone(), foe];
+        battle.foes[0].weak = 254;
+        battle.foes[2].hp = 0;
+        game.potion_bag = vec!["weak".into()];
+        game.potions = 1;
+        let previous_seq = game.battle.as_ref().unwrap().event_seq;
+        game.apply(Action::UsePotionAt { slot: 1, target: 999 }).unwrap();
+        let battle = game.battle.as_ref().unwrap();
+        assert_eq!(battle.foes[0].weak, 255);
+        assert_eq!(battle.foes[1].weak, 3);
+        assert_eq!(battle.foes[2].weak, 0);
+        let emitted = battle.events.iter().filter(|event| event.seq > previous_seq)
+            .collect::<Vec<_>>();
+        assert_eq!(emitted.len(), 3);
+        assert_eq!(emitted[0].kind, EventKind::PotionUsed);
+        assert_eq!(emitted[0].target.as_deref(), Some("all_foes"));
+        assert_eq!(emitted[1].kind, EventKind::StatusApplied);
+        assert_eq!(emitted[1].amount, 1);
+        assert_eq!(emitted[2].kind, EventKind::StatusApplied);
+        assert_eq!(emitted[2].amount, 3);
+    }
+    #[test]
+    fn invalid_targeted_potion_is_atomic_including_journal_and_inventory() {
+        let mut game = Game::new(Hero::GuanYu, 8183);
+        game.apply(Action::Choose { index: 1 }).unwrap();
+        game.potion_bag = vec!["poison".into()];
+        game.potions = 1;
+        let before = game.to_json().unwrap();
+        assert!(game.apply(Action::UsePotionAt { slot: 1, target: 999 }).is_err());
+        assert_eq!(game.to_json().unwrap(), before);
+    }
     #[test]
     fn snapshot_survives_mid_combat() {
         let mut game = Game::new(Hero::GuanYu, 2026);

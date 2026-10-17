@@ -55,6 +55,29 @@ impl World {
             let result = self.game_mut()?.apply(Action::Choose { index });
             self.error = result.err();
             if self.error.is_none() { return Err("expected rejected choice but command succeeded".into()); }
+        } else if step.starts_with("I prepare potion \"") {
+            let id = quoted(step)?;
+            if !three_kingdoms_spire_reborn::items::POTIONS.iter().any(|(valid, _)| *valid == id) {
+                return Err(format!("unknown potion fixture: {id}"));
+            }
+            let game = self.game_mut()?;
+            game.potion_bag = vec![id.to_owned()];
+            game.potions = 1;
+        } else if step.starts_with("I use potion ") {
+            let value = parse_after(step, "I use potion ")?;
+            let (slot, target) = value.split_once(" against enemy ")
+                .ok_or("missing potion target")?;
+            let slot = slot.parse::<usize>().map_err(|_| "invalid potion slot")?;
+            let target = target.parse::<usize>().map_err(|_| "invalid potion target")?;
+            self.game_mut()?.apply(Action::UsePotionAt { slot, target })?;
+        } else if step.starts_with("I attempt to use potion ") {
+            let value = parse_after(step, "I attempt to use potion ")?;
+            let (slot, target) = value.split_once(" against enemy ")
+                .ok_or("missing potion target")?;
+            let slot = slot.parse::<usize>().map_err(|_| "invalid potion slot")?;
+            let target = target.parse::<usize>().map_err(|_| "invalid potion target")?;
+            self.error = self.game_mut()?.apply(Action::UsePotionAt { slot, target }).err();
+            if self.error.is_none() { return Err("invalid potion unexpectedly succeeded".into()); }
         } else if step.starts_with("I set doctrine \"") {
             let id=quoted(step)?.to_owned();
             self.game_mut()?.apply(Action::SetDoctrine{id})?;
@@ -396,6 +419,7 @@ impl World {
                 "card_exhausted" => EventKind::CardExhausted,
                 "status_applied" => EventKind::StatusApplied,
                 "foe_defeated" => EventKind::FoeDefeated,
+                "potion_used" => EventKind::PotionUsed,
                 "card_tutored" => EventKind::CardTutored,
                 "card_copied" => EventKind::CardCopied,
                 "card_generated" => EventKind::CardGenerated,
@@ -407,6 +431,9 @@ impl World {
             if count == 0 { return Err(format!("event {kind}/{source} absent")); }
             if step.ends_with("occurs exactly once") && count != 1 {
                 return Err(format!("expected exactly one event {kind}/{source}, observed {count}"));
+            }
+            if step.ends_with("occurs exactly twice") && count != 2 {
+                return Err(format!("expected exactly two events {kind}/{source}, observed {count}"));
             }
         } else if step == "the event sequence strictly increases" {
             let events = &self.game()?.battle.as_ref().ok_or("not in combat")?.events;
@@ -579,6 +606,7 @@ fn gherkin_bdd_acceptance_suite() {
     let documents = [
         ("features/combat_powers.feature", include_str!("../features/combat_powers.feature")),
         ("features/advanced_combat.feature", include_str!("../features/advanced_combat.feature")),
+        ("features/potion_triggers.feature", include_str!("../features/potion_triggers.feature")),
         ("features/advanced_cards.feature", include_str!("../features/advanced_cards.feature")),
         ("features/boss_tactics.feature", include_str!("../features/boss_tactics.feature")),
         ("features/balance_guards.feature", include_str!("../features/balance_guards.feature")),
@@ -591,7 +619,7 @@ fn gherkin_bdd_acceptance_suite() {
     ];
     let scenarios: usize = documents.iter().map(|(name,text)|
         run_feature(text,name).unwrap_or_else(|error|panic!("{error}"))).sum();
-    assert!(scenarios >= 58, "BDD suite lost scenarios: {scenarios}");
+    assert!(scenarios >= 61, "BDD suite lost scenarios: {scenarios}");
     println!("Verified {scenarios} executable Given/When/Then acceptance scenarios");
 }
 
