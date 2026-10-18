@@ -76,3 +76,26 @@ Feature: Distinct boss telegraphs and coordinated Three Kingdoms warfare
     And I end turn
     Then the second foe has at least 4 guard
     And combat event "enemy_technique" from "officer" exists
+
+  Scenario: Thorns defeat Zhang Jiao before delayed weakness resolves
+    Given a "guanyu" campaign with seed 93211
+    When I deploy boss "zhangjiao"
+    And I prepare lethal counterplay against the boss
+    And I end turn
+    Then the boss was defeated by thorns
+    And the hero remains unweakened
+    And combat event "enemy_technique" from "zhangjiao" exists
+    And combat event "foe_defeated" from "thorns" exists
+    And the event sequence strictly increases
+    When I save and restore
+    Then the hero remains unweakened
+
+  Scenario: Thorns interrupt Dong Zhuo levy before gold is stolen
+    Given a "guanyu" campaign with seed 93212
+    When I deploy boss "dongzhuo"
+    And I prepare lethal counterplay against the boss
+    And I end turn
+    Then the boss was defeated by thorns
+    And the slain tyrant did not steal gold
+    And combat event "foe_defeated" from "thorns" exists
+    And the event sequence strictly increases
