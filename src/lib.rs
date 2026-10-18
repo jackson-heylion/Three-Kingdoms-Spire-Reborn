@@ -1778,6 +1778,13 @@ impl Game {
                 return Ok(format!("{}。将星陨落，征途结束。", messages.join("；")));
             }
         }
+        // A lethal thorn counterattack can defeat the final foe during its own
+        // action. Resolve victory after hero death checks but BEFORE attrition,
+        // draw, TurnStarted, or another roll of enemy intents. This also makes
+        // simultaneous lethal damage remain a player loss.
+        if self.defeated() {
+            return Ok(format!("{}。反击清场！{}", messages.join("；"), self.win_battle()));
+        }
         // Very long battles can deadlock under entirely defensive decks:
         // Zuo Ci can repeatedly heal while both armies take no net damage.
         // Starting on enemy turn 40, supply exhaustion is an explicitly
@@ -2318,6 +2325,81 @@ mod tests {
         assert_eq!(g.hp, 0);
         assert_eq!(g.stage, Stage::Lost, "simultaneous lethal damage cannot grant victory");
     }
+    #[test]
+    fn last_foe_thorns_counterattack_wins_in_enemy_turn_without_phantom_round() {
+        let mut g = Game::new(Hero::GuanYu, 93231);
+        g.apply(Action::Choose { index: 1 }).unwrap();
+        {
+            let b = g.battle.as_mut().unwrap();
+            b.foes[0].hp = 1;
+            b.foes[0].block = 0;
+            b.foes[0].intent = Intent::Attack(0);
+            b.thorns = 5;
+            b.block = 0;
+            b.troops_hp = 0;
+        }
+        let result = g.apply(Action::EndTurn).unwrap().join("");
+        assert!(result.contains("反击清场"), "the CLI/TUI should explain the win: {result}");
+        assert_eq!(g.stage, Stage::Reward);
+        assert!(g.battle.is_none());
+        assert_eq!(g.telemetry.totals.battles_won, 1);
+        assert_eq!(g.telemetry.totals.battles_lost, 0);
+        assert_eq!(g.telemetry.totals.turns_completed, 0,
+            "the reward should not be preceded by a phantom new turn");
+        assert_eq!(g.telemetry.recent_turns.last().unwrap().turn, 1);
+        assert!(!g.telemetry.recent_turns.last().unwrap().completed);
+        let json = g.to_json().unwrap();
+        assert_eq!(Game::from_json(&json).unwrap().to_json().unwrap(), json);
+    }
+
+    #[test]
+    fn last_foe_thorns_kill_precedes_lethal_turn_44_supply_attrition() {
+        let mut g = Game::new(Hero::GuanYu, 93232);
+        g.apply(Action::Choose { index: 1 }).unwrap();
+        g.hp = 1;
+        {
+            let b = g.battle.as_mut().unwrap();
+            b.turn = 44; // Would lose 2 health to supply attrition without early settlement.
+            b.foes[0].hp = 1;
+            b.foes[0].block = 0;
+            b.foes[0].intent = Intent::Attack(0);
+            b.thorns = 5;
+            b.block = 0;
+            b.troops_hp = 0;
+        }
+        let result = g.apply(Action::EndTurn).unwrap().join("");
+        assert!(result.contains("反击清场"));
+        assert_eq!(g.stage, Stage::Reward);
+        assert_eq!(g.hp, 1, "supply exhaustion must not run after the last foe dies");
+        assert_eq!(g.telemetry.totals.battles_won, 1);
+        assert_eq!(g.telemetry.totals.battles_lost, 0);
+        assert_eq!(g.telemetry.recent_turns.last().unwrap().turn, 44);
+        assert!(!g.telemetry.recent_turns.last().unwrap().completed);
+        assert_eq!(g.revision, 2);
+    }
+
+    #[test]
+    fn lethal_hero_damage_still_precedes_last_foe_thorns_victory_on_turn_44() {
+        let mut g = Game::new(Hero::GuanYu, 93233);
+        g.apply(Action::Choose { index: 1 }).unwrap();
+        g.hp = 1;
+        {
+            let b = g.battle.as_mut().unwrap();
+            b.turn = 44;
+            b.foes[0].hp = 1;
+            b.foes[0].block = 0;
+            b.foes[0].intent = Intent::Attack(10);
+            b.thorns = 5;
+            b.block = 0;
+            b.troops_hp = 0;
+        }
+        g.apply(Action::EndTurn).unwrap();
+        assert_eq!(g.hp, 0);
+        assert_eq!(g.stage, Stage::Lost);
+        assert_eq!(g.telemetry.totals.battles_won, 0);
+        assert_eq!(g.telemetry.totals.battles_lost, 1);
+    }
+
     #[test]
     fn poison_potion_uses_status_pipeline_and_triggers_power_once() {
         let mut game = Game::new(Hero::ZhugeLiang, 8181);

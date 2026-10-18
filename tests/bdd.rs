@@ -194,6 +194,34 @@ impl World {
             b.foes.push(Foe { id: "bandit".into(), hp: 90, max_hp: 90,
                 block: 0, strength: 0, poison: 0, vulnerable: 0, weak: 0,
                 intent: Intent::Guard(0), phase: 0 });
+        } else if step == "I prepare a last-foe thorn counter at turn 44"
+            || step == "I prepare a mutual-lethal thorn counter at turn 44" {
+            let lethal_hero_hit = step.contains("mutual-lethal");
+            let game = self.game_mut()?;
+            game.hp = 1;
+            let b = game.battle.as_mut().ok_or("not in combat")?;
+            if b.foes.len() != 1 { return Err("expected exactly one living foe".into()); }
+            b.turn = 44;
+            b.foes[0].hp = 1;
+            b.foes[0].block = 0;
+            b.foes[0].intent = Intent::Attack(if lethal_hero_hit { 10 } else { 0 });
+            b.thorns = 5;
+            b.block = 0;
+            b.troops_hp = 0;
+        } else if step == "the counterattack wins before supply exhaustion" {
+            let game = self.game()?;
+            if game.stage != Stage::Reward || game.hp != 1 || game.battle.is_some()
+                || game.telemetry.totals.battles_won != 1
+                || game.telemetry.totals.battles_lost != 0
+                || game.telemetry.recent_turns.last().is_none_or(|t| t.turn != 44 || t.completed)
+                || !game.log.last().is_some_and(|line| line.contains("反击清场"))
+            { return Err("final thorn kill did not settle before attrition/new turn".into()); }
+        } else if step == "the simultaneous lethal counterattack is a loss" {
+            let game = self.game()?;
+            if game.stage != Stage::Lost || game.hp != 0
+                || game.telemetry.totals.battles_won != 0
+                || game.telemetry.totals.battles_lost != 1
+            { return Err("mutual lethal counterattack incorrectly awarded a win".into()); }
         } else if step == "the boss was defeated by thorns" {
             let battle = self.game()?.battle.as_ref().ok_or("combat ended before audit")?;
             if battle.foes[0].hp != 0 || !battle.events.iter().any(|event|

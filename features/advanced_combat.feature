@@ -66,3 +66,21 @@ Feature: Advanced deterministic combat reactions and card lifecycle
     And I attempt to choose 999
     Then the action is rejected
     And the snapshot is unchanged
+
+  Scenario: Final thorn retaliation wins before turn-44 supply exhaustion
+    Given a "guanyu" campaign with seed 93241
+    When I start a battle
+    And I prepare a last-foe thorn counter at turn 44
+    And I end turn
+    Then the counterattack wins before supply exhaustion
+    When I save and restore
+    Then the counterattack wins before supply exhaustion
+
+  Scenario: Mutual lethal retaliation is still a player loss at turn 44
+    Given a "guanyu" campaign with seed 93242
+    When I start a battle
+    And I prepare a mutual-lethal thorn counter at turn 44
+    And I end turn
+    Then the simultaneous lethal counterattack is a loss
+    When I save and restore
+    Then the simultaneous lethal counterattack is a loss
