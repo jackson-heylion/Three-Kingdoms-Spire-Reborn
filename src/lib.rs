@@ -1493,17 +1493,22 @@ impl Game {
             let foe = &self.battle.as_ref().expect("battle").foes[idx];
             (foe.id.clone(),foe.phase)
         };
-        let result = match technique {
+        // An intent is committed before the hit: thorns can defeat the caster
+        // during DamageReceived, before any dependent technique effects resolve.
+        self.combat_event(EventKind::EnemyTechnique,&id,1,Some(format!("foe:{idx}")));
+        match technique {
             BossMove::Thunder(attack) => {
                 let hit = self.enemy_attack(idx,attack);
-                if hit > 0 {
+                let caster_alive = self.battle.as_ref().is_some_and(|b| b.foes[idx].hp > 0);
+                if hit > 0 && caster_alive {
                     let turns = 2+u8::from(phase > 0);
                     let b = self.battle.as_mut().expect("battle");
                     b.weak = b.weak.saturating_add(turns);
                     self.combat_event(EventKind::StatusApplied,"weak",i32::from(turns),Some("hero".into()));
                 }
                 format!("雷咒命中，损失{hit}生命{}",
-                    if hit>0 {"并遭虚弱"} else {"，被护阵抵挡"})
+                    if !caster_alive {"；施术者遭反击阵亡，虚弱效果中断"}
+                    else if hit>0 {"并遭虚弱"} else {"，被护阵抵挡"})
             }
             BossMove::TigerRush(attack) => {
                 let hits = 2+usize::from(phase > 0);
@@ -1516,9 +1521,14 @@ impl Game {
             }
             BossMove::TyrantLevy(attack) => {
                 let damage = self.enemy_attack(idx,attack);
-                let taken = self.gold.min(10+5*i32::from(phase>0));
+                let caster_alive = self.battle.as_ref().is_some_and(|b| b.foes[idx].hp > 0);
+                let taken = if caster_alive { self.gold.min(10+5*i32::from(phase>0)) } else { 0 };
                 self.gold -= taken;
-                format!("暴政施压损失{damage}生命，军资被掠夺{taken}金")
+                if caster_alive {
+                    format!("暴政施压损失{damage}生命，军资被掠夺{taken}金")
+                } else {
+                    format!("暴政施压损失{damage}生命；施术者遭反击阵亡，掠夺中断")
+                }
             }
             BossMove::GrandAlliance(armor) => {
                 let count = {
@@ -1553,9 +1563,7 @@ impl Game {
                 foe.block += amount/2;
                 format!("遁甲幻身回复{restored}生命，护甲+{}",amount/2)
             }
-        };
-        self.combat_event(EventKind::EnemyTechnique,&id,1,Some(format!("foe:{idx}")));
-        result
+        }
     }
 
     fn boss_phase_transitions(&mut self) -> Vec<String> {
@@ -2245,6 +2253,71 @@ impl Game {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn thorn_kill_interrupts_thunder_follow_up_and_preserves_event_order() {
+        let mut g = Game::new(Hero::GuanYu, 93201);
+        g.apply(Action::Choose { index: 1 }).unwrap();
+        {
+            let b = g.battle.as_mut().unwrap();
+            b.foes[0].hp = 1;
+            b.foes[0].block = 0;
+            b.foes[0].phase = 1;
+            b.thorns = 5;
+            b.block = 0;
+        }
+        let before = g.battle.as_ref().unwrap().event_seq;
+        let message = g.boss_signature(0, BossMove::Thunder(8));
+        let b = g.battle.as_ref().unwrap();
+        assert_eq!(b.foes[0].hp, 0);
+        assert_eq!(b.weak, 0, "a defeated caster cannot apply delayed weakness");
+        assert!(message.contains("虚弱效果中断"));
+        let events = b.events.iter().filter(|event| event.seq > before).collect::<Vec<_>>();
+        assert_eq!(events.iter().map(|event| event.kind).collect::<Vec<_>>(),
+            vec![EventKind::EnemyTechnique, EventKind::DamageReceived,
+                EventKind::DamageDealt, EventKind::FoeDefeated]);
+        assert_eq!(events.last().unwrap().source, "thorns");
+        let snapshot = g.to_json().unwrap();
+        assert_eq!(Game::from_json(&snapshot).unwrap().to_json().unwrap(), snapshot);
+    }
+    #[test]
+    fn thorn_kill_interrupts_tyrant_levy_before_gold_is_taken() {
+        let mut g = Game::new(Hero::GuanYu, 93202);
+        g.apply(Action::Choose { index: 1 }).unwrap();
+        {
+            let b = g.battle.as_mut().unwrap();
+            b.foes[0].hp = 1;
+            b.foes[0].block = 0;
+            b.foes[0].phase = 1;
+            b.thorns = 5;
+        }
+        let gold = g.gold;
+        let result = g.boss_signature(0, BossMove::TyrantLevy(8));
+        assert_eq!(g.gold, gold);
+        assert_eq!(g.battle.as_ref().unwrap().foes[0].hp, 0);
+        assert!(result.contains("掠夺中断"));
+        assert_eq!(g.battle.as_ref().unwrap().events.iter()
+            .filter(|event| event.kind == EventKind::FoeDefeated && event.source == "thorns")
+            .count(), 1);
+    }
+    #[test]
+    fn mutual_lethal_attack_and_thorns_is_still_a_player_loss() {
+        let mut g = Game::new(Hero::GuanYu, 93203);
+        g.apply(Action::Choose { index: 1 }).unwrap();
+        g.hp = 1;
+        {
+            let b = g.battle.as_mut().unwrap();
+            b.foes[0].hp = 1;
+            b.foes[0].block = 0;
+            b.foes[0].phase = 1;
+            b.foes[0].intent = Intent::Attack(40);
+            b.thorns = 5;
+            b.block = 0;
+            b.troops_hp = 0;
+        }
+        g.apply(Action::EndTurn).unwrap();
+        assert_eq!(g.hp, 0);
+        assert_eq!(g.stage, Stage::Lost, "simultaneous lethal damage cannot grant victory");
+    }
     #[test]
     fn poison_potion_uses_status_pipeline_and_triggers_power_once() {
         let mut game = Game::new(Hero::ZhugeLiang, 8181);

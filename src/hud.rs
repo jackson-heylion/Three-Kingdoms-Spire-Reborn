@@ -64,8 +64,9 @@ pub(super) fn render(app:&App,columns:usize,rows:usize,target:usize,
             let mut stats=vec![
                 format!("第{}回合  军令 {}  护甲 {}  武勇 {}  虚弱 {}  易伤 {}",
                     b.turn,b.energy,b.block,b.strength,b.weak,b.vulnerable),
-                format!("战意 {}  谋略 {}  连段 {}  统御 {}  怒气 {}  反击 {}",
-                    b.momentum,b.scheme,b.combo,b.command,b.fury,b.thorns),
+                format!("战意 {}  谋略 {}  连段 {}  统御 {}  怒气 {}  反击 {}{}",
+                    b.momentum,b.scheme,b.combo,b.command,b.fury,b.thorns,
+                    if b.thorns > 0 {" ·可中断后续战技"} else {""}),
             ];
             if b.troops_hp>0 {stats.push(format!("亲兵 {} HP · 每回合攻击 {}",b.troops_hp,b.troops_attack));}
             if !b.powers.is_empty() && rows>=32 {
@@ -138,6 +139,17 @@ mod tests {
     fn app(game:Option<Game>)->App {
         App{game,profile:Profile::new(),theme:Theme::Dark,
             dir:std::path::PathBuf::new(),use_ansi:false,message:String::new()}
+    }
+    #[test]
+    fn lethal_counterplay_is_visible_without_affecting_commands() {
+        let mut game = Game::new(Hero::GuanYu, 93204);
+        game.apply(Action::Choose { index: 1 }).unwrap();
+        game.battle.as_mut().unwrap().thorns = 5;
+        let app = app(Some(game));
+        let commands = tui::choices(&app, 1);
+        let screen = render(&app, 80, 34, 1, &commands, 0);
+        assert!(screen.contains("反击 5 ·可中断后续战技"));
+        assert!(commands.iter().any(|(_, action)| action == "end"));
     }
     #[test]
     fn constrained_screens_fit_both_dimensions_and_scroll_to_selected_action(){

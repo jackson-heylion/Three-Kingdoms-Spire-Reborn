@@ -194,6 +194,9 @@ impl App {
                     let b = g.battle.as_ref().expect("stage validated");
                     println!(" 【战斗】第{}回合  军令：{}  护甲：{}  武勇：{}",
                         b.turn, b.energy, b.block, b.strength);
+                    if b.thorns > 0 {
+                        println!(" 【反击】每次受击反伤{}；击杀施术者可中断尚未生效的后续战技。", b.thorns);
+                    }
                     if b.turn>=35 {
                         let notice=if b.turn<40 {
                             format!("距军粮枯竭还剩{}个回合",40-b.turn)

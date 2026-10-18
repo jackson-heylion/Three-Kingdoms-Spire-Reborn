@@ -13,6 +13,7 @@ struct World {
     before: Option<String>,
     error: Option<String>,
     foe_hp: Option<i32>,
+    counter_gold: Option<i32>,
 }
 
 fn quoted(step: &str) -> Result<&str, String> {
@@ -38,6 +39,7 @@ impl World {
             self.before = None;
             self.error = None;
             self.foe_hp = None;
+            self.counter_gold = None;
         } else if step.starts_with("the lore scene \"") {
             let id = quoted(step)?;
             if lore::beat(id).is_none() { return Err(format!("unknown lore beat: {id}")); }
@@ -173,6 +175,39 @@ impl World {
             if g.battle.as_ref().ok_or("missing boss battle")?.foes[0].id != id {
                 return Err("staged boss does not match selected variant".into());
             }
+        } else if step == "I prepare lethal counterplay against the boss" {
+            let gold = self.game()?.gold;
+            self.counter_gold = Some(gold);
+            let b = self.game_mut()?.battle.as_mut().ok_or("not in combat")?;
+            if b.foes.len() != 1 || !matches!(b.foes[0].intent,
+                Intent::Boss(BossMove::Thunder(_) | BossMove::TyrantLevy(_))) {
+                return Err("expected a telegraphed thunder or levy boss".into());
+            }
+            b.foes[0].hp = 1;
+            b.foes[0].block = 0;
+            b.foes[0].phase = 1; // Do not trigger unrelated half-health transitions.
+            b.thorns = 5;
+            b.block = 0;
+            b.weak = 0;
+            b.troops_hp = 0;
+            // Keep combat open so ordered foe-death events remain inspectable.
+            b.foes.push(Foe { id: "bandit".into(), hp: 90, max_hp: 90,
+                block: 0, strength: 0, poison: 0, vulnerable: 0, weak: 0,
+                intent: Intent::Guard(0), phase: 0 });
+        } else if step == "the boss was defeated by thorns" {
+            let battle = self.game()?.battle.as_ref().ok_or("combat ended before audit")?;
+            if battle.foes[0].hp != 0 || !battle.events.iter().any(|event|
+                event.kind == EventKind::FoeDefeated && event.source == "thorns"
+                && event.target.as_deref() == Some("foe:0")) {
+                return Err("boss death via thorns was not recorded".into());
+            }
+        } else if step == "the hero remains unweakened" {
+            if self.game()?.battle.as_ref().ok_or("not in combat")?.weak != 0 {
+                return Err("posthumous thunder applied weakness".into());
+            }
+        } else if step == "the slain tyrant did not steal gold" {
+            let gold = self.counter_gold.ok_or("counterplay gold not remembered")?;
+            if self.game()?.gold != gold { return Err("posthumous levy stole gold".into()); }
         } else if step == "I clear my guard" {
             self.game_mut()?.battle.as_mut().ok_or("not in combat")?.block=0;
         } else if step == "I wound the boss by 8 health" {
