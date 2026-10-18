@@ -1563,7 +1563,7 @@ impl Game {
                 foe.block += amount/2;
                 format!("遁甲幻身回复{restored}生命，护甲+{}",amount/2)
             }
-        };
+        }
     }
 
     fn boss_phase_transitions(&mut self) -> Vec<String> {
