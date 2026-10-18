@@ -1496,7 +1496,7 @@ impl Game {
         // An intent is committed before the hit: thorns can defeat the caster
         // during DamageReceived, before any dependent technique effects resolve.
         self.combat_event(EventKind::EnemyTechnique,&id,1,Some(format!("foe:{idx}")));
-        let result = match technique {
+        match technique {
             BossMove::Thunder(attack) => {
                 let hit = self.enemy_attack(idx,attack);
                 let caster_alive = self.battle.as_ref().is_some_and(|b| b.foes[idx].hp > 0);
@@ -1564,7 +1564,6 @@ impl Game {
                 format!("遁甲幻身回复{restored}生命，护甲+{}",amount/2)
             }
         };
-        result
     }
 
     fn boss_phase_transitions(&mut self) -> Vec<String> {
