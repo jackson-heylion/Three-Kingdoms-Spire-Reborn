@@ -86,6 +86,43 @@ jobs:
           print('CLI potion status and trigger smoke test passed')
           PY
 
+      - name: CLI final-thorns victory before exhaustion (both platforms)
+        shell: bash
+        run: |
+          SAVEDIR="$RUNNER_TEMP/tks-thorns-finish"
+          printf 'new guanyu 777\nchoose 1\nquit\n' | cargo run --quiet -- --plain --save-dir "$SAVEDIR" > "$RUNNER_TEMP/tks-thorns-setup.log"
+          python3 - <<'PY'
+          import json,os,pathlib
+          path=pathlib.Path(os.environ['RUNNER_TEMP'])/'tks-thorns-finish'/'save.json'
+          game=json.loads(path.read_text())
+          assert game['stage']=='combat'
+          game['hp']=1
+          battle=game['battle']
+          battle['turn']=44
+          battle['foes']=battle['foes'][:1]
+          battle['foes'][0]['hp']=1
+          battle['foes'][0]['block']=0
+          battle['foes'][0]['intent']={'attack':0}
+          battle['thorns']=5
+          battle['block']=0
+          battle['troops_hp']=0
+          path.write_text(json.dumps(game,ensure_ascii=False))
+          PY
+          printf 'end\nquit\n' | cargo run --quiet -- --plain --save-dir "$SAVEDIR" > "$RUNNER_TEMP/tks-thorns-result.log"
+          python3 - <<'PY'
+          import json,os,pathlib
+          base=pathlib.Path(os.environ['RUNNER_TEMP'])
+          game=json.loads((base/'tks-thorns-finish'/'save.json').read_text())
+          assert game['stage']=='reward' and game['battle'] is None,game['stage']
+          assert game['hp']==1,'winning thorn retaliation must precede attrition'
+          assert game['telemetry']['totals']['battles_won']==1
+          assert game['telemetry']['totals']['battles_lost']==0
+          assert game['telemetry']['recent_turns'][-1]['turn']==44
+          assert not game['telemetry']['recent_turns'][-1]['completed']
+          assert '反击清场' in (base/'tks-thorns-result.log').read_text()
+          print('Last-foe retaliation beats supply exhaustion in CLI process')
+          PY
+
       - name: CLI selected attack tutoring end-to-end
         shell: bash
         run: |
