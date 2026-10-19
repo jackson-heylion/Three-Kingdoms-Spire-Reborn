@@ -13,7 +13,7 @@ use three_kingdoms_spire_reborn::{
     content::{Hero, card_spec},
     items::potion_name,
     progression::Profile,
-    persistence::{SaveDirectoryLock, apply_and_persist, atomic_write, restore_primary_from_backup},
+    persistence::{SaveDirectoryLock, apply_and_persist, replace_run_and_persist, atomic_write, restore_primary_from_backup},
     challenges::ChallengeModifier,
 };
 
@@ -109,6 +109,22 @@ impl App {
             }
         }
     }
+    /// Do not discard a live run or count a new one until save.json is durable.
+    /// chronicle.json is a separate document: if its update fails after the
+    /// game commits, report the partial result accurately and retain the
+    /// committed game/profile in memory for a later profile retry.
+    fn start_run(&mut self, next: Game) -> Result<(), String> {
+        let path = save_path(&self.dir);
+        replace_run_and_persist(&mut self.game, next, |candidate| {
+            atomic_write(&path, &candidate.to_json()?)
+                .map_err(|error| format!("新战役未能保存，原有进度保持不变：{error}"))
+        })?;
+        self.profile.on_start(self.game.as_ref().expect("committed campaign"));
+        self.save_profile().map_err(|error| {
+            format!("新战役已成功保存，但战功簿写入失败：{error}；后续行动会重试同步")
+        })
+    }
+
     fn save(&self) -> Result<(), String> {
         let game = self.game.as_ref().ok_or("尚未开局")?;
         atomic_write(&save_path(&self.dir), &game.to_json()?).map_err(|e| e.to_string())
@@ -308,10 +324,7 @@ impl App {
                 if mode == RunMode::Standard && ascension > unlocked {
                     Err(format!("{}目前标准战役仅解锁飞升0~{unlocked}；通关该武将当前难度可解锁下一级。测试自由档请用 custom。",hero.name()))
                 } else {
-                    self.game = Some(Game::new_with_identity(hero,seed,ascension,mode,new_run_id()));
-                    let g = self.game.as_ref().expect("just created");
-                    self.profile.on_start(g);
-                    self.save().and_then(|_| self.save_profile())
+                    self.start_run(Game::new_with_identity(hero,seed,ascension,mode,new_run_id()))
                         .map(|_| format!("以 {} 开始{:?}征程，种子 {seed}，难度 {ascension}。", hero.name(),mode))
                 }
             }
@@ -323,10 +336,7 @@ impl App {
                             (h ^ u64::from(c)).wrapping_mul(0x100000001b3));
                         let heroes = [Hero::GuanYu,Hero::ZhugeLiang,Hero::SunShangxiang,Hero::CaoCao,Hero::LuBu];
                         let hero = heroes[(seed % heroes.len() as u64) as usize];
-                        self.game = Some(Game::new_with_identity(hero,seed,3,RunMode::Daily,new_run_id()));
-                        let g = self.game.as_ref().expect("just created");
-                        self.profile.on_start(g);
-                        self.save().and_then(|_| self.save_profile())
+                        self.start_run(Game::new_with_identity(hero,seed,3,RunMode::Daily,new_run_id()))
                             .map(|_| format!("每日挑战 {date}：{}，难度3，种子 {seed}",hero.name()))
                     }
                     _ => Err("每日挑战请输入 YYYY-MM-DD（如 daily 2026-10-16）".into())
@@ -777,6 +787,76 @@ mod secondary_choice_cli_tests {
         assert_eq!(app.game.as_ref().unwrap().revision, 1);
         assert_eq!(fs::read_to_string(save_path(&directory)).unwrap(),
             app.game.as_ref().unwrap().to_json().unwrap());
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn cli_new_custom_and_daily_preserve_current_game_on_save_failure() {
+        for (index, command) in [
+            "new cao 96122 0",
+            "custom sun 96123 5",
+            "daily 2026-10-19",
+        ].iter().enumerate() {
+            let directory = std::env::temp_dir().join(format!(
+                "tks-new-run-durable-{}-{}-{index}",
+                std::process::id(),
+                SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos(),
+            ));
+            fs::create_dir_all(&directory).unwrap();
+            let mut app = App {
+                game: Some(Game::new(Hero::GuanYu, 96121)),
+                profile: Profile::new(), theme: Theme::Dark,
+                dir: directory.clone(), use_ansi: false, message: String::new(),
+            };
+            assert!(app.command("save"));
+            let before = fs::read_to_string(save_path(&directory)).unwrap();
+            let old_profile = app.profile.to_json().unwrap();
+            fs::create_dir(directory.join("save.bak")).unwrap();
+            assert!(app.command(command));
+            assert!(app.message.contains("新战役未能保存"), "{}", app.message);
+            assert_eq!(app.game.as_ref().unwrap().to_json().unwrap(), before);
+            assert_eq!(fs::read_to_string(save_path(&directory)).unwrap(), before);
+            assert_eq!(app.profile.to_json().unwrap(), old_profile);
+
+            fs::remove_dir(directory.join("save.bak")).unwrap();
+            assert!(app.command(command));
+            assert!(!app.message.starts_with("错误："), "{}", app.message);
+            let committed = app.game.as_ref().unwrap();
+            assert_ne!(committed.seed, 96121);
+            assert_eq!(fs::read_to_string(save_path(&directory)).unwrap(),
+                committed.to_json().unwrap());
+            assert_eq!(app.profile.started, 1);
+            assert_eq!(fs::read_to_string(directory.join("save.bak")).unwrap(), before);
+            fs::remove_dir_all(directory).unwrap();
+        }
+    }
+
+    #[test]
+    fn profile_write_failure_after_new_run_reports_committed_game() {
+        let directory = std::env::temp_dir().join(format!(
+            "tks-new-run-profile-failure-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos(),
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        let mut app = App {
+            game: Some(Game::new(Hero::GuanYu, 96130)),
+            profile: Profile::new(), theme: Theme::Dark,
+            dir: directory.clone(), use_ansi: false, message: String::new(),
+        };
+        assert!(app.command("save"));
+        fs::create_dir(profile_path(&directory)).unwrap();
+        assert!(app.command("new cao 96131"));
+        assert!(app.message.contains("新战役已成功保存，但战功簿写入失败"),
+            "{}", app.message);
+        assert_eq!(app.game.as_ref().unwrap().seed, 96131);
+        assert_eq!(app.profile.started, 1);
+        assert_eq!(fs::read_to_string(save_path(&directory)).unwrap(),
+            app.game.as_ref().unwrap().to_json().unwrap());
+        fs::remove_dir(profile_path(&directory)).unwrap();
+        app.save_profile().unwrap();
+        assert_eq!(Profile::from_json(
+            &fs::read_to_string(profile_path(&directory)).unwrap()).unwrap().started, 1);
         fs::remove_dir_all(directory).unwrap();
     }
 
