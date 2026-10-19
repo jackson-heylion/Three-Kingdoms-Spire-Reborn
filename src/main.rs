@@ -39,6 +39,43 @@ struct App {
 fn save_path(dir: &std::path::Path) -> PathBuf { dir.join("save.json") }
 fn prefs_path(dir: &std::path::Path) -> PathBuf { dir.join("settings.json") }
 fn profile_path(dir: &std::path::Path) -> PathBuf { dir.join("chronicle.json") }
+/// Never silently replace a corrupted achievement ledger with an empty profile.
+/// Restore only a fully parsed backup, preserving the damaged original for
+/// inspection; if neither document is valid, fail closed before gameplay starts.
+fn load_profile(directory: &std::path::Path) -> Result<Profile, String> {
+    let primary = profile_path(directory);
+    let backup = primary.with_extension("bak");
+    if !primary.exists() && !backup.exists() {
+        return Ok(Profile::new());
+    }
+    let current = fs::read_to_string(&primary)
+        .map_err(|error| error.to_string())
+        .and_then(|raw| Profile::from_json(&raw));
+    match current {
+        Ok(profile) => Ok(profile),
+        Err(primary_error) => {
+            let fallback = fs::read_to_string(&backup)
+                .map_err(|error| error.to_string())
+                .and_then(|raw| Profile::from_json(&raw).map(|profile| (profile, raw)));
+            match fallback {
+                Ok((profile, verified_raw)) => {
+                    if primary.exists() {
+                        fs::rename(&primary, primary.with_extension("corrupt"))
+                            .map_err(|error| format!("无法隔离损坏的战功簿：{error}"))?;
+                    }
+                    restore_primary_from_backup(&primary, &verified_raw)
+                        .map_err(|error| format!("备份有效但战功簿恢复失败：{error}"))?;
+                    eprintln!("战功簿异常，已从有效 chronicle.bak 恢复；损坏原件保留为 chronicle.corrupt");
+                    Ok(profile)
+                }
+                Err(backup_error) => Err(format!(
+                    "主战功簿不可读取：{primary_error}；备份亦不可用：{backup_error}；为避免覆盖成就记录，已拒绝启动"
+                )),
+            }
+        }
+    }
+}
+
 fn new_run_id() -> String {
     let nanos = SystemTime::now().duration_since(UNIX_EPOCH)
         .map_or(0, |duration| duration.as_nanos());
@@ -75,14 +112,41 @@ fn card_label(card: &Card) -> String {
     }
 }
 impl App {
+    /// A committed save may outlive a failed chronicle update. Persist the
+    /// same run-start receipt exactly once, and retry failed profile writes
+    /// on a later load without counting the start twice.
+    fn finish_load(&mut self, game: Game, message: &str) {
+        let suffix = if game.profile_start_receipt {
+            match self.profile.on_start_once(&game) {
+                Err(error) => format!("；战功补记失败：{error}"),
+                Ok(new_start) => {
+                    let desired = self.profile.to_json();
+                    match desired {
+                        Err(error) => format!("；战功序列化失败：{error}"),
+                        Ok(json) if fs::read_to_string(profile_path(&self.dir)).ok().as_deref()
+                            == Some(json.as_str()) => String::new(),
+                        Ok(_) => match self.save_profile() {
+                            Ok(()) if new_start => "；已补记此前未落盘的出征战功".into(),
+                            Ok(()) => "；已同步此前未落盘的战功簿".into(),
+                            Err(error) => format!("；战功同步失败：{error}，下次读档可重试"),
+                        },
+                    }
+                }
+            }
+        } else {
+            String::new()
+        };
+        self.game = Some(game);
+        self.message = format!("{message}{suffix}");
+    }
+
     fn load(&mut self) -> Result<(), String> {
         let path=save_path(&self.dir);
         let current=fs::read_to_string(&path)
             .map_err(|e|e.to_string()).and_then(|raw|Game::from_json(&raw));
         match current {
             Ok(game)=>{
-                self.game=Some(game);
-                self.message="读取进度成功，战斗牌堆和随机状态已恢复。".into();
+                self.finish_load(game, "读取进度成功，战斗牌堆和随机状态已恢复。");
                 Ok(())
             }
             Err(original_error)=>{
@@ -100,8 +164,7 @@ impl App {
                         }
                         restore_primary_from_backup(&path,&verified_raw)
                             .map_err(|e|format!("备份有效，但恢复到主路径失败: {e}"))?;
-                        self.game=Some(game);
-                        self.message="主存档异常，已从上一次有效 .bak 备份恢复；损坏原文件已保留为 .corrupt。".into();
+                        self.finish_load(game, "主存档异常，已从上一次有效 .bak 备份恢复；损坏原文件已保留为 .corrupt。");
                         Ok(())
                     }
                     Err(backup_error)=>Err(format!("主存档错误：{original_error}；备份恢复失败：{backup_error}"))
@@ -113,13 +176,17 @@ impl App {
     /// chronicle.json is a separate document: if its update fails after the
     /// game commits, report the partial result accurately and retain the
     /// committed game/profile in memory for a later profile retry.
-    fn start_run(&mut self, next: Game) -> Result<(), String> {
+    fn start_run(&mut self, mut next: Game) -> Result<(), String> {
+        if next.run_id.is_empty() {
+            return Err("新战役缺少唯一ID，无法安全恢复战功".into());
+        }
+        next.profile_start_receipt = true;
         let path = save_path(&self.dir);
         replace_run_and_persist(&mut self.game, next, |candidate| {
             atomic_write(&path, &candidate.to_json()?)
                 .map_err(|error| format!("新战役未能保存，原有进度保持不变：{error}"))
         })?;
-        self.profile.on_start(self.game.as_ref().expect("committed campaign"));
+        self.profile.on_start_once(self.game.as_ref().expect("committed campaign"))?;
         self.save_profile().map_err(|error| {
             format!("新战役已成功保存，但战功簿写入失败：{error}；后续行动会重试同步")
         })
@@ -342,7 +409,7 @@ impl App {
                     _ => Err("每日挑战请输入 YYYY-MM-DD（如 daily 2026-10-16）".into())
                 }
             }
-            "load" => self.load().map(|_| "已读档。".into()),
+            "load" => self.load().map(|_| self.message.clone()),
             "save" => self.save().map(|_| "已保存。".into()),
             "theme" => match args.get(1).copied() {
                 Some("light") => { self.theme = Theme::Light; self.preferences().map(|_| "亮色主题已保存。".into()) }
@@ -685,9 +752,13 @@ fn main() {
     let theme = fs::read_to_string(prefs_path(&dir)).ok()
         .and_then(|s| serde_json::from_str::<Preferences>(&s).ok())
         .map_or(Theme::Dark, |settings| settings.theme);
-    let profile = fs::read_to_string(profile_path(&dir)).ok()
-        .and_then(|s| Profile::from_json(&s).ok())
-        .unwrap_or_default();
+    let profile = match load_profile(&dir) {
+        Ok(profile) => profile,
+        Err(error) => {
+            eprintln!("无法安全载入战功簿：{error}");
+            std::process::exit(2);
+        }
+    };
     let mut app = App {
         game: None, profile, theme, dir,
         use_ansi: io::stdout().is_terminal() && !args.iter().any(|a| a == "--plain"),
@@ -880,5 +951,131 @@ mod secondary_choice_cli_tests {
         assert!(app.command("selections 0"));
         assert!(app.message.starts_with("错误："));
         assert_eq!(app.game.as_ref().unwrap().to_json().unwrap(),before);
+    }
+}
+
+#[cfg(test)]
+mod profile_reconciliation_tests {
+    use super::*;
+    use three_kingdoms_spire_reborn::content::Hero;
+
+    fn isolated_dir() -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "tks-profile-reconcile-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos(),
+        ))
+    }
+
+    fn unloaded_app(dir: &std::path::Path) -> App {
+        let profile = Profile::from_json(
+            &fs::read_to_string(profile_path(dir)).unwrap(),
+        ).unwrap();
+        App {
+            game: None, profile, theme: Theme::Dark,
+            dir: dir.to_owned(), use_ansi: false, message: String::new(),
+        }
+    }
+
+    #[test]
+    fn corrupted_chronicle_recovers_only_verified_backup_and_never_resets_history() {
+        let dir = isolated_dir();
+        fs::create_dir_all(&dir).unwrap();
+        let path = profile_path(&dir);
+        let mut first = Profile::new();
+        first.started = 5;
+        atomic_write(&path, &first.to_json().unwrap()).unwrap();
+        let mut second = Profile::new();
+        second.started = 6;
+        atomic_write(&path, &second.to_json().unwrap()).unwrap();
+        fs::write(&path, "{invalid-profile").unwrap();
+
+        let restored = load_profile(&dir).unwrap();
+        assert_eq!(restored.started, 5);
+        assert_eq!(Profile::from_json(&fs::read_to_string(&path).unwrap()).unwrap().started, 5);
+        assert_eq!(fs::read_to_string(dir.join("chronicle.corrupt")).unwrap(), "{invalid-profile");
+        assert_eq!(Profile::from_json(
+            &fs::read_to_string(dir.join("chronicle.bak")).unwrap()
+        ).unwrap().started, 5);
+
+        fs::write(&path, "{broken-primary").unwrap();
+        fs::write(dir.join("chronicle.bak"), "{broken-backup").unwrap();
+        let error = match load_profile(&dir) {
+            Ok(_) => panic!("unrecoverable profile must refuse startup"),
+            Err(error) => error,
+        };
+        assert!(error.contains("拒绝启动"), "{error}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "{broken-primary");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn restart_reconciles_committed_start_after_chronicle_failure_only_once() {
+        let dir = isolated_dir();
+        fs::create_dir_all(&dir).unwrap();
+        let mut app = App {
+            game: Some(Game::new(Hero::GuanYu, 96150)),
+            profile: Profile::new(), theme: Theme::Dark,
+            dir: dir.clone(), use_ansi: false, message: String::new(),
+        };
+        app.save().unwrap();
+        app.save_profile().unwrap();
+        let pre_start_profile = fs::read_to_string(profile_path(&dir)).unwrap();
+
+        // Simulate save.json committing, followed by chronicle.json failure.
+        fs::remove_file(profile_path(&dir)).unwrap();
+        fs::create_dir(profile_path(&dir)).unwrap();
+        assert!(app.command("new cao 96151"));
+        assert!(app.message.contains("战功簿写入失败"), "{}", app.message);
+        assert_eq!(app.profile.started, 1);
+        let committed = Game::from_json(
+            &fs::read_to_string(save_path(&dir)).unwrap(),
+        ).unwrap();
+        assert!(committed.profile_start_receipt);
+        assert!(!committed.run_id.is_empty());
+        assert!(committed.verify_action_replay().is_ok());
+
+        // Pretend the process crashed: memory-only chronicle changes are lost.
+        fs::remove_dir(profile_path(&dir)).unwrap();
+        fs::write(profile_path(&dir), pre_start_profile).unwrap();
+        let mut restarted = unloaded_app(&dir);
+        restarted.load().unwrap();
+        assert!(restarted.message.contains("已补记"), "{}", restarted.message);
+        assert_eq!(restarted.profile.started, 1);
+        assert!(restarted.profile.achievements.contains("first_step"));
+        assert!(restarted.profile.started_run_ids.contains(&committed.run_id));
+        assert_eq!(Profile::from_json(
+            &fs::read_to_string(profile_path(&dir)).unwrap()
+        ).unwrap().started, 1);
+        restarted.load().unwrap();
+        assert_eq!(restarted.profile.started, 1);
+
+        let mut second_restart = unloaded_app(&dir);
+        second_restart.load().unwrap();
+        assert_eq!(second_restart.profile.started, 1);
+        assert!(second_restart.game.as_ref().unwrap().verify_action_replay().is_ok());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn legacy_v2_run_does_not_recount_a_previously_recorded_start() {
+        let dir = isolated_dir();
+        fs::create_dir_all(&dir).unwrap();
+        let legacy = Game::new_with_identity(
+            Hero::LuBu, 96152, 0, RunMode::Standard, "old-cli-run".into(),
+        );
+        let mut profile = Profile::new();
+        profile.on_start(&legacy);
+        atomic_write(&save_path(&dir), &legacy.to_json().unwrap()).unwrap();
+        let mut profile_document: serde_json::Value =
+            serde_json::from_str(&profile.to_json().unwrap()).unwrap();
+        profile_document.as_object_mut().unwrap().remove("started_run_ids");
+        fs::write(profile_path(&dir), profile_document.to_string()).unwrap();
+        let mut app = unloaded_app(&dir);
+        app.load().unwrap();
+        assert_eq!(app.profile.started, 1);
+        assert!(app.profile.started_run_ids.is_empty());
+        assert!(!app.game.as_ref().unwrap().profile_start_receipt);
+        fs::remove_dir_all(dir).unwrap();
     }
 }

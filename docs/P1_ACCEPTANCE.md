@@ -123,3 +123,11 @@ TUI 菜单增加 TTY 宽度检测及 Unicode 列宽裁剪；冒号命令补 UTF-
 - `new/custom/daily` 候选战役必须先成功保存 `save.json` 才替换在线 `Game`，且不得在存档失败时累加 `Profile.started`。这补齐普通战斗行动在 PR #20 已实现而新开局仍遗漏的提交保护。
 - 本增量的 Rust、CLI、Gherkin 与双平台真实进程测试用故障注入验证旧主档及会话不变、修复后可以成功开局，以及 `chronicle.json` 独立失败时的明确提示和可恢复性。**真实 macOS/Linux CI 成功后方能声称通过机器验收**。
 - 不保证 `save.json` 和 `chronicle.json` 跨文件完全原子提交；真人交互、无障碍、完整中英本地化、每职业成熟流派、动态事件栈、120回逐回审校与正式 1.0 继续阻断。
+
+## 2026-10-19 P1 跨文件新战役开始计数可恢复（本 PR 待 CI）
+
+- 新 CLI 战役先携带 `profile_start_receipt` 提交到 `save.json`，再通过战功簿中持久化的 `started_run_ids` 按 `run_id` 唯一补记开始次数。若出征已入盘但战功簿写入失败，重启/手动再次 load 会尝试补齐；重复载入不得增加两次 `started` 或重复解锁首次出征。
+- 未带凭证的旧 V2 存档只按旧规则读取，不推断是否已统计，以免重复记账。核心 `verify_action_replay` 对新元数据采取非战斗状态继承，保证动作流、地图和 RNG 仍可重放。
+- 验证包含 Rust `Profile` 幂等/序列化测试、CLI 文件故障注入重启单测、严格 BDD `features/profile_reconciliation.feature`，以 PR 最终 HEAD 的 macOS/Linux CI 为准。尚欠其它跨文件事务、结局统计灾难恢复、统一事件栈、全量流派、120回逐回审校、全面双语/无障碍、真人 QA，完整P1保持未完成。
+
+同轮防丢档补强：CLI 启动加载战功簿不再吞掉坏 JSON/版本错误而直接使用空档。若 `chronicle.bak` 完整且通过 `Profile::from_json` 则原子恢复、隔离 `.corrupt`；主备均坏时明确拒绝启动（退出码2），而不是让后续自动写盘擦掉成就。包含 Rust 单测，**以 PR 最新双平台 CI 为准**；旧数据之外的恢复能力不予夸大。
