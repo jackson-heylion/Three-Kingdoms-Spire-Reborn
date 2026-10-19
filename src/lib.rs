@@ -2825,11 +2825,15 @@ mod tests {
         let emitted = battle.events.iter().filter(|event| event.seq > previous_seq)
             .collect::<Vec<_>>();
         assert_eq!(emitted.iter().map(|event| event.kind).collect::<Vec<_>>(),
-            vec![EventKind::PotionUsed, EventKind::StatusApplied, EventKind::PowerTriggered]);
+            vec![EventKind::PotionUsed, EventKind::StatusApplied,
+                EventKind::PowerTriggered, EventKind::StatusApplied]);
         assert_eq!(emitted[0].source, "poison");
         assert_eq!(emitted[0].target.as_deref(), Some("foe:0"));
         assert_eq!(emitted[1].amount, 12);
         assert_eq!(emitted[2].amount, 2);
+        assert_eq!(emitted[3].source, "poison:toxic_reversal");
+        assert_eq!(emitted[3].amount, 2);
+        assert_eq!(emitted[3].target.as_deref(), Some("foe:0"));
         assert_eq!(game.potions, 0);
         let snapshot = game.to_json().unwrap();
         assert_eq!(Game::from_json(&snapshot).unwrap().to_json().unwrap(), snapshot);
