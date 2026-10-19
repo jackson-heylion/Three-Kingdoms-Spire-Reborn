@@ -691,11 +691,11 @@ fn main() {
         let mut input = String::new();
         match io::stdin().read_line(&mut input) {
             Ok(0) => {
-                if app.game.is_some() {
-                    if let Err(error) = app.save() {
-                        eprintln!("输入结束时自动存档失败：{error}；未保存进度不能保证恢复");
-                        std::process::exit(2);
-                    }
+                if app.game.is_some()
+                    && let Err(error) = app.save()
+                {
+                    eprintln!("输入结束时自动存档失败：{error}；未保存进度不能保证恢复");
+                    std::process::exit(2);
                 }
                 break;
             }
