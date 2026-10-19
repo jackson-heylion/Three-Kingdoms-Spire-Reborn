@@ -18,13 +18,13 @@ fn randomized_action(game: &Game, rng: &mut u64) -> Action {
         Stage::Combat => {
             let hand = game.battle.as_ref().map_or(0, |b| b.hand.len());
             // Some genuinely playable hand positions mixed with invalid ones.
-            let card = if hand > 0 && roll % 4 != 0 {
+            let card = if hand > 0 && !roll.is_multiple_of(4) {
                 (next(rng) as usize % hand) + 1
             } else { index + hand };
             let target = (next(rng) as usize % 6) + 1;
             match roll % 9 {
-                0 | 1 | 2 => Action::Play { index: card, target },
-                3 | 4 => Action::EndTurn,
+                0..=2 => Action::Play { index: card, target },
+                3..=4 => Action::EndTurn,
                 5 => Action::Discard { index: card },
                 6 => Action::UsePotionAt { slot: (next(rng) as usize % 4) + 1, target },
                 7 => Action::PlaySelected { index: card, target,
@@ -32,7 +32,7 @@ fn randomized_action(game: &Game, rng: &mut u64) -> Action {
                 _ => Action::UsePotion,
             }
         }
-        Stage::Map if game.floor == 0 && roll % 8 == 0 =>
+        Stage::Map if game.floor == 0 && roll.is_multiple_of(8) =>
             Action::SetDoctrine { id: "auto".to_string() },
         Stage::Map | Stage::Reward | Stage::Camp | Stage::Market |
         Stage::Story | Stage::Ancient => {
