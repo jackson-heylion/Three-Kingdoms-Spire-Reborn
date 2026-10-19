@@ -98,6 +98,12 @@ TUI 菜单增加 TTY 宽度检测及 Unicode 列宽裁剪；冒号命令补 UTF-
 - Rust 核心/CLI/TUI/HUD 单测、严格 Gherkin 和 macOS/Linux 真实 CLI 进程覆盖编号一致、非攻击牌过滤、拒绝非法选择原子性、菜单取消及持久化回归；PR #17 的 [GitHub Actions #39183685163](https://github.com/jackson-heylion/Three-Kingdoms-Spire-Reborn/actions/runs/39183685163) 已在 macOS 14、Ubuntu 完成通过，并通过跨平台平衡报告字节级比较；**尚无真人 TTY 无障碍验收**。
 - 本项只完善现有两类检索/复制的可操作性；没有完成随机卡池平衡、复杂选择中断/敌方反制、动态事件栈、全职业成熟流派、真人 TTY/无障碍/中英双语及1.0验收。
 
+## 2026-10-19 P1 保存失败显式拒绝退出与非法快照保护（[PR #19 双平台 CI #39186286153](https://github.com/jackson-heylion/Three-Kingdoms-Spire-Reborn/actions/runs/39186286153) 已通过）
+
+- `quit/exit/q` 成功落盘后才退出；若 `atomic_write` 失败，CLI/TUI 留在当前会话并明确提示，用户可修复后重试。管道 EOF 无法继续交互时记录错误并以退出码2失败，而非静默返回0。
+- `Game::validate` 检测负金币和最大生命为0的敌军，拒绝虽可解析但不可能的 V2 状态；`App::load` 原有的经验证备份恢复逻辑可处理此类错误。
+- 本 PR 新增 Rust 核心、CLI 单测、严格 Gherkin BDD 和 GitHub Actions macOS/Linux 真实进程故障注入。[PR #19 双平台 CI #39186286153](https://github.com/jackson-heylion/Three-Kingdoms-Spire-Reborn/actions/runs/39186286153) 的双平台测试和确定性校验均通过；文档修订后的最终 HEAD 仍需 CI 再验证。真人 TTY 和完整 P1 仍未验收。
+
 ## 2026-10-19 P1 单文件存档与备份崩溃一致性（本 PR 待 macOS/Linux CI）
 
 - 原 CLI 写盘代码直接复制旧主文件到 .bak（可能在复制中断时留下半个备份），也未同步临时文件。现迁移到 src/persistence.rs：独占创建同目录临时文件，write_all + sync_all 后 rename；旧版本备份亦采用临时文件完整写入与 rename，Unix 平台同步父目录。

@@ -393,7 +393,7 @@ impl Game {
         Ok(g)
     }
     pub fn validate(&self) -> Result<(), String> {
-        if self.hp < 0 || self.hp > self.max_hp || self.max_hp <= 0 || self.floor > MAX_FLOOR
+        if self.hp < 0 || self.hp > self.max_hp || self.max_hp <= 0 || self.gold < 0 || self.floor > MAX_FLOOR
             || self.ascension > 10 || self.potions > 3 || self.potion_bag.len() > 3
             || usize::from(self.potions) != self.potion_bag.len()
             || self.potion_bag.iter().any(|id| !items::POTIONS.iter().any(|(valid,_)| valid == id))
@@ -461,7 +461,7 @@ impl Game {
                 || b.events.windows(2).any(|pair| pair[1].seq != pair[0].seq.saturating_add(1))
                 || b.events.last().is_some_and(|event| event.seq != b.event_seq)
                 || b.momentum < 0 || b.scheme < 0 || b.combo < 0 || b.command < 0 || b.fury < 0
-                || b.thorns < 0 || b.foes.iter().any(|f| f.hp < 0 || f.hp > f.max_hp || f.block < 0 || f.poison < 0 || f.phase > 1)
+                || b.thorns < 0 || b.foes.iter().any(|f| f.max_hp <= 0 || f.hp < 0 || f.hp > f.max_hp || f.block < 0 || f.poison < 0 || f.phase > 1)
             { return Err("无效战斗数据".into()); }
         }
         Ok(())
@@ -2344,6 +2344,20 @@ mod tests {
             vec![(1, "defend"), (2, "strike")]);
     }
     use super::*;
+    #[test]
+    fn invalid_economy_and_zero_max_hp_enemy_snapshots_are_rejected() {
+        let mut game = Game::new(Hero::GuanYu, 96011);
+        let intact = game.to_json().unwrap();
+        game.gold = -1;
+        assert!(Game::from_json(&game.to_json().unwrap()).unwrap_err().contains("存档属性无效"));
+        assert_eq!(Game::from_json(&intact).unwrap().to_json().unwrap(), intact);
+        game.gold = 90;
+        game.apply(Action::Choose { index: 1 }).unwrap();
+        let battle_intact = game.to_json().unwrap();
+        game.battle.as_mut().unwrap().foes[0].max_hp = 0;
+        assert!(Game::from_json(&game.to_json().unwrap()).unwrap_err().contains("无效战斗数据"));
+        assert_eq!(Game::from_json(&battle_intact).unwrap().to_json().unwrap(), battle_intact);
+    }
     #[test]
     fn market_card_purchase_adds_exactly_one_permanent_card_and_is_atomic() {
         let mut g = Game::new(Hero::GuanYu, 93401);

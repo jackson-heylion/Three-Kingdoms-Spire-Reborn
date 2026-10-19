@@ -265,7 +265,9 @@ pub(super) fn run(app:&mut App)->Result<(),String> {
                 }
                 None
             }
-            b'q'=>{let _=app.save();return Ok(());}
+            // Route the shortcut through the same checked save as :quit.
+            // On I/O failure, keep the TUI open with a visible error.
+            b'q'=>{if !app.command("quit") {return Ok(());} None}
             _=>None,
         };
         if let Some(command)=decision {
