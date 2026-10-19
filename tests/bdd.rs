@@ -48,17 +48,38 @@ impl World {
             game.run_id = "bdd-recovered-run".into();
             game.profile_start_receipt = true;
             self.profile = Some(Profile::new());
+        } else if step == "I mark the campaign as a completed victory" {
+            let game = self.game_mut()?;
+            game.floor = 21;
+            game.stage = Stage::Won;
         } else if step == "I reconcile the campaign from its saved snapshot" {
             let snapshot = self.game()?.to_json()?;
             let game = Game::from_json(&snapshot)?;
-            self.profile.get_or_insert_with(Profile::new).on_start_once(&game)?;
+            let profile = self.profile.get_or_insert_with(Profile::new);
+            profile.on_start_once(&game)?;
+            if matches!(game.stage, Stage::Won | Stage::Lost) {
+                profile.record(&game, game.run_id.clone())?;
+            }
             self.game = Some(game);
         } else if step == "I reload and reconcile the same receipt" {
             let profile = self.profile.as_ref().ok_or("missing chronicle")?.to_json()?;
             self.profile = Some(Profile::from_json(&profile)?);
             let snapshot = self.game()?.to_json()?;
             let game = Game::from_json(&snapshot)?;
-            self.profile.as_mut().ok_or("missing chronicle")?.on_start_once(&game)?;
+            let profile = self.profile.as_mut().ok_or("missing chronicle")?;
+            profile.on_start_once(&game)?;
+            if matches!(game.stage, Stage::Won | Stage::Lost) {
+                profile.record(&game, game.run_id.clone())?;
+            }
+        } else if step == "exactly one permanent campaign victory is recorded" {
+            let profile = self.profile.as_ref().ok_or("missing chronicle")?;
+            let game = self.game()?;
+            if profile.wins != 1 || profile.losses != 0 || profile.records.len() != 1
+                || !profile.recorded_results.contains(&game.run_id)
+                || profile.next_ascension(game.hero) != 1
+            {
+                return Err("terminal victory was not reconciled exactly once".into());
+            }
         } else if step == "exactly one campaign start is recorded" {
             let profile = self.profile.as_ref().ok_or("missing chronicle")?;
             let game = self.game()?;
@@ -975,7 +996,7 @@ fn gherkin_bdd_acceptance_suite() {
     ];
     let scenarios: usize = documents.iter().map(|(name,text)|
         run_feature(text,name).unwrap_or_else(|error|panic!("{error}"))).sum();
-    assert!(scenarios >= 67, "BDD suite lost scenarios: {scenarios}");
+    assert!(scenarios >= 68, "BDD suite lost scenarios: {scenarios}");
     println!("Verified {scenarios} executable Given/When/Then acceptance scenarios");
 }
 

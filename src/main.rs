@@ -76,6 +76,20 @@ fn load_profile(directory: &std::path::Path) -> Result<Profile, String> {
     }
 }
 
+
+/// Use one stable deduplication key in both live gameplay and post-crash
+/// reconciliation. Historical saves without a run ID retain their old key.
+fn campaign_result_key(game: &Game) -> String {
+    if game.run_id.is_empty() {
+        format!(
+            "legacy:{}:{}:{}:{}:{:?}",
+            game.hero.name(), game.seed, game.floor, game.revision, game.stage,
+        )
+    } else {
+        game.run_id.clone()
+    }
+}
+
 fn new_run_id() -> String {
     let nanos = SystemTime::now().duration_since(UNIX_EPOCH)
         .map_or(0, |duration| duration.as_nanos());
@@ -112,20 +126,30 @@ fn card_label(card: &Card) -> String {
     }
 }
 impl App {
-    /// A committed save may outlive a failed chronicle update. Persist the
-    /// same run-start receipt exactly once, and retry failed profile writes
-    /// on a later load without counting the start twice.
+    /// A committed save may outlive a failed chronicle update. Reconcile
+    /// both its start and terminal result from the authoritative save, using
+    /// stable deduplication keys across repeated loads and process crashes.
     fn finish_load(&mut self, game: Game, message: &str) {
         let suffix = if game.profile_start_receipt {
-            match self.profile.on_start_once(&game) {
-                Err(error) => format!("；战功补记失败：{error}"),
-                Ok(new_start) => {
+            let reconcile = (|| -> Result<(bool, bool), String> {
+                let new_start = self.profile.on_start_once(&game)?;
+                let new_result = if matches!(game.stage, Stage::Won | Stage::Lost) {
+                    self.profile.record(&game, campaign_result_key(&game))?
+                } else {
+                    false
+                };
+                Ok((new_start, new_result))
+            })();
+            match reconcile {
+                Err(error) => format!("；战功补记失败：{error}，请核对存档"),
+                Ok((new_start, new_result)) => {
                     let desired = self.profile.to_json();
                     match desired {
                         Err(error) => format!("；战功序列化失败：{error}"),
                         Ok(json) if fs::read_to_string(profile_path(&self.dir)).ok().as_deref()
                             == Some(json.as_str()) => String::new(),
                         Ok(_) => match self.save_profile() {
+                            Ok(()) if new_result => "；已补记此前未落盘的终局战功及解锁".into(),
                             Ok(()) if new_start => "；已补记此前未落盘的出征战功".into(),
                             Ok(()) => "；已同步此前未落盘的战功簿".into(),
                             Err(error) => format!("；战功同步失败：{error}，下次读档可重试"),
@@ -205,10 +229,7 @@ impl App {
         let g = self.game.as_ref().ok_or("请先开局")?;
         self.profile.observe(g);
         if matches!(g.stage, Stage::Won | Stage::Lost) {
-            let key = if g.run_id.is_empty() {
-                format!("legacy:{}:{}:{}:{}:{:?}",g.hero.name(),g.seed,g.floor,g.revision,g.stage)
-            } else { g.run_id.clone() };
-            self.profile.record(g,key)?;
+            self.profile.record(g, campaign_result_key(g))?;
         }
         self.save_profile()
     }
@@ -1054,6 +1075,97 @@ mod profile_reconciliation_tests {
         second_restart.load().unwrap();
         assert_eq!(second_restart.profile.started, 1);
         assert!(second_restart.game.as_ref().unwrap().verify_action_replay().is_ok());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn terminal_results_survive_failed_chronicle_write_and_restart_once() {
+        // Win unlocks ranked difficulty, custom win grants permanent trophy,
+        // loss updates its own counter. Each result must commit exactly once.
+        let examples = [
+            (RunMode::Standard, Stage::Won, Hero::CaoCao),
+            (RunMode::Custom, Stage::Won, Hero::LuBu),
+            (RunMode::Custom, Stage::Lost, Hero::GuanYu),
+        ];
+        for (index, (mode, outcome, hero)) in examples.into_iter().enumerate() {
+            let dir = isolated_dir().join(index.to_string());
+            fs::create_dir_all(&dir).unwrap();
+            let mut game = Game::new_with_identity(
+                hero, 96220 + index as u64, 1, mode, format!("terminal-{index}"),
+            );
+            game.profile_start_receipt = true;
+            game.stage = outcome;
+            game.floor = 21;
+            if mode == RunMode::Custom {
+                game.modifiers = vec![ChallengeModifier::NoRest];
+            }
+            let mut app = App {
+                game: Some(game.clone()), profile: Profile::new(), theme: Theme::Dark,
+                dir: dir.clone(), use_ansi: false, message: String::new(),
+            };
+            app.save().unwrap();
+            app.save_profile().unwrap();
+            let original_profile = fs::read_to_string(profile_path(&dir)).unwrap();
+
+            fs::remove_file(profile_path(&dir)).unwrap();
+            fs::create_dir(profile_path(&dir)).unwrap();
+            assert!(app.track_action().is_err(), "chronicle write must be blocked");
+            assert_eq!(app.profile.wins, u64::from(outcome == Stage::Won));
+            assert_eq!(app.profile.losses, u64::from(outcome == Stage::Lost));
+            fs::remove_dir(profile_path(&dir)).unwrap();
+            fs::write(profile_path(&dir), &original_profile).unwrap();
+
+            // The in-memory profile has vanished. Rebuild only from the
+            // already durable terminal save and stale disk chronicle.
+            let mut restored = unloaded_app(&dir);
+            restored.load().unwrap();
+            assert!(restored.message.contains("已补记此前未落盘的终局战功"),
+                "{}", restored.message);
+            assert_eq!(restored.profile.started, 1);
+            assert_eq!(restored.profile.wins, u64::from(outcome == Stage::Won));
+            assert_eq!(restored.profile.losses, u64::from(outcome == Stage::Lost));
+            assert_eq!(restored.profile.records.len(), 1);
+            assert!(restored.profile.recorded_results.contains(&game.run_id));
+            assert_eq!(restored.profile.next_ascension(hero),
+                if mode == RunMode::Standard && outcome == Stage::Won { 2 } else { 0 });
+            assert_eq!(restored.profile.challenge_trophies.contains("no_rest"),
+                mode == RunMode::Custom && outcome == Stage::Won);
+
+            restored.load().unwrap();
+            assert_eq!(restored.profile.records.len(), 1);
+            let mut second_restart = unloaded_app(&dir);
+            second_restart.load().unwrap();
+            assert_eq!(second_restart.profile.started, 1);
+            assert_eq!(second_restart.profile.records.len(), 1);
+            assert_eq!(second_restart.profile.wins, u64::from(outcome == Stage::Won));
+            assert_eq!(second_restart.profile.losses, u64::from(outcome == Stage::Lost));
+            fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn legacy_terminal_snapshot_cannot_duplicate_old_unreceipted_results() {
+        let dir = isolated_dir();
+        fs::create_dir_all(&dir).unwrap();
+        let mut old_game = Game::new_with_identity(
+            Hero::GuanYu, 96231, 0, RunMode::Standard, "legacy-terminal".into(),
+        );
+        old_game.stage = Stage::Won;
+        old_game.floor = 21;
+        assert!(!old_game.profile_start_receipt);
+        let mut profile = Profile::new();
+        profile.on_start(&old_game);
+        profile.wins = 1;
+        profile.hero_wins.insert(Hero::GuanYu.name().into(), 1);
+        // An older ledger may have omitted results/receipts entirely.
+        atomic_write(&save_path(&dir), &old_game.to_json().unwrap()).unwrap();
+        fs::write(profile_path(&dir), profile.to_json().unwrap()).unwrap();
+        let mut restored = unloaded_app(&dir);
+        restored.load().unwrap();
+        assert_eq!(restored.profile.started, 1);
+        assert_eq!(restored.profile.wins, 1);
+        assert!(restored.profile.records.is_empty());
+        assert!(restored.profile.recorded_results.is_empty());
         fs::remove_dir_all(dir).unwrap();
     }
 
