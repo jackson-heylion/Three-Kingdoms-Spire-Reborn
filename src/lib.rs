@@ -1093,16 +1093,18 @@ impl Game {
         self.deal_enemy_damage(idx, amount.max(0), source);
     }
 
-    /// Single source-aware, blockable damage settlement: log the true origin,
-    /// award each kill once, and allow VictoryDrum to observe that same death.
-    fn deal_enemy_damage(&mut self, idx: usize, damage: i32, source: &str) {
+    /// Central settlement for every damage source that targets an enemy.
+    /// Piercing, poison and thorns bypass armor; all other sources consume
+    /// armor first. A defeated enemy cannot take damage or die twice.
+    fn settle_foe_damage(&mut self, idx: usize, damage: i32, source: &str, ignores_block: bool) -> i32 {
         let (actual, killed) = {
             let b = self.battle.as_mut().expect("battle");
             let foe = &mut b.foes[idx];
-            if foe.hp == 0 { return; }
-            let blocked = damage.min(foe.block);
+            if foe.hp <= 0 { return 0; }
+            let incoming = damage.max(0);
+            let blocked = if ignores_block { 0 } else { incoming.min(foe.block) };
             foe.block -= blocked;
-            let actual = foe.hp.min(damage.saturating_sub(blocked));
+            let actual = foe.hp.min(incoming.saturating_sub(blocked));
             foe.hp -= actual;
             (actual, actual > 0 && foe.hp == 0)
         };
@@ -1110,6 +1112,15 @@ impl Game {
         if killed {
             self.combat_event(EventKind::FoeDefeated, source, 1, Some(format!("foe:{idx}")));
         }
+        actual
+    }
+
+    fn deal_enemy_damage(&mut self, idx: usize, damage: i32, source: &str) -> i32 {
+        self.settle_foe_damage(idx, damage, source, false)
+    }
+
+    fn deal_enemy_damage_unblockable(&mut self, idx: usize, damage: i32, source: &str) -> i32 {
+        self.settle_foe_damage(idx, damage, source, true)
     }
     fn defeated(&self) -> bool {
         self.battle.as_ref().is_some_and(|b| b.foes.iter().all(|f| f.hp <= 0))
@@ -1362,16 +1373,7 @@ impl Game {
             }
             Effect::Pierce(n) => {
                 let idx = target_idx.expect("target");
-                let (actual,killed) = {
-                    let foe = &mut self.battle.as_mut().expect("battle").foes[idx];
-                    let actual = foe.hp.min((n+bonus).max(0));
-                    foe.hp -= actual;
-                    (actual,actual>0 && foe.hp==0)
-                };
-                self.combat_event(EventKind::DamageDealt,"pierce",actual,Some(format!("foe:{idx}")));
-                if killed {
-                    self.combat_event(EventKind::FoeDefeated,"pierce",1,Some(format!("foe:{idx}")));
-                }
+                self.deal_enemy_damage_unblockable(idx, n.saturating_add(bonus), "pierce");
             }
             Effect::DrawEnergy(n, energy) => {
                 self.battle.as_mut().expect("battle").energy += energy;
@@ -1536,31 +1538,19 @@ impl Game {
     fn troop_attack(&mut self) {
         let b = self.battle.as_ref().expect("battle");
         if b.troops_hp <= 0 || b.troops_attack <= 0 { return; }
-        let target = b.foes.iter().position(|f|f.hp>0);
+        let attack = b.troops_attack;
+        let target = b.foes.iter().position(|foe| foe.hp > 0);
         if let Some(idx) = target {
-            let (damage,killed) = {
-                let b = self.battle.as_mut().expect("battle");
-                let attack = b.troops_attack;
-                let foe = &mut b.foes[idx];
-                let blocked = attack.min(foe.block);
-                foe.block -= blocked;
-                let actual = foe.hp.min((attack-blocked).max(0));
-                foe.hp -= actual;
-                (actual, actual>0 && foe.hp==0)
-            };
-            self.record_metric(|c| {
-                c.troop_attacks = c.troop_attacks.saturating_add(1);
-                c.troop_damage = c.troop_damage.saturating_add(damage as u64);
+            let dealt = self.deal_enemy_damage(idx, attack, "troops");
+            self.record_metric(|counter| {
+                counter.troop_attacks = counter.troop_attacks.saturating_add(1);
+                counter.troop_damage = counter.troop_damage.saturating_add(dealt as u64);
             });
-            self.combat_event(EventKind::DamageDealt,"troops",damage,Some(format!("foe:{idx}")));
-            if killed {
-                self.combat_event(EventKind::FoeDefeated,"troops",1,Some(format!("foe:{idx}")));
-            }
         }
     }
 
     fn enemy_attack(&mut self, foe_idx: usize, power: i32) -> i32 {
-        let (damage,protected,reflected,killed) = {
+        let (damage, protected, reflected) = {
             let b = self.battle.as_mut().expect("battle");
             let reduced = if b.foes[foe_idx].weak > 0 { power * 3 / 4 } else { power };
             let modified = if b.vulnerable > 0 { reduced * 3 / 2 } else { reduced };
@@ -1569,24 +1559,22 @@ impl Game {
             let incoming = (modified - blocked).max(0);
             let protected = incoming.min(b.troops_hp);
             b.troops_hp -= protected;
-            let damage = self.hp.min(incoming-protected);
+            let damage = self.hp.min(incoming - protected);
             self.hp -= damage;
-            if self.hero == Hero::LuBu { b.fury += damage/2; }
-            let reflected = b.thorns.min(b.foes[foe_idx].hp);
-            b.foes[foe_idx].hp -= reflected;
-            (damage,protected,reflected,reflected>0 && b.foes[foe_idx].hp==0)
+            if self.hero == Hero::LuBu { b.fury += damage / 2; }
+            (damage, protected, b.thorns)
         };
-        self.record_metric(|c| {
-            c.hero_hp_damage = c.hero_hp_damage.saturating_add(damage as u64);
-            c.troop_absorbed = c.troop_absorbed.saturating_add(protected as u64);
+        self.record_metric(|counter| {
+            counter.hero_hp_damage = counter.hero_hp_damage.saturating_add(damage as u64);
+            counter.troop_absorbed = counter.troop_absorbed.saturating_add(protected as u64);
         });
-        self.combat_event(EventKind::DamageReceived,&format!("foe:{foe_idx}"),
-            damage,Some("hero".into()));
+        // A received hit is observed before its reflected damage, even when
+        // the reflector kills the attacker. The common settlement awards any
+        // ensuing death exactly once and dispatches VictoryDrum.
+        self.combat_event(EventKind::DamageReceived, &format!("foe:{foe_idx}"),
+            damage, Some("hero".into()));
         if reflected > 0 {
-            self.combat_event(EventKind::DamageDealt,"thorns",reflected,Some(format!("foe:{foe_idx}")));
-        }
-        if killed {
-            self.combat_event(EventKind::FoeDefeated,"thorns",1,Some(format!("foe:{foe_idx}")));
+            self.deal_enemy_damage_unblockable(foe_idx, reflected, "thorns");
         }
         damage
     }
@@ -1808,21 +1796,16 @@ impl Game {
         let poison_events = {
             let b = self.battle.as_mut().expect("battle");
             let mut pending = Vec::new();
-            for (idx,foe) in b.foes.iter_mut().enumerate() {
+            for (idx, foe) in b.foes.iter_mut().enumerate() {
                 if foe.hp > 0 && foe.poison > 0 {
-                    let damage = foe.hp.min(foe.poison);
-                    foe.hp -= damage;
-                    foe.poison = (foe.poison - 1).max(0);
-                    pending.push((idx,damage,foe.hp==0));
+                    pending.push((idx, foe.poison));
+                    foe.poison -= 1;
                 }
             }
             pending
         };
-        for (idx,damage,killed) in poison_events {
-            self.combat_event(EventKind::DamageDealt,"poison",damage,Some(format!("foe:{idx}")));
-            if killed {
-                self.combat_event(EventKind::FoeDefeated,"poison",1,Some(format!("foe:{idx}")));
-            }
+        for (idx, damage) in poison_events {
+            self.deal_enemy_damage_unblockable(idx, damage, "poison");
         }
         if self.defeated() { return Ok(self.win_battle()); }
         self.troop_attack();
@@ -2570,6 +2553,113 @@ mod tests {
         assert_eq!(events[0].source, "fire");
         assert_eq!(events[1].source, "fire");
         assert_eq!(events[2].source, "victory_drum");
+    }
+
+    #[test]
+    fn piercing_card_ignores_armor_without_scaling_and_keeps_its_source() {
+        let mut game = Game::new(Hero::GuanYu, 97501);
+        game.apply(Action::Choose { index: 1 }).unwrap();
+        {
+            let battle = game.battle.as_mut().unwrap();
+            battle.foes[0].hp = 25;
+            battle.foes[0].block = 90;
+            battle.foes[0].vulnerable = 3;
+            battle.strength = 50;
+            battle.weak = 2;
+            battle.hand = vec![Card::new("jianshu")];
+        }
+        let cursor = game.battle.as_ref().unwrap().event_seq;
+        game.apply(Action::Play { index: 1, target: 1 }).unwrap();
+        let battle = game.battle.as_ref().unwrap();
+        assert_eq!(battle.foes[0].hp, 18);
+        assert_eq!(battle.foes[0].block, 90);
+        let hits: Vec<_> = battle.events.iter().filter(|e|
+            e.seq > cursor && e.kind == EventKind::DamageDealt).collect();
+        assert_eq!(hits.len(), 1);
+        assert_eq!((hits[0].source.as_str(), hits[0].amount), ("pierce", 7));
+        let saved = game.to_json().unwrap();
+        assert_eq!(Game::from_json(&saved).unwrap().to_json().unwrap(), saved);
+    }
+
+    #[test]
+    fn troop_damage_routes_through_settlement_and_counts_only_health_loss() {
+        let mut game = Game::new(Hero::CaoCao, 97502);
+        game.apply(Action::Choose { index: 1 }).unwrap();
+        game.gain_power(PowerId::VictoryDrum, 2);
+        {
+            let battle = game.battle.as_mut().unwrap();
+            battle.foes[0].hp = 7;
+            battle.foes[0].block = 4;
+            battle.troops_hp = 20;
+            battle.troops_attack = 15;
+            battle.energy = 0;
+        }
+        let cursor = game.battle.as_ref().unwrap().event_seq;
+        game.troop_attack();
+        let battle = game.battle.as_ref().unwrap();
+        assert_eq!(battle.foes[0].hp, 0);
+        assert_eq!(battle.foes[0].block, 0);
+        assert_eq!(game.telemetry.totals.troop_damage, 7);
+        assert_eq!(battle.energy, 2);
+        let events: Vec<_> = battle.events.iter().filter(|e| e.seq > cursor).collect();
+        assert_eq!(events.iter().map(|e| e.kind).collect::<Vec<_>>(),
+            vec![EventKind::DamageDealt, EventKind::FoeDefeated, EventKind::PowerTriggered]);
+        assert_eq!(events[0].source, "troops");
+        assert_eq!(events[0].amount, 7);
+        game.troop_attack();
+        assert_eq!(game.telemetry.totals.troop_damage, 7, "no second hit on a corpse");
+    }
+
+    #[test]
+    fn thorn_retaliation_observes_hit_before_unblockable_death() {
+        let mut game = Game::new(Hero::GuanYu, 97503);
+        game.apply(Action::Choose { index: 1 }).unwrap();
+        game.gain_power(PowerId::VictoryDrum, 1);
+        {
+            let battle = game.battle.as_mut().unwrap();
+            battle.foes[0].hp = 4;
+            battle.foes[0].block = 50;
+            battle.thorns = 6;
+            battle.block = 0;
+            battle.energy = 0;
+        }
+        let cursor = game.battle.as_ref().unwrap().event_seq;
+        game.enemy_attack(0, 2);
+        let battle = game.battle.as_ref().unwrap();
+        assert_eq!(battle.foes[0].hp, 0);
+        assert_eq!(battle.foes[0].block, 50);
+        assert_eq!(battle.energy, 1);
+        let events: Vec<_> = battle.events.iter().filter(|e| e.seq > cursor).collect();
+        assert_eq!(events.iter().map(|e| e.kind).collect::<Vec<_>>(),
+            vec![EventKind::DamageReceived, EventKind::DamageDealt,
+                 EventKind::FoeDefeated, EventKind::PowerTriggered]);
+        assert_eq!(events[1].source, "thorns");
+        assert_eq!(events[1].amount, 4);
+        game.deal_enemy_damage_unblockable(0, 6, "thorns");
+        assert_eq!(game.battle.as_ref().unwrap().event_seq, events.last().unwrap().seq);
+    }
+
+    #[test]
+    fn poison_tick_bypasses_armor_and_reports_exact_damage() {
+        let mut game = Game::new(Hero::GuanYu, 97504);
+        game.apply(Action::Choose { index: 1 }).unwrap();
+        {
+            let battle = game.battle.as_mut().unwrap();
+            battle.foes[0].hp = 20;
+            battle.foes[0].block = 10;
+            battle.foes[0].poison = 3;
+            battle.troops_hp = 0;
+            battle.troops_attack = 0;
+        }
+        let cursor = game.battle.as_ref().unwrap().event_seq;
+        game.end_turn().unwrap();
+        let battle = game.battle.as_ref().unwrap();
+        assert_eq!(battle.foes[0].hp, 17);
+        let poison_events: Vec<_> = battle.events.iter().filter(|e|
+            e.seq > cursor && e.source == "poison" && e.kind == EventKind::DamageDealt).collect();
+        assert_eq!(poison_events.len(), 1);
+        assert_eq!(poison_events[0].amount, 3);
+        assert_eq!(battle.foes[0].poison, 2);
     }
 
     #[test]
