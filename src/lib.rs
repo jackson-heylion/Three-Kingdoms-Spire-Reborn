@@ -161,6 +161,31 @@ pub struct Battle {
     pub turn: u32,
 }
 
+impl Battle {
+    /// Poll events after a *current-battle* sequence number. Never mutates RNG or state.
+    /// Gaps from the 80-event ring are reported, not silently hidden.
+    pub fn events_after(&self, cursor: u64, limit: usize) -> combat::EventPage<'_> {
+        let latest = self.event_seq;
+        let oldest_available = self.events.first()
+            .map_or(latest.saturating_add(1), |event| event.seq);
+        if cursor > latest {
+            return combat::EventPage {
+                entries: &[], oldest_available, latest, missed: 0,
+                next_cursor: latest, has_more: false, reset: true,
+            };
+        }
+        let start = self.events.partition_point(|event| event.seq <= cursor);
+        let end = start.saturating_add(limit.clamp(1, MAX_RECENT_EVENTS)).min(self.events.len());
+        let entries = &self.events[start..end];
+        let missed = oldest_available.saturating_sub(cursor.saturating_add(1));
+        let next_cursor = entries.last().map_or(latest.max(cursor), |event| event.seq);
+        combat::EventPage {
+            entries, oldest_available, latest, missed, next_cursor,
+            has_more: end < self.events.len(), reset: false,
+        }
+    }
+}
+
 /// Lifetime-of-run counters. Fields are monotonic and old V2 saves default to zero.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -432,7 +457,8 @@ impl Game {
                 || b.powers.iter().enumerate().any(|(idx,p)| b.powers[..idx].iter().any(|prior| prior.id == p.id))
                 || b.events.len() > MAX_RECENT_EVENTS
                 || b.events.iter().any(|event| event.seq == 0 || event.seq > b.event_seq)
-                || b.events.windows(2).any(|pair| pair[0].seq >= pair[1].seq)
+                || b.events.windows(2).any(|pair| pair[1].seq != pair[0].seq.saturating_add(1))
+                || b.events.last().is_some_and(|event| event.seq != b.event_seq)
                 || b.momentum < 0 || b.scheme < 0 || b.combo < 0 || b.command < 0 || b.fury < 0
                 || b.thorns < 0 || b.foes.iter().any(|f| f.hp < 0 || f.hp > f.max_hp || f.block < 0 || f.poison < 0 || f.phase > 1)
             { return Err("无效战斗数据".into()); }
@@ -3883,5 +3909,82 @@ mod summon_turn_order_p1_tests {
             assert_eq!(loaded.events, original.events);
             assert_eq!(loaded.event_seq, original.event_seq);
         }
+    }
+}
+
+ 
+#[cfg(test)]
+mod p1_event_cursor_tests {
+    use super::*;
+
+    fn overfill_journal() -> Game {
+        let mut game = Game::new(Hero::GuanYu, 20261019);
+        game.apply(Action::Choose { index: 1 }).unwrap();
+        // Trigger the engine's real bounded append logic; not a synthetic Vec fixture.
+        for count in 0..(MAX_RECENT_EVENTS + 23) {
+            game.combat_event(EventKind::EnemyTechnique, "audit_probe", count as i32, None);
+        }
+        game
+    }
+
+    #[test]
+    fn event_pages_are_ordered_report_eviction_and_resume_without_duplicates() {
+        let game = overfill_journal();
+        let battle = game.battle.as_ref().unwrap();
+        assert_eq!(battle.events.len(), MAX_RECENT_EVENTS);
+        let oldest = battle.events[0].seq;
+        assert!(oldest > 1);
+        let first = battle.events_after(0, 7);
+        assert_eq!(first.oldest_available, oldest);
+        assert_eq!(first.missed, oldest - 1);
+        assert_eq!(first.entries.len(), 7);
+        assert_eq!(first.entries[0].seq, oldest);
+        assert_eq!(first.next_cursor, oldest + 6);
+        assert!(first.has_more);
+        let second = battle.events_after(first.next_cursor, 7);
+        assert_eq!(second.missed, 0);
+        assert_eq!(second.entries[0].seq, first.next_cursor + 1);
+        assert!(first.entries.iter().all(|old|
+            second.entries.iter().all(|new| old.seq != new.seq)));
+        let end = battle.events_after(battle.event_seq, 7);
+        assert!(end.entries.is_empty() && !end.has_more && !end.reset);
+        assert_eq!(end.next_cursor, battle.event_seq);
+        let reset = battle.events_after(u64::MAX, 7);
+        assert!(reset.reset && reset.entries.is_empty());
+        assert_eq!(reset.next_cursor, battle.event_seq);
+    }
+
+    #[test]
+    fn bounded_cursor_survives_v2_save_and_rejects_corrupt_journal_order() {
+        let game = overfill_journal();
+        let snapshot = game.to_json().unwrap();
+        let restored = Game::from_json(&snapshot).unwrap();
+        let battle = restored.battle.as_ref().unwrap();
+        let seq = battle.events[4].seq;
+        let page = battle.events_after(seq, 4);
+        assert_eq!(page.entries[0].seq, seq + 1);
+        assert_eq!(page.missed, 0);
+        assert!(!page.reset);
+        assert_eq!(snapshot, restored.to_json().unwrap());
+
+        let mut missing_middle = game.clone();
+        missing_middle.battle.as_mut().unwrap().events[1].seq += 1;
+        assert!(Game::from_json(&missing_middle.to_json().unwrap()).is_err());
+        let mut mismatched_tail = game;
+        mismatched_tail.battle.as_mut().unwrap().event_seq += 1;
+        assert!(Game::from_json(&mismatched_tail.to_json().unwrap()).is_err());
+    }
+
+    #[test]
+    fn old_v2_empty_journal_stays_readable_without_claiming_full_audit() {
+        let mut game = Game::new(Hero::GuanYu, 20261020);
+        game.apply(Action::Choose { index: 1 }).unwrap();
+        let battle = game.battle.as_mut().unwrap();
+        battle.events.clear();
+        let restored = Game::from_json(&game.to_json().unwrap()).unwrap();
+        let page = restored.battle.as_ref().unwrap().events_after(0, 30);
+        assert!(page.entries.is_empty());
+        assert!(page.missed > 0);
+        assert!(!page.reset);
     }
 }

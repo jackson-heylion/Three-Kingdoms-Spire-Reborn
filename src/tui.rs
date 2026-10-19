@@ -58,6 +58,7 @@ pub(super) fn choices(app:&App,target:usize)->Vec<(String,String)> {
                 options.push((format!("药剂{}：{}{}",index+1,potion_name(potion),scope),
                     format!("use {} {target}",index+1)));
             }
+            options.push(("查看战斗事件审计".into(),"events".into()));
             options
         }
         Stage::Reward=> {
@@ -255,6 +256,7 @@ mod tests {
         game.apply(three_kingdoms_spire_reborn::Action::Choose{index:1}).unwrap();
         let battle=choices(&app(Some(game)),2);
         assert!(battle.iter().any(|(_,cmd)|cmd=="end"));
+        assert!(battle.iter().any(|(_,cmd)|cmd=="events"));
         assert!(battle.iter().any(|(_,cmd)|cmd=="play 1 2"));
     }
 }

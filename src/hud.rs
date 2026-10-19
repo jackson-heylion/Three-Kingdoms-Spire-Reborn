@@ -161,7 +161,11 @@ mod tests {
             let content=render(&app,cols,rows,1,&choices,choices.len()-1);
             assert!(content.lines().count()<=rows,"{cols}x{rows}: {content}");
             assert!(content.lines().all(|s|width(s)<=cols),"{cols}x{rows}: {content}");
-            assert!(content.contains("结束本回合"),"{content}");
+            // New utility entries can follow End Turn; validate focus/scroll for both.
+            assert!(content.contains("查看战斗事件审计"),"{content}");
+            let end_index = choices.iter().position(|(_,cmd)|cmd == "end").unwrap();
+            let end_content = render(&app,cols,rows,1,&choices,end_index);
+            assert!(end_content.contains("结束本回合"),"{end_content}");
             assert!(content.contains("敌军")&&content.contains("军令"),"{content}");
         }
     }

@@ -14,6 +14,7 @@ struct World {
     error: Option<String>,
     foe_hp: Option<i32>,
     counter_gold: Option<i32>,
+    event_cursor: Option<u64>,
 }
 
 fn quoted(step: &str) -> Result<&str, String> {
@@ -40,6 +41,7 @@ impl World {
             self.error = None;
             self.foe_hp = None;
             self.counter_gold = None;
+            self.event_cursor = None;
         } else if step.starts_with("the lore scene \"") {
             let id = quoted(step)?;
             if lore::beat(id).is_none() { return Err(format!("unknown lore beat: {id}")); }
@@ -497,6 +499,25 @@ impl World {
             }
             if step.ends_with("occurs exactly twice") && count != 2 {
                 return Err(format!("expected exactly two events {kind}/{source}, observed {count}"));
+            }
+        } else if step == "I remember the latest combat event cursor" {
+            self.event_cursor = Some(self.game()?.battle.as_ref()
+                .ok_or("not in combat")?.event_seq);
+        } else if step == "the combat event cursor returns only newer events" {
+            let cursor = self.event_cursor.ok_or("no remembered cursor")?;
+            let page = self.game()?.battle.as_ref().ok_or("not in combat")?
+                .events_after(cursor, 80);
+            if page.reset || page.missed > 0 || page.entries.is_empty()
+                || page.entries.iter().any(|e| e.seq <= cursor)
+                || page.entries.last().is_some_and(|e| e.seq != page.next_cursor)
+            {
+                return Err("event poll duplicated, skipped or lost committed combat events".into());
+            }
+        } else if step == "an overlarge event cursor signals reset" {
+            let page = self.game()?.battle.as_ref().ok_or("not in combat")?
+                .events_after(u64::MAX, 30);
+            if !page.reset || !page.entries.is_empty() {
+                return Err("old-battle cursor did not report reset".into());
             }
         } else if step == "the event sequence strictly increases" {
             let events = &self.game()?.battle.as_ref().ok_or("not in combat")?.events;
