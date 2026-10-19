@@ -117,3 +117,9 @@ TUI 菜单增加 TTY 宽度检测及 Unicode 列宽裁剪；冒号命令补 UTF-
 - 证据：`src/persistence.rs` Rust 单元、`src/main.rs` CLI 命令级单测、`features/action_persistence.feature` 严格 Gherkin 测试、`.github/workflows/rust.yml` 双系统真实 CLI 进程故障注入。**合并前须以本 PR 最新 SHA 的真实 macOS/Linux CI 成功为准**。
 - 不包含新战役替换的跨文件事务、`chronicle.json` / `settings.json` 的原子成组提交、强制关机和外部写盘竞争保障；完整 P1 的游戏内容深度、动态事件栈、真人试玩、120回逐回审校和全面国际化仍未完成。
 
+
+## 2026-10-19 P1 新开局替换保护（PR CI 待验证）
+
+- `new/custom/daily` 候选战役必须先成功保存 `save.json` 才替换在线 `Game`，且不得在存档失败时累加 `Profile.started`。这补齐普通战斗行动在 PR #20 已实现而新开局仍遗漏的提交保护。
+- 本增量的 Rust、CLI、Gherkin 与双平台真实进程测试用故障注入验证旧主档及会话不变、修复后可以成功开局，以及 `chronicle.json` 独立失败时的明确提示和可恢复性。**真实 macOS/Linux CI 成功后方能声称通过机器验收**。
+- 不保证 `save.json` 和 `chronicle.json` 跨文件完全原子提交；真人交互、无障碍、完整中英本地化、每职业成熟流派、动态事件栈、120回逐回审校与正式 1.0 继续阻断。
