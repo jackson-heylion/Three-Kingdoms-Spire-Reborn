@@ -1,6 +1,7 @@
 //! UI-free deterministic game engine. Safe to reuse from Swift/UniFFI and wasm.
 //! Every authoritative mutation goes through Game::apply(Action).
 pub mod archetypes;
+pub mod builds;
 pub mod combat;
 pub mod event_stack;
 pub mod challenges;

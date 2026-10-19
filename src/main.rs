@@ -400,7 +400,7 @@ impl App {
                     )),
                 }
             }
-            "help" | "h" => Ok("new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 在出征前指定三幕变体；daily YYYY-MM-DD；load/save；choose N；play N [目标] [副选牌编号]；selections N 查可选副牌；discard N 弃换；end；use [药剂号] [目标]（火/毒指定存活目标，弱化影响全体） ；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看路径与评分；inventory 背包；achievements 成就；codex 图鉴；relics；lore 看纪事；bonds 看人物羁绊；chapter 1-120 回目索引；powers 持续能力；events [游标] [条数1-80] 分页审计当前战斗事件；metrics 战役统计；verify 回放检验；history 最近操作；doctrine 查看流派 / doctrine auto|代码 选择；chronicle；timeline 战功时间线；modifier 查看挑战 / modifier 代码 on|off；theme dark|light|highcontrast；status；quit。".into()),
+            "help" | "h" => Ok("new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 在出征前指定三幕变体；daily YYYY-MM-DD；load/save；choose N；play N [目标] [副选牌编号]；selections N 查可选副牌；discard N 弃换；end；use [药剂号] [目标]（火/毒指定存活目标，弱化影响全体） ；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看路径与评分；inventory 背包；achievements 成就；codex 图鉴；relics；lore 看纪事；bonds 看人物羁绊；chapter 1-120 回目索引；powers 持续能力；events [游标] [条数1-80] 分页审计当前战斗事件；metrics 战役统计；verify 回放检验；history 最近操作；doctrine 查看流派 / doctrine auto|代码 选择；builds 查看3套候选构筑及反制；chronicle；timeline 战功时间线；modifier 查看挑战 / modifier 代码 on|off；theme dark|light|highcontrast；status；quit。".into()),
             "new" | "custom" => {
                 let mode = if args[0] == "custom" {RunMode::Custom} else {RunMode::Standard};
                 let hero = args.get(1).and_then(|s| Hero::parse(s)).unwrap_or(Hero::GuanYu);
@@ -471,6 +471,14 @@ impl App {
                 })),
             "doctrine" if args.len()==1 => Ok(self.game.as_ref()
                 .map_or("请先输入 new 开局".into(),|g|g.doctrine_status())),
+            "builds" => Ok(self.game.as_ref().map_or("请先开局".into(),|g| {
+                three_kingdoms_spire_reborn::builds::for_hero(g.hero)
+                    .map(|plan|format!("{}【{}】关键卡 {}/{}：{}；支援：{}。敌方反制：{}；应对：{}；风险：{}",
+                        plan.id,plan.name,plan.acquired(&g.deck),plan.core.len(),
+                        plan.core.join("、"),plan.support.join("、"),
+                        plan.counter_enemy,plan.counterplay,plan.risk))
+                    .collect::<Vec<_>>().join("\n")
+            })),
             "verify" => self.game.as_ref().ok_or_else(||"请先开局".to_owned())
                 .and_then(|game|game.verify_action_replay()
                     .map(|count|format!("全战役操作回放校验通过，共{count}步；随机数、地图、卡牌、战斗事件和剧情结果一致。"))),
