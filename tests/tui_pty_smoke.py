@@ -103,14 +103,19 @@ def main() -> None:
             # Exercise the raw-mode colon command input, then checked quit.
             os.write(master, b":help\r")
             await_condition(
-                lambda: output.count(b"\x1b[2J\x1b[H") >= 4,
+                lambda: output.count(b"\x1b[2J\x1b[H") >= 5,
                 "TUI redrew after advanced command",
             )
             os.write(master, b"q")
-            try:
-                code = process.wait(timeout=15)
-            except subprocess.TimeoutExpired as error:
-                raise AssertionError("checked q shortcut did not terminate TUI") from error
+            # Keep draining the PTY while the child restores terminal mode,
+            # emits its final frame, and exits. A synchronous wait without
+            # reading can fill the smaller macOS PTY output buffer and deadlock.
+            await_condition(
+                lambda: process.poll() is not None,
+                "checked q shortcut terminated TUI",
+                timeout=15,
+            )
+            code = process.returncode
             pump(0.0)
             assert code == 0, f"TUI returned {code}; tail={output[-4000:]!r}"
             saved = current_snapshot()
@@ -121,7 +126,10 @@ def main() -> None:
         finally:
             if process.poll() is None:
                 process.kill()
-                process.wait(timeout=10)
+                # Reap while draining output, even when an assertion fails.
+                deadline = time.monotonic() + 10
+                while process.poll() is None and time.monotonic() < deadline:
+                    pump()
             os.close(master)
 
 
