@@ -5,7 +5,7 @@
 use three_kingdoms_spire_reborn::{
     Action, BossMove, Card, Foe, Game, Intent, Node, Stage, content::{Hero, enemy_hp}, lore,
     combat::{EventKind, PowerId},
-    persistence::{SaveDirectoryLock, atomic_write, restore_primary_from_backup},
+    persistence::{SaveDirectoryLock, atomic_write, apply_durable_action, restore_primary_from_backup},
 };
 
 #[derive(Default)]
@@ -75,6 +75,42 @@ impl World {
                 || std::fs::read_to_string(dir.join("save.corrupt")).map_err(|e|e.to_string())?
                     != "{broken"
             { return Err("recovery overwrote backup or lost the broken primary".into()); }
+        } else if step == "I persist the campaign before a durable action" {
+            let dir = self.lock_dir.as_ref().ok_or("missing isolated save directory")?;
+            let snapshot = self.game()?.to_json()?;
+            atomic_write(&dir.join("save.json"), &snapshot).map_err(|e|e.to_string())?;
+            self.before = Some(snapshot);
+        } else if step == "I attempt a durable map choice 1" {
+            let path = self.lock_dir.as_ref().ok_or("missing isolated save directory")?
+                .join("save.json");
+            self.error = apply_durable_action(
+                self.game_mut()?, Action::Choose { index: 1 }, &path
+            ).err();
+            if self.error.is_none() { return Err("blocked save unexpectedly committed action".into()); }
+        } else if step.starts_with("the durable action is rejected as \"") {
+            let expected = quoted(step)?;
+            if !self.error.as_deref().is_some_and(|error| error.contains(expected)) {
+                return Err(format!("expected durable action error {expected}, got {:?}", self.error));
+            }
+        } else if step == "the on-disk campaign matches the snapshot" {
+            let dir = self.lock_dir.as_ref().ok_or("missing isolated save directory")?;
+            let disk = std::fs::read_to_string(dir.join("save.json"))
+                .map_err(|e|e.to_string())?;
+            if disk != self.game()?.to_json()? {
+                return Err("disk and in-memory game diverged after durable action".into());
+            }
+        } else if step == "I unblock backup replacement" {
+            let dir = self.lock_dir.as_ref().ok_or("missing isolated save directory")?;
+            std::fs::remove_dir(dir.join("save.bak")).map_err(|e|e.to_string())?;
+        } else if step == "I retry the durable map choice 1" {
+            let path = self.lock_dir.as_ref().ok_or("missing isolated save directory")?
+                .join("save.json");
+            apply_durable_action(self.game_mut()?, Action::Choose { index: 1 }, &path)?;
+            self.error = None;
+        } else if step == "the campaign is in combat at revision 1" {
+            if self.game()?.stage != Stage::Combat || self.game()?.revision != 1 {
+                return Err("durable retry did not commit exactly one map choice".into());
+            }
         } else if step == "I write a first atomic save" {
             let dir = self.lock_dir.as_ref().ok_or("missing isolated save directory")?;
             atomic_write(&dir.join("save.json"), "first").map_err(|e|e.to_string())?;

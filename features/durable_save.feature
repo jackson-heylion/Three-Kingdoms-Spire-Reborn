@@ -21,3 +21,17 @@ Feature: Local save writes never expose half-copied backup generations
     And I block backup replacement with a directory
     And a second atomic save is refused
     Then the previous primary is intact and no staged files remain
+
+  Scenario: Failed autosave cannot consume a map choice or advance RNG
+    Given an isolated save directory
+    And a "guanyu" campaign with seed 96100
+    When I persist the campaign before a durable action
+    And I block backup replacement with a directory
+    And I attempt a durable map choice 1
+    Then the durable action is rejected as "战役存档失败"
+    And the snapshot is unchanged
+    And the on-disk campaign matches the snapshot
+    When I unblock backup replacement
+    And I retry the durable map choice 1
+    Then the campaign is in combat at revision 1
+    And the on-disk campaign matches the snapshot

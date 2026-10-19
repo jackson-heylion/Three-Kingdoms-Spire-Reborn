@@ -13,7 +13,7 @@ use three_kingdoms_spire_reborn::{
     content::{Hero, card_spec},
     items::potion_name,
     progression::Profile,
-    persistence::{SaveDirectoryLock, atomic_write, restore_primary_from_backup},
+    persistence::{SaveDirectoryLock, atomic_write, apply_durable_action, restore_primary_from_backup},
     challenges::ChallengeModifier,
 };
 
@@ -629,8 +629,10 @@ impl App {
                         .map(|target| Action::UsePotionAt { slot, target })),
                 };
                 action.and_then(|action| {
-                    let messages = self.game.as_mut().ok_or("请先输入 new 开局")?.apply(action)?;
-                    self.save()?;
+                    let path = save_path(&self.dir);
+                    let messages = apply_durable_action(
+                        self.game.as_mut().ok_or("请先输入 new 开局")?, action, &path
+                    )?;
                     self.track_action()?;
                     Ok(messages.join("\n"))
                 })
@@ -737,6 +739,39 @@ mod secondary_choice_cli_tests {
         assert!(!app.command("quit"), "a retried save should allow exit");
         fs::remove_dir_all(directory).unwrap();
     }
+    #[test]
+    fn failed_cli_action_save_keeps_original_session_and_can_retry_once() {
+        let directory = std::env::temp_dir().join(format!(
+            "tks-action-save-failure-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        let mut app = App {
+            game: Some(Game::new(Hero::GuanYu, 96102)),
+            profile: Profile::new(),
+            theme: Theme::Dark,
+            dir: directory.clone(),
+            use_ansi: false,
+            message: String::new(),
+        };
+        app.command("save");
+        let original = app.game.as_ref().unwrap().to_json().unwrap();
+        fs::create_dir(directory.join("save.bak")).unwrap();
+        app.command("choose 1");
+        assert!(app.message.contains("动作未提交"), "{}", app.message);
+        assert_eq!(app.game.as_ref().unwrap().to_json().unwrap(), original);
+        assert_eq!(fs::read_to_string(save_path(&directory)).unwrap(), original);
+        assert_eq!(app.profile.started, 0);
+        fs::remove_dir(directory.join("save.bak")).unwrap();
+        app.command("choose 1");
+        assert_eq!(app.game.as_ref().unwrap().revision, 1);
+        assert_eq!(app.game.as_ref().unwrap().stage, Stage::Combat);
+        assert_eq!(fs::read_to_string(save_path(&directory)).unwrap(),
+            app.game.as_ref().unwrap().to_json().unwrap());
+        fs::remove_dir_all(directory).unwrap();
+    }
+
     #[test]
     fn cli_secondary_choice_listing_is_read_only_and_uses_authoritative_order() {
         let mut game = Game::new(Hero::ZhugeLiang,983);

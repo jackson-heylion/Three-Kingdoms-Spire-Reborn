@@ -1,6 +1,7 @@
 //! Advisory single-writer session guard for terminal save directories.
 //! The lock file must NEVER be deleted on drop: unlinking a locked inode allows
 //! a second process to create a different inode and acquire an unrelated lock.
+use crate::{Action, Game};
 use std::{
     fs::{self, File, OpenOptions, TryLockError},
     io,
@@ -123,6 +124,18 @@ pub fn atomic_write(path: &Path, data: &str) -> io::Result<()> {
     sync_directory(directory)
 }
 
+/// Apply an action only after its next snapshot has reached the save path.
+/// A failed write must not advance the live game, revision, RNG or action history.
+/// Profile persistence is separate and is not part of this single-file guarantee.
+pub fn apply_durable_action(game: &mut Game, action: Action, path: &Path) -> Result<Vec<String>, String> {
+    let mut next = game.clone();
+    let messages = next.apply(action)?;
+    atomic_write(path, &next.to_json()?)
+        .map_err(|error| format!("战役存档失败，动作未提交：{error}"))?;
+    *game = next;
+    Ok(messages)
+}
+
 /// Restore already-validated backup bytes without rotating corrupted bytes to .bak.
 /// Caller quarantines the invalid primary as .corrupt before this operation.
 pub fn restore_primary_from_backup(path: &Path, verified_data: &str) -> io::Result<()> {
@@ -215,6 +228,41 @@ mod tests {
         assert!(fs::read_dir(&dir).unwrap().all(|entry| {
             !entry.unwrap().file_name().to_string_lossy().contains(".tmp.")
         }));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn failed_durable_action_preserves_live_game_rng_history_and_disk() {
+        let dir = directory();
+        let primary = dir.join("save.json");
+        let mut game = Game::new(crate::content::Hero::GuanYu, 96100);
+        let before = game.to_json().unwrap();
+        atomic_write(&primary, &before).unwrap();
+        fs::create_dir(dir.join("save.bak")).unwrap();
+        let error = apply_durable_action(&mut game, Action::Choose { index: 1 }, &primary)
+            .unwrap_err();
+        assert!(error.contains("战役存档失败"), "{error}");
+        assert_eq!(game.to_json().unwrap(), before);
+        assert_eq!(fs::read_to_string(&primary).unwrap(), before);
+        fs::remove_dir(dir.join("save.bak")).unwrap();
+        apply_durable_action(&mut game, Action::Choose { index: 1 }, &primary).unwrap();
+        assert_eq!(game.revision, 1);
+        assert_eq!(game.stage, crate::Stage::Combat);
+        assert_eq!(fs::read_to_string(&primary).unwrap(), game.to_json().unwrap());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn rejected_durable_action_does_not_touch_save_or_backup() {
+        let dir = directory();
+        let primary = dir.join("save.json");
+        let mut game = Game::new(crate::content::Hero::GuanYu, 96101);
+        let before = game.to_json().unwrap();
+        atomic_write(&primary, &before).unwrap();
+        assert!(apply_durable_action(&mut game, Action::Choose { index: 99 }, &primary).is_err());
+        assert_eq!(game.to_json().unwrap(), before);
+        assert_eq!(fs::read_to_string(&primary).unwrap(), before);
+        assert!(!dir.join("save.bak").exists());
         fs::remove_dir_all(dir).unwrap();
     }
 
