@@ -5,7 +5,7 @@
 use three_kingdoms_spire_reborn::{
     Action, BossMove, Card, Foe, Game, Intent, Node, Stage, content::{Hero, enemy_hp}, lore,
     combat::{EventKind, PowerId},
-    persistence::{SaveDirectoryLock, apply_and_persist, atomic_write, restore_primary_from_backup},
+    persistence::{SaveDirectoryLock, apply_and_persist, replace_run_and_persist, atomic_write, restore_primary_from_backup},
 };
 
 #[derive(Default)]
@@ -45,6 +45,32 @@ impl World {
             let dir = self.lock_dir.as_ref().ok_or("missing isolated save directory")?;
             atomic_write(&dir.join("save.json"), &self.game()?.to_json()?)
                 .map_err(|error| error.to_string())?;
+        } else if step == "I attempt a persisted new campaign while disk write is blocked" {
+            let path = self.lock_dir.as_ref().ok_or("missing isolated save directory")?
+                .join("save.json");
+            self.error = replace_run_and_persist(
+                &mut self.game,
+                Game::new(Hero::CaoCao, 96114),
+                |candidate| atomic_write(&path, &candidate.to_json()?)
+                    .map_err(|error| error.to_string()),
+            ).err();
+            if self.error.is_none() {
+                return Err("replaced the campaign despite a failed save".into());
+            }
+        } else if step == "I retry the persisted new campaign" {
+            let path = self.lock_dir.as_ref().ok_or("missing isolated save directory")?
+                .join("save.json");
+            replace_run_and_persist(
+                &mut self.game,
+                Game::new(Hero::CaoCao, 96114),
+                |candidate| atomic_write(&path, &candidate.to_json()?)
+                    .map_err(|error| error.to_string()),
+            )?;
+            self.error = None;
+        } else if step == "the replacement campaign seed is 96114" {
+            if self.game()?.seed != 96114 {
+                return Err("new campaign not committed after successful retry".into());
+            }
         } else if step == "I attempt a persisted choice while disk write is blocked" {
             let path = self.lock_dir.as_ref().ok_or("missing isolated save directory")?
                 .join("save.json");
