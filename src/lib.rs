@@ -8,6 +8,7 @@ pub mod items;
 pub mod lore;
 pub mod map;
 pub mod progression;
+pub mod persistence;
 
 use combat::{CombatEvent, EventKind, MAX_RECENT_EVENTS, PowerId, PowerStack};
 use challenges::ChallengeModifier;

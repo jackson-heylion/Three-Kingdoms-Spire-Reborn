@@ -5,6 +5,7 @@
 use three_kingdoms_spire_reborn::{
     Action, BossMove, Card, Foe, Game, Intent, Node, Stage, content::{Hero, enemy_hp}, lore,
     combat::{EventKind, PowerId},
+    persistence::SaveDirectoryLock,
 };
 
 #[derive(Default)]
@@ -15,6 +16,8 @@ struct World {
     foe_hp: Option<i32>,
     counter_gold: Option<i32>,
     event_cursor: Option<u64>,
+    lock_dir: Option<std::path::PathBuf>,
+    save_lock: Option<SaveDirectoryLock>,
 }
 
 fn quoted(step: &str) -> Result<&str, String> {
@@ -31,7 +34,34 @@ impl World {
         self.game.as_mut().ok_or_else(|| "missing initial Given campaign".into())
     }
     fn assert_case(&mut self, step: &str) -> Result<(), String> {
-        if let Some(prefix) = step.strip_prefix("a \"") {
+        if step == "an isolated save directory" {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|e| e.to_string())?.as_nanos();
+            self.lock_dir = Some(std::env::temp_dir().join(format!(
+                "tks-bdd-single-writer-{}-{nanos}", std::process::id()
+            )));
+        } else if step == "I start a writer in that directory" {
+            let dir = self.lock_dir.as_ref().ok_or("missing isolated save directory")?;
+            self.save_lock = Some(SaveDirectoryLock::acquire(dir).map_err(|e| e.to_string())?);
+        } else if step == "another writer is refused without modifying the save" {
+            let dir = self.lock_dir.as_ref().ok_or("missing isolated save directory")?;
+            let before = std::fs::read(dir.join("save.json")).ok();
+            let error = SaveDirectoryLock::acquire(dir).err()
+                .ok_or("second writer unexpectedly acquired live save directory")?;
+            if error.kind() != std::io::ErrorKind::WouldBlock {
+                return Err(format!("wrong lock error: {error}"));
+            }
+            if std::fs::read(dir.join("save.json")).ok() != before {
+                return Err("lock rejection changed the save".into());
+            }
+        } else if step == "I close the first writer" {
+            self.save_lock = None;
+        } else if step == "a new writer can take the same directory lock" {
+            let dir = self.lock_dir.as_ref().ok_or("missing isolated save directory")?;
+            let guard = SaveDirectoryLock::acquire(dir).map_err(|e| e.to_string())?;
+            drop(guard);
+        } else if let Some(prefix) = step.strip_prefix("a \"") {
             let hero = prefix.split('"').next().ok_or("missing hero")?;
             let seed: u64 = step.split("with seed ").nth(1).ok_or("missing seed")?
                 .parse().map_err(|_| "bad seed")?;
@@ -681,6 +711,15 @@ impl World {
             return Err(format!("UNIMPLEMENTED BDD STEP: {step}"));
         }
         Ok(())
+    }
+}
+
+impl Drop for World {
+    fn drop(&mut self) {
+        self.save_lock = None;
+        if let Some(dir) = self.lock_dir.as_ref() {
+            let _ = std::fs::remove_dir_all(dir);
+        }
     }
 }
 
