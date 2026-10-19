@@ -129,3 +129,5 @@ TUI 菜单增加 TTY 宽度检测及 Unicode 列宽裁剪；冒号命令补 UTF-
 - 新 CLI 战役先携带 `profile_start_receipt` 提交到 `save.json`，再通过战功簿中持久化的 `started_run_ids` 按 `run_id` 唯一补记开始次数。若出征已入盘但战功簿写入失败，重启/手动再次 load 会尝试补齐；重复载入不得增加两次 `started` 或重复解锁首次出征。
 - 未带凭证的旧 V2 存档只按旧规则读取，不推断是否已统计，以免重复记账。核心 `verify_action_replay` 对新元数据采取非战斗状态继承，保证动作流、地图和 RNG 仍可重放。
 - 验证包含 Rust `Profile` 幂等/序列化测试、CLI 文件故障注入重启单测、严格 BDD `features/profile_reconciliation.feature`，以 PR 最终 HEAD 的 macOS/Linux CI 为准。尚欠其它跨文件事务、结局统计灾难恢复、统一事件栈、全量流派、120回逐回审校、全面双语/无障碍、真人 QA，完整P1保持未完成。
+
+同轮防丢档补强：CLI 启动加载战功簿不再吞掉坏 JSON/版本错误而直接使用空档。若 `chronicle.bak` 完整且通过 `Profile::from_json` 则原子恢复、隔离 `.corrupt`；主备均坏时明确拒绝启动（退出码2），而不是让后续自动写盘擦掉成就。包含 Rust 单测，**以 PR 最新双平台 CI 为准**；旧数据之外的恢复能力不予夸大。
