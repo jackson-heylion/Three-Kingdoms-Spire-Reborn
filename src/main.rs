@@ -86,8 +86,8 @@ impl App {
                     let desired = self.profile.to_json();
                     match desired {
                         Err(error) => format!("；战功序列化失败：{error}"),
-                        Ok(json) if fs::read_to_string(profile_path(&self.dir)).as_deref()
-                            == Ok(json.as_str()) => String::new(),
+                        Ok(json) if fs::read_to_string(profile_path(&self.dir)).ok().as_deref()
+                            == Some(json.as_str()) => String::new(),
                         Ok(_) => match self.save_profile() {
                             Ok(()) if new_start => "；已补记此前未落盘的出征战功".into(),
                             Ok(()) => "；已同步此前未落盘的战功簿".into(),
@@ -910,5 +910,99 @@ mod secondary_choice_cli_tests {
         assert!(app.command("selections 0"));
         assert!(app.message.starts_with("错误："));
         assert_eq!(app.game.as_ref().unwrap().to_json().unwrap(),before);
+    }
+}
+
+#[cfg(test)]
+mod profile_reconciliation_tests {
+    use super::*;
+    use three_kingdoms_spire_reborn::content::Hero;
+
+    fn isolated_dir() -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "tks-profile-reconcile-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos(),
+        ))
+    }
+
+    fn unloaded_app(dir: &std::path::Path) -> App {
+        let profile = Profile::from_json(
+            &fs::read_to_string(profile_path(dir)).unwrap(),
+        ).unwrap();
+        App {
+            game: None, profile, theme: Theme::Dark,
+            dir: dir.to_owned(), use_ansi: false, message: String::new(),
+        }
+    }
+
+    #[test]
+    fn restart_reconciles_committed_start_after_chronicle_failure_only_once() {
+        let dir = isolated_dir();
+        fs::create_dir_all(&dir).unwrap();
+        let mut app = App {
+            game: Some(Game::new(Hero::GuanYu, 96150)),
+            profile: Profile::new(), theme: Theme::Dark,
+            dir: dir.clone(), use_ansi: false, message: String::new(),
+        };
+        app.save().unwrap();
+        app.save_profile().unwrap();
+        let pre_start_profile = fs::read_to_string(profile_path(&dir)).unwrap();
+
+        // Simulate save.json committing, followed by chronicle.json failure.
+        fs::remove_file(profile_path(&dir)).unwrap();
+        fs::create_dir(profile_path(&dir)).unwrap();
+        assert!(app.command("new cao 96151"));
+        assert!(app.message.contains("战功簿写入失败"), "{}", app.message);
+        assert_eq!(app.profile.started, 1);
+        let committed = Game::from_json(
+            &fs::read_to_string(save_path(&dir)).unwrap(),
+        ).unwrap();
+        assert!(committed.profile_start_receipt);
+        assert!(!committed.run_id.is_empty());
+        assert!(committed.verify_action_replay().is_ok());
+
+        // Pretend the process crashed: memory-only chronicle changes are lost.
+        fs::remove_dir(profile_path(&dir)).unwrap();
+        fs::write(profile_path(&dir), pre_start_profile).unwrap();
+        let mut restarted = unloaded_app(&dir);
+        restarted.load().unwrap();
+        assert!(restarted.message.contains("已补记"), "{}", restarted.message);
+        assert_eq!(restarted.profile.started, 1);
+        assert!(restarted.profile.achievements.contains("first_step"));
+        assert!(restarted.profile.started_run_ids.contains(&committed.run_id));
+        assert_eq!(Profile::from_json(
+            &fs::read_to_string(profile_path(&dir)).unwrap()
+        ).unwrap().started, 1);
+        restarted.load().unwrap();
+        assert_eq!(restarted.profile.started, 1);
+
+        let mut second_restart = unloaded_app(&dir);
+        second_restart.load().unwrap();
+        assert_eq!(second_restart.profile.started, 1);
+        assert!(second_restart.game.as_ref().unwrap().verify_action_replay().is_ok());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn legacy_v2_run_does_not_recount_a_previously_recorded_start() {
+        let dir = isolated_dir();
+        fs::create_dir_all(&dir).unwrap();
+        let legacy = Game::new_with_identity(
+            Hero::LuBu, 96152, 0, RunMode::Standard, "old-cli-run".into(),
+        );
+        let mut profile = Profile::new();
+        profile.on_start(&legacy);
+        atomic_write(&save_path(&dir), &legacy.to_json().unwrap()).unwrap();
+        let mut profile_document: serde_json::Value =
+            serde_json::from_str(&profile.to_json().unwrap()).unwrap();
+        profile_document.as_object_mut().unwrap().remove("started_run_ids");
+        fs::write(profile_path(&dir), profile_document.to_string()).unwrap();
+        let mut app = unloaded_app(&dir);
+        app.load().unwrap();
+        assert_eq!(app.profile.started, 1);
+        assert!(app.profile.started_run_ids.is_empty());
+        assert!(!app.game.as_ref().unwrap().profile_start_receipt);
+        fs::remove_dir_all(dir).unwrap();
     }
 }
