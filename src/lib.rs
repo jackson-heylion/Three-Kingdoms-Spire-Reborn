@@ -494,12 +494,11 @@ impl Game {
         }
         if let Some(b) = &self.battle {
             if !b.reactions.valid() {return Err("invalid listener stack".into());}
-            if let Some(history)=&self.event_history {
-                if b.event_seq>0 && history.last().is_none_or(|e|
+            if self.event_history.as_ref().is_some_and(|history|
+                b.event_seq>0 && history.last().is_none_or(|e|
                     e.encounter!=self.telemetry.totals.battles_started
-                    || e.event.seq!=b.event_seq)
-                    {return Err("current battle and event archive disagree".into());}
-            }
+                    || e.event.seq!=b.event_seq))
+            {return Err("current battle and event archive disagree".into());}
             for c in b.draw.iter().chain(b.hand.iter()).chain(b.discard.iter()).chain(b.exhausted.iter()) {
                 if card_spec(&c.id).is_none() { return Err(format!("未知战斗卡牌: {}", c.id)); }
             }
