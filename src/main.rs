@@ -294,7 +294,7 @@ impl App {
         };
         let result: Result<String, String> = match args[0].to_ascii_lowercase().as_str() {
             "quit" | "exit" | "q" => { let _ = self.save(); return false; }
-            "help" | "h" => Ok("new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 在出征前指定三幕变体；daily YYYY-MM-DD；load/save；choose N；play N [目标]；discard N 弃换；end；use [药剂号] [目标]（火/毒指定存活目标，弱化影响全体） ；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看路径与评分；inventory 背包；achievements 成就；codex 图鉴；relics；lore 看纪事；bonds 看人物羁绊；chapter 1-120 回目索引；powers 持续能力；events 最近战斗结算；metrics 战役统计；verify 回放检验；history 最近操作；doctrine 查看流派 / doctrine auto|代码 选择；chronicle；timeline 战功时间线；modifier 查看挑战 / modifier 代码 on|off；theme dark|light|highcontrast；status；quit。".into()),
+            "help" | "h" => Ok("new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 在出征前指定三幕变体；daily YYYY-MM-DD；load/save；choose N；play N [目标]；discard N 弃换；end；use [药剂号] [目标]（火/毒指定存活目标，弱化影响全体） ；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看路径与评分；inventory 背包；achievements 成就；codex 图鉴；relics；lore 看纪事；bonds 看人物羁绊；chapter 1-120 回目索引；powers 持续能力；events [游标] [条数1-80] 分页审计当前战斗事件；metrics 战役统计；verify 回放检验；history 最近操作；doctrine 查看流派 / doctrine auto|代码 选择；chronicle；timeline 战功时间线；modifier 查看挑战 / modifier 代码 on|off；theme dark|light|highcontrast；status；quit。".into()),
             "new" | "custom" => {
                 let mode = if args[0] == "custom" {RunMode::Custom} else {RunMode::Standard};
                 let hero = args.get(1).and_then(|s| Hero::parse(s)).unwrap_or(Hero::GuanYu);
@@ -527,14 +527,52 @@ impl App {
                     c.sun_discards,c.sun_discard_block,c.sun_combo_procs,c.sun_combo_block,
                     c.sun_combo_draws,if recent.is_empty(){"暂无回合记录"}else{&recent})
             })),
-            "events" => Ok(self.game.as_ref().and_then(|g|g.battle.as_ref())
-                .map_or("当前没有可用的战斗事件记录。".into(),|b| {
-                    if b.events.is_empty() { "尚无事件记录。".into() }
-                    else { b.events.iter().rev().take(30).rev().map(|e|
-                        format!("#{} {:?} 来源:{} 结算:{} 目标:{}",
-                            e.seq,e.kind,e.source,e.amount,e.target.as_deref().unwrap_or("-")))
-                        .collect::<Vec<_>>().join("\n") }
-                })),
+            "events" => (|| -> Result<String, String> {
+                if args.len() > 3 {
+                    return Err("用法：events [游标] [条数1-80]".into());
+                }
+                let cursor = args.get(1).map(|value| value.parse::<u64>()
+                    .map_err(|_| "事件游标必须为非负整数".to_owned())).transpose()?;
+                let limit = args.get(2).map(|value| value.parse::<usize>()
+                    .map_err(|_| "条数必须为1-80".to_owned())).transpose()?.unwrap_or(30);
+                if !(1..=three_kingdoms_spire_reborn::combat::MAX_RECENT_EVENTS).contains(&limit) {
+                    return Err("条数必须为1-80".into());
+                }
+                let Some((floor, b)) = self.game.as_ref()
+                    .and_then(|g| g.battle.as_ref().map(|battle| (g.floor, battle))) else {
+                    return Ok("当前没有可用的战斗事件记录。".into());
+                };
+                // With no cursor, preserve the previous latest-30 default.
+                let after = cursor.unwrap_or_else(|| {
+                    if b.events.len() > limit { b.events[b.events.len() - limit - 1].seq }
+                    else { 0 }
+                });
+                let page = b.events_after(after, limit);
+                let mut lines = vec![format!(
+                    "第{floor}层当前战斗事件：最早保留#{}，最新#{}（最多保留80条；游标仅限本场战斗）",
+                    page.oldest_available, page.latest
+                )];
+                if page.reset {
+                    lines.push("警告：游标超过当前战斗最新序号，可能已经进入新战斗；请从0重新查询。".into());
+                }
+                if page.missed > 0 {
+                    lines.push(format!("警告：游标之后已有{}条事件被裁剪，无法补读。", page.missed));
+                } else if cursor.is_none() && page.oldest_available > 1 {
+                    lines.push("提示：更早的事件已从内存与存档中裁剪。".into());
+                }
+                if page.entries.is_empty() {
+                    lines.push("此游标之后没有可读取的事件。".into());
+                } else {
+                    lines.extend(page.entries.iter().map(|event| format!(
+                        "#{} {:?} 来源:{} 结算:{} 目标:{}",
+                        event.seq, event.kind, event.source, event.amount,
+                        event.target.as_deref().unwrap_or("-")
+                    )));
+                }
+                lines.push(format!("下一游标：{}；{}",
+                    page.next_cursor, if page.has_more { "仍有后续事件" } else { "已到当前末尾" }));
+                Ok(lines.join("\n"))
+            })(),
             "relics" => Ok(self.game.as_ref().map_or("尚未开局".into(), |g| {
                 g.relics.iter().map(|r| format!("{}：{}",r, three_kingdoms_spire_reborn::items::relic_name(r))).collect::<Vec<_>>().join("\n")
             })),

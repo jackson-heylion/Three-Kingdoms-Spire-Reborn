@@ -83,3 +83,21 @@ pub struct CombatEvent {
     pub target: Option<String>,
 }
 pub const MAX_RECENT_EVENTS: usize = 80;
+
+ 
+/// Read-only, battle-scoped view of the bounded combat journal.
+/// Cursors are event sequence numbers, not a persistent cross-battle event stream.
+#[derive(Debug)]
+pub struct EventPage<'a> {
+    pub entries: &'a [CombatEvent],
+    /// Earliest sequence still retained (latest + 1 when the journal is empty).
+    pub oldest_available: u64,
+    pub latest: u64,
+    /// Number of events already evicted before the requested cursor.
+    pub missed: u64,
+    /// Resume with this value to avoid repeating events on the next poll.
+    pub next_cursor: u64,
+    pub has_more: bool,
+    /// Cursor belongs to a later point than this battle's current sequence.
+    pub reset: bool,
+}

@@ -84,3 +84,13 @@ Feature: Advanced deterministic combat reactions and card lifecycle
     Then the simultaneous lethal counterattack is a loss
     When I save and restore
     Then the simultaneous lethal counterattack is a loss
+
+  Scenario: Battle event cursor polls exactly once and survives save restore
+    Given a "guanyu" campaign with seed 93249
+    When I start a battle
+    And I remember the latest combat event cursor
+    And I end turn
+    Then the combat event cursor returns only newer events
+    When I save and restore
+    Then the combat event cursor returns only newer events
+    And an overlarge event cursor signals reset
