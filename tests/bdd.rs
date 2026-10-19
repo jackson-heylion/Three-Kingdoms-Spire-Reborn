@@ -5,6 +5,7 @@
 use three_kingdoms_spire_reborn::{
     Action, BossMove, Card, Foe, Game, Intent, Node, Stage, content::{Hero, enemy_hp}, lore,
     combat::{EventKind, PowerId},
+    progression::Profile,
     persistence::{SaveDirectoryLock, apply_and_persist, replace_run_and_persist, atomic_write, restore_primary_from_backup},
 };
 
@@ -18,6 +19,7 @@ struct World {
     event_cursor: Option<u64>,
     lock_dir: Option<std::path::PathBuf>,
     save_lock: Option<SaveDirectoryLock>,
+    profile: Option<Profile>,
 }
 
 fn quoted(step: &str) -> Result<&str, String> {
@@ -41,6 +43,31 @@ impl World {
             self.lock_dir = Some(std::env::temp_dir().join(format!(
                 "tks-bdd-single-writer-{}-{nanos}", std::process::id()
             )));
+        } else if step == "I assign a recoverable start receipt" {
+            let game = self.game_mut()?;
+            game.run_id = "bdd-recovered-run".into();
+            game.profile_start_receipt = true;
+            self.profile = Some(Profile::new());
+        } else if step == "I reconcile the campaign from its saved snapshot" {
+            let snapshot = self.game()?.to_json()?;
+            let game = Game::from_json(&snapshot)?;
+            self.profile.get_or_insert_with(Profile::new).on_start_once(&game)?;
+            self.game = Some(game);
+        } else if step == "I reload and reconcile the same receipt" {
+            let profile = self.profile.as_ref().ok_or("missing chronicle")?.to_json()?;
+            self.profile = Some(Profile::from_json(&profile)?);
+            let snapshot = self.game()?.to_json()?;
+            let game = Game::from_json(&snapshot)?;
+            self.profile.as_mut().ok_or("missing chronicle")?.on_start_once(&game)?;
+        } else if step == "exactly one campaign start is recorded" {
+            let profile = self.profile.as_ref().ok_or("missing chronicle")?;
+            let game = self.game()?;
+            if profile.started != 1
+                || !profile.started_run_ids.contains(&game.run_id)
+                || !profile.achievements.contains("first_step")
+            {
+                return Err("recoverable campaign was not counted exactly once".into());
+            }
         } else if step == "I write the initial campaign snapshot" {
             let dir = self.lock_dir.as_ref().ok_or("missing isolated save directory")?;
             atomic_write(&dir.join("save.json"), &self.game()?.to_json()?)
@@ -195,6 +222,7 @@ impl World {
             self.foe_hp = None;
             self.counter_gold = None;
             self.event_cursor = None;
+            self.profile = None;
         } else if step.starts_with("the lore scene \"") {
             let id = quoted(step)?;
             if lore::beat(id).is_none() { return Err(format!("unknown lore beat: {id}")); }
