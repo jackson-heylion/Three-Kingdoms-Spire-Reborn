@@ -1,7 +1,7 @@
 //! Optional full-keyboard terminal menu for macOS/Linux without platform crates.
 //! Raw mode is scoped by RAII, and the existing plain line CLI remains supported.
 use super::{App, Stage, Card, card_label, card_spec, hud, potion_name};
-use three_kingdoms_spire_reborn::challenges::ChallengeModifier;
+use three_kingdoms_spire_reborn::{challenges::ChallengeModifier, content::Effect};
 use unicode_width::UnicodeWidthChar;
 #[cfg(test)] use unicode_width::UnicodeWidthStr;
 use std::{fs::File,io::{self, Read, Write, IsTerminal},process::{Command,Stdio}};
@@ -46,8 +46,14 @@ pub(super) fn choices(app:&App,target:usize)->Vec<(String,String)> {
         Stage::Combat=>{
             let mut options=game.battle.as_ref().map_or(vec![],|b|
                 b.hand.iter().enumerate()
-                    .map(|(index,card)|(combat_card_label(card,b.energy),
-                        format!("play {} {target}",index+1))).collect::<Vec<_>>());
+                    .map(|(index,card)| {
+                        let mut label = combat_card_label(card,b.energy);
+                        if card_spec(&card.id).is_some_and(|spec|
+                            matches!(spec.effect, Effect::TutorAttack | Effect::CopyDiscard)) {
+                            label.push_str(" ·回车选取副牌");
+                        }
+                        (label,format!("play {} {target}",index+1))
+                    }).collect::<Vec<_>>());
             options.push(("结束本回合".into(),"end".into()));
             for (index,potion) in game.potion_bag.iter().enumerate() {
                 let scope = match potion.as_str() {
@@ -103,6 +109,35 @@ pub(super) fn choices(app:&App,target:usize)->Vec<(String,String)> {
         ],
     }
 }
+/// Only keyboard menu selections open the picker. Explicit ':' commands keep their
+/// original syntax and do not create hidden modal state.
+fn selected_hand(app: &App, command: &str) -> Option<usize> {
+    let mut args = command.split_whitespace();
+    if args.next()? != "play" { return None; }
+    let index = args.next()?.parse::<usize>().ok()?;
+    app.game.as_ref()?.secondary_choices(index).ok()??;
+    Some(index)
+}
+
+fn secondary_menu(app: &App, hand_number: usize, target: usize) -> Vec<(String, String)> {
+    let mut menu = Vec::new();
+    if let Some(candidates) = app.game.as_ref()
+        .and_then(|g| g.secondary_choices(hand_number).ok().flatten()) {
+        for (number, card) in &candidates {
+            menu.push((format!("牌堆第{number}张：{}", card_label(card)),
+                format!("play {hand_number} {target} {number}")));
+        }
+        if !candidates.is_empty() {
+            menu.push(("自动选取第一张合法牌".into(),
+                format!("play {hand_number} {target}")));
+        } else {
+            menu.push(("牌堆里暂无符合条件的牌".into(), "@cancel".into()));
+        }
+    }
+    menu.push(("取消选牌（不打出、不耗军令）".into(), "@cancel".into()));
+    menu
+}
+
 fn combat_card_label(card:&Card,energy:i32)->String {
     let Some(spec)=card_spec(&card.id) else {return card_label(card)};
     let cost=if spec.cost==-1 {"X".to_string()}
@@ -188,8 +223,13 @@ pub(super) fn run(app:&mut App)->Result<(),String> {
     let _raw=RawTerminal::new().map_err(|e|format!("无法启用键盘操作: {e}"))?;
     let mut cursor=0usize;
     let mut target=1usize;
+    let mut selecting_card: Option<usize> = None;
     loop {
-        let options=choices(app,target);
+        let options = if let Some(index) = selecting_card {
+            secondary_menu(app,index,target)
+        } else {
+            choices(app,target)
+        };
         if options.is_empty() {cursor=0;}
         else {cursor=cursor.min(options.len()-1);}
         let (rows,columns)=terminal_size();
@@ -229,7 +269,20 @@ pub(super) fn run(app:&mut App)->Result<(),String> {
             _=>None,
         };
         if let Some(command)=decision {
+            if command == "@cancel" {
+                selecting_card = None;
+                cursor = 0;
+                continue;
+            }
+            if selecting_card.is_none() {
+                if let Some(index) = selected_hand(app,&command) {
+                    selecting_card = Some(index);
+                    cursor = 0;
+                    continue;
+                }
+            }
             if !app.command(&command) {return Ok(());}
+            selecting_card = None;
             // Menu choices depend on the committed stage; avoid retaining stale selection.
             cursor=0;
             if !matches!(app.game.as_ref().map(|g|g.stage),Some(Stage::Combat)) {target=1;}
@@ -255,6 +308,28 @@ mod tests {
             label.contains("购入牌组") && label.contains("火攻")
                 && command == "choose 1"));
     }
+    #[test]
+    fn secondary_keyboard_menu_uses_top_first_numbers_and_can_cancel_without_mutation() {
+        let mut game = Game::new(Hero::ZhugeLiang, 983);
+        game.apply(three_kingdoms_spire_reborn::Action::Choose { index: 1 }).unwrap();
+        {
+            let battle = game.battle.as_mut().unwrap();
+            battle.hand = vec![Card::new("xingpan_tutor")];
+            battle.draw = vec![Card::new("defend"), Card::new("strike"), Card::new("qinglong")];
+        }
+        let before = game.to_json().unwrap();
+        let app = app(Some(game));
+        let command = "play 1 2";
+        assert_eq!(selected_hand(&app,command), Some(1));
+        let menu = secondary_menu(&app,1,2);
+        assert_eq!(menu[0].1, "play 1 2 1");
+        assert_eq!(menu[1].1, "play 1 2 2");
+        assert!(menu.iter().all(|(_,command)|command != "play 1 2 3"));
+        assert!(menu.iter().any(|(_,command)|command == "@cancel"));
+        assert!(menu.iter().any(|(_,command)|command == "play 1 2"));
+        assert_eq!(app.game.as_ref().unwrap().to_json().unwrap(),before);
+    }
+
     #[test]
     fn keyboard_menu_is_stage_aware_and_targeted() {
         let no_game=app(None);
