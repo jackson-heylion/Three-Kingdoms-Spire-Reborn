@@ -133,6 +133,35 @@ jobs:
           print('CLI mid-combat save/theme/resume smoke test passed')
           PY
 
+      - name: CLI atomic backup and corrupt-primary restore (both platforms)
+        shell: bash
+        run: |
+          DIR="$RUNNER_TEMP/tks-durable-restore"
+          printf 'new guanyu 55555\nchoose 1\nquit\n' | target/release/tks --plain --save-dir "$DIR" > "$RUNNER_TEMP/durable-before.log"
+          python3 - <<'PY'
+          import json, os, pathlib
+          directory = pathlib.Path(os.environ["RUNNER_TEMP"]) / "tks-durable-restore"
+          primary = json.loads((directory / "save.json").read_text())
+          backup = json.loads((directory / "save.bak").read_text())
+          assert primary["revision"] == 1 and backup["revision"] == 1  # quit saves once more
+          assert primary["seed"] == backup["seed"] == 55555
+          (directory / "save.json").write_text("{damaged")
+          PY
+          printf 'verify\nquit\n' | target/release/tks --plain --save-dir "$DIR" > "$RUNNER_TEMP/durable-after.log"
+          python3 - <<'PY'
+          import json, os, pathlib
+          directory = pathlib.Path(os.environ["RUNNER_TEMP"]) / "tks-durable-restore"
+          primary = json.loads((directory / "save.json").read_text())
+          backup = json.loads((directory / "save.bak").read_text())
+          assert primary["revision"] == 1 and backup["revision"] == 1
+          assert (directory / "save.corrupt").read_text() == "{damaged"
+          assert primary["seed"] == backup["seed"] == 55555
+          assert not list(directory.glob("*.tmp.*")), "staging files must not leak"
+          output = (pathlib.Path(os.environ["RUNNER_TEMP"]) / "durable-after.log").read_text()
+          assert "已从上一次有效" in output and "回放校验" in output
+          print("CLI validated backup restored atomically on this runner")
+          PY
+
       - name: CLI potion status and trigger smoke test
         shell: bash
         run: |

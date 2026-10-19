@@ -121,3 +121,10 @@
 - CLI `selections N` 在 `--plain` 中输出相同编号，可按 `play N TARGET SELECTION` 明确选牌；菜单的 UI 状态不进入 V2 快照，正式行动仍经 `Game::apply` 和动作回放。
 - Rust 核心/CLI/TUI/HUD 单测、严格 Gherkin 和 macOS/Linux 真实 CLI 进程覆盖编号一致、非攻击牌过滤、拒绝非法选择原子性、菜单取消及持久化回归；PR #17 的 [GitHub Actions #39183685163](https://github.com/jackson-heylion/Three-Kingdoms-Spire-Reborn/actions/runs/39183685163) 已在 macOS 14、Ubuntu 完成通过，并通过跨平台平衡报告字节级比较；**尚无真人 TTY 无障碍验收**。
 - 本项只完善现有两类检索/复制的可操作性；没有完成随机卡池平衡、复杂选择中断/敌方反制、动态事件栈、全职业成熟流派、真人 TTY/无障碍/中英双语及1.0验收。
+
+## 2026-10-19 P1 单文件存档与备份崩溃一致性（本 PR 待 macOS/Linux CI）
+
+- 原 CLI 写盘代码直接复制旧主文件到 .bak（可能在复制中断时留下半个备份），也未同步临时文件。现迁移到 src/persistence.rs：独占创建同目录临时文件，write_all + sync_all 后 rename；旧版本备份亦采用临时文件完整写入与 rename，Unix 平台同步父目录。
+- 新主版本写入前先稳定落盘上一版本备份。备份旋转失败则主文件不变并清理本轮临时文件。坏档恢复复用已由 Game::from_json 成功解析的备份原文字节，在隔离 .corrupt 后原子恢复主文件，不以坏档覆盖有效 .bak。
+- 新增 3 条 Rust 单测（多代主档/备份、不可替换备份失败、恢复保留备份）、3 条严格 Gherkin BDD，以及 macOS/Linux GitHub Actions 真实 CLI 恢复进程验证。需等 PR 双平台 CI 完成后才算机器验证通过。
+- 限制：仅覆盖遵守单写者锁约定的**单文件本地 POSIX 写入原子性与同步**；三个 JSON 文件之间尚非跨文件事务，不能承诺断电后所有磁盘控制器缓存、网络盘、外部非合作写入安全，也不保证 save 失败后内存行动自动回滚。真人终端测试、120回正文审校、完整国际化和全部职业/事件栈等 P1 阻断继续未验收，不得发布正式 1.0。
