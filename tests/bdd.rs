@@ -220,6 +220,28 @@ impl World {
                 *node == three_kingdoms_spire_reborn::Node::Battle)
                 .ok_or("first map has no combat")? + 1;
             game.apply(Action::Choose { index })?;
+        } else if step.starts_with("the last card offers secondary choice ") {
+            let suffix = parse_after(step,"the last card offers secondary choice ")?;
+            let number = suffix.split_whitespace().next().ok_or("missing choice number")?
+                .parse::<usize>().map_err(|_|"bad choice number")?;
+            let id = quoted(step)?;
+            let game = self.game()?;
+            let hand_number = game.battle.as_ref().ok_or("not in combat")?.hand.len();
+            let choices = game.secondary_choices(hand_number)?
+                .ok_or("hand card has no secondary choices")?;
+            if !choices.iter().any(|(n,card)| *n==number && card.id==id) {
+                return Err(format!("choice {number} {id} missing: {choices:?}"));
+            }
+        } else if step.starts_with("the last card excludes secondary choice ") {
+            let number = parse_after(step,"the last card excludes secondary choice ")?
+                .parse::<usize>().map_err(|_|"bad excluded choice number")?;
+            let game = self.game()?;
+            let hand_number = game.battle.as_ref().ok_or("not in combat")?.hand.len();
+            let choices = game.secondary_choices(hand_number)?
+                .ok_or("hand card has no secondary choices")?;
+            if choices.iter().any(|(n,_)|*n==number) {
+                return Err(format!("choice {number} should be filtered: {choices:?}"));
+            }
         } else if step.starts_with("I deploy boss \"") {
             let id = quoted(step)?;
             let (floor, branch) = match id {
