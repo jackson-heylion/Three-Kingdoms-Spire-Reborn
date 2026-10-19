@@ -4523,4 +4523,34 @@ mod p1_event_cursor_tests {
         assert!(page.missed > 0);
         assert!(!page.reset);
     }
+    #[test]
+    fn all_enemy_ids_have_a_serializable_first_turn_for_all_five_classes() {
+        let heroes=[Hero::GuanYu,Hero::ZhugeLiang,Hero::SunShangxiang,Hero::CaoCao,Hero::LuBu];
+        let mut covered=0;
+        for hero in heroes {
+            for id in content::ENEMY_IDS {
+                let mut g=Game::new(hero,951);
+                g.apply(Action::Choose{index:1}).unwrap();
+                let health=enemy_hp(id);
+                {
+                    let b=g.battle.as_mut().unwrap();
+                    b.foes[0].id=(*id).into();
+                    b.foes[0].hp=health;
+                    b.foes[0].max_hp=health;
+                    b.foes[0].block=0;
+                    b.foes[0].phase=0;
+                    b.foes.truncate(1);
+                }
+                g.roll_intents();
+                g.apply(Action::EndTurn).unwrap_or_else(|err|
+                    panic!("enemy {id} failed hero {}: {err}",hero.name()));
+                let saved=g.to_json().unwrap();
+                assert_eq!(Game::from_json(&saved).unwrap().to_json().unwrap(),saved,
+                    "enemy {id} hero {}",hero.name());
+                covered+=1;
+            }
+        }
+        assert_eq!(covered,31*5);
+    }
+
 }
