@@ -26,6 +26,38 @@ jobs:
       - name: Release build
         run: cargo build --release
 
+      - name: CLI market card purchase and resume (both platforms)
+        shell: bash
+        run: |
+          SAVEDIR="$RUNNER_TEMP/tks-market-purchase"
+          printf 'new guanyu 93404\nquit\n' | cargo run --quiet -- --plain --save-dir "$SAVEDIR" > "$RUNNER_TEMP/tks-market-setup.log"
+          python3 - <<'PY'
+          import json, os, pathlib
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'tks-market-purchase' / 'save.json'
+          game = json.loads(path.read_text())
+          game['stage'] = 'market'
+          game['last_node'] = 'market'
+          game['gold'] = 90
+          game['market'] = [{'id':'huogong','upgraded':False,'enchantment':None,
+                             'quest_progress':0,'temporary':False}]
+          path.write_text(json.dumps(game, ensure_ascii=False))
+          PY
+          printf 'choose 1\ndeck\nquit\n' | cargo run --quiet -- --plain --save-dir "$SAVEDIR" > "$RUNNER_TEMP/tks-market-bought.log"
+          printf 'deck\nchoose 1\nquit\n' | cargo run --quiet -- --plain --save-dir "$SAVEDIR" > "$RUNNER_TEMP/tks-market-resume.log"
+          python3 - <<'PY'
+          import json, os, pathlib
+          base = pathlib.Path(os.environ['RUNNER_TEMP'])
+          game = json.loads((base / 'tks-market-purchase' / 'save.json').read_text())
+          assert game['gold'] == 45 and game['market'] == [], game
+          assert sum(card['id'] == 'huogong' for card in game['deck']) == 1
+          assert game['revision'] == 1, game['revision']
+          first = (base / 'tks-market-bought.log').read_text()
+          second = (base / 'tks-market-resume.log').read_text()
+          assert '已加入永久牌组' in first and '火攻' in first
+          assert '火攻' in second and '该商品已售出' in second
+          print('CLI military market charges once, grants card and preserves it after restart')
+          PY
+
       - name: CLI save and resume smoke test
         shell: bash
         run: |

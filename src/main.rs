@@ -242,7 +242,7 @@ impl App {
                     println!(" 输入 choose <编号>（0 跳过）");
                 }
                 Stage::Market => {
-                    println!(" 【军市】金：{}", g.gold);
+                    println!(" 【军市】金：{}（购买卡牌将永久加入牌组）", g.gold);
                     for (i, card) in g.market.iter().enumerate() {
                         println!("   {}. {} / {}金", i + 1, card_label(card), 45 + i * 15);
                     }
