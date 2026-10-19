@@ -296,10 +296,11 @@ jobs:
           battle = game['battle']
           assert battle['foes'][0]['poison'] == 14
           assert game['potions'] == 0 and game['potion_bag'] == []
-          tail = battle['events'][-3:]
-          assert [event['kind'] for event in tail] == ['potion_used', 'status_applied', 'power_triggered'], tail
-          assert [event['amount'] for event in tail] == [1, 12, 2]
-          assert tail[0]['target'] == 'foe:0'
+          tail = battle['events'][-4:]
+          assert [event['kind'] for event in tail] == ['potion_used', 'status_applied', 'power_triggered', 'status_applied'], tail
+          assert [event['amount'] for event in tail] == [1, 12, 2, 2]
+          assert [event['source'] for event in tail] == ['poison', 'poison', 'toxic_reversal', 'poison:toxic_reversal']
+          assert all(event['target'] == 'foe:0' for event in tail)
           assert all(a['seq'] < b['seq'] for a, b in zip(tail, tail[1:]))
           assert 'PotionUsed' in (base / 'tks-potion-result.log').read_text()
           print('CLI potion status and trigger smoke test passed')
