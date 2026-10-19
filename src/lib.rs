@@ -3722,6 +3722,11 @@ mod tests {
         foe.phase = 0;
         b.foes.truncate(1);
         b.block = 0;
+        // This test deliberately replaces the current encounter with an act
+        // boss on another floor; keep its seeded test archive coherent too.
+        if let Some(events)=&mut g.event_history {
+            for event in events { event.floor=g.floor; }
+        }
         g.roll_intents();
         g
     }
@@ -4474,6 +4479,37 @@ mod p1_event_cursor_tests {
         assert!(Game::from_json(&mismatched_tail.to_json().unwrap()).is_err());
     }
 
+
+    #[test]
+    fn counter_stack_resolves_before_status_and_survives_round_trip() {
+        let mut g=Game::new(Hero::GuanYu, 40022);
+        g.apply(Action::Choose{index:1}).unwrap();
+        g.battle.as_mut().unwrap().hand.insert(0,Card::new("hold_line"));
+        g.apply(Action::Play{index:1,target:1}).unwrap();
+        assert_eq!(g.battle.as_ref().unwrap().reactions.listeners.len(),1);
+        g.apply_hero_status("weak",2);
+        assert_eq!(g.battle.as_ref().unwrap().weak,0);
+        assert!(g.battle.as_ref().unwrap().events.iter()
+            .any(|e|e.kind==EventKind::EventCountered));
+        g.apply_hero_status("weak",2);
+        assert_eq!(g.battle.as_ref().unwrap().weak,2);
+        let snapshot=g.to_json().unwrap();
+        assert_eq!(Game::from_json(&snapshot).unwrap().to_json().unwrap(),snapshot);
+    }
+    #[test]
+    fn campaign_event_source_reconstructs_from_actions_and_rejects_gaps() {
+        let mut g=Game::new(Hero::ZhugeLiang,40023);
+        g.apply(Action::Choose{index:1}).unwrap();
+        let source=g.reconstruct_event_history().unwrap();
+        assert!(!source.is_empty());
+        assert_eq!(source,g.event_history.clone().unwrap());
+        let mut corrupt=g.clone();
+        corrupt.event_history.as_mut().unwrap().get_mut(1).unwrap().event.seq+=2;
+        assert!(Game::from_json(&corrupt.to_json().unwrap()).is_err());
+        assert_eq!(g.reconstruct_event_history().unwrap(),source);
+        g.event_history=None; // Legacy snapshots cannot claim a stored event archive.
+        assert!(g.reconstruct_event_history().is_ok());
+    }
     #[test]
     fn old_v2_empty_journal_stays_readable_without_claiming_full_audit() {
         let mut game = Game::new(Hero::GuanYu, 20261020);
