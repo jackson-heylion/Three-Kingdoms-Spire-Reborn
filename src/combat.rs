@@ -71,6 +71,8 @@ pub enum EventKind {
     CardCopied,
     CardGenerated,
     EnemyTechnique,
+    EventCountered,
+    EventReplaced,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

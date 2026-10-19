@@ -2,6 +2,7 @@
 //! Every authoritative mutation goes through Game::apply(Action).
 pub mod archetypes;
 pub mod combat;
+pub mod event_stack;
 pub mod challenges;
 pub mod content;
 pub mod items;
@@ -158,6 +159,7 @@ pub struct Battle {
     #[serde(default)] pub powers: Vec<PowerStack>,
     #[serde(default)] pub events: Vec<CombatEvent>,
     #[serde(default)] pub event_seq: u64,
+    #[serde(default, skip_serializing_if = "event_stack::Stack::is_empty")] pub reactions: event_stack::Stack,
     #[serde(default)] pub thought_used: bool,
     pub turn: u32,
 }
@@ -274,6 +276,9 @@ pub struct Game {
     /// Old V2 saves lack a journal and remain playable with None.
     #[serde(default, skip_serializing_if="Option::is_none")]
     pub action_history: Option<Vec<Action>>,
+    /// Full ordered combat event stream for new campaigns; None for legacy saves.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_history: Option<Vec<event_stack::RunEvent>>,
     /// Custom-only stable difficulty switches; omitted in old V2 saves.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub modifiers: Vec<ChallengeModifier>,
@@ -346,7 +351,7 @@ impl Game {
             version: SAVE_VERSION, revision: 0, seed, rng_state: seed.max(1),
             hero, hp: max_hp, max_hp, gold: 90, floor: 0, stage: Stage::Map,
             last_node: None, route: vec![], deck, relics: vec!["军旗".into()],
-            potions: 1, battle: None, action_history: Some(vec![]), modifiers: vec![], doctrine: None, telemetry: CombatTelemetry::default(), rewards: vec![], market: vec![],
+            potions: 1, battle: None, action_history: Some(vec![]), event_history: Some(vec![]), modifiers: vec![], doctrine: None, telemetry: CombatTelemetry::default(), rewards: vec![], market: vec![],
             log: vec![format!("{}率部出征，征途由此开始。", hero.name())],
             ascension: ascension.min(10), event_id: 0,
             potion_bag: vec!["healing".into()], shop_relic: None,
@@ -372,6 +377,7 @@ impl Game {
         if actions.len()>50_000 { return Err("操作历史超过单次回放保护上限".into()); }
         let mut replayed=Game::new_with_identity(
             self.hero,self.seed,self.ascension,self.mode,self.run_id.clone());
+        if self.event_history.is_none() { replayed.event_history=None; }
         // Profile bookkeeping is external to the deterministic action journal.
         // Preserve its persisted receipt while replaying gameplay from the seed.
         replayed.profile_start_receipt = self.profile_start_receipt;
@@ -383,6 +389,31 @@ impl Game {
             return Err("重放的实际状态与当前快照不一致：可能存在修改或版本规则变更".into());
         }
         Ok(actions.len())
+    }
+    /// Replay successful actions and reconstruct even events from ended battles.
+    /// Legacy snapshots must match the replayed gameplay state before claiming
+    /// the result as a faithful full event history.
+    pub fn reconstruct_event_history(&self) -> Result<Vec<event_stack::RunEvent>, String> {
+        let actions=self.action_history.as_ref().ok_or(
+            "legacy save has no complete action journal")?;
+        if actions.len()>50_000 {return Err("action replay limit exceeded".into());}
+        let mut replay=Game::new_with_identity(self.hero,self.seed,self.ascension,
+            self.mode,self.run_id.clone());
+        replay.profile_start_receipt=self.profile_start_receipt;
+        for (i,action) in actions.iter().enumerate() {
+            replay.apply(action.clone()).map_err(|e|format!("replay step {}: {e}",i+1))?;
+        }
+        let history=replay.event_history.clone().unwrap_or_default();
+        event_stack::verify_record(&history)?;
+        if let Some(expected)=&self.event_history {
+            if &history!=expected {return Err("persisted event archive differs from replay".into());}
+        } else {
+            replay.event_history=None;
+            if replay.to_json()?!=self.to_json()? {
+                return Err("legacy snapshot state differs from replay".into());
+            }
+        }
+        Ok(history)
     }
     pub fn from_json(raw: &str) -> Result<Self, String> {
         let mut g: Self = serde_json::from_str(raw).map_err(|e| format!("存档解析失败: {e}"))?;
@@ -457,7 +488,18 @@ impl Game {
             || self.telemetry.recent_turns.iter().any(|entry|
                 entry.floor > MAX_FLOOR || entry.hero_hp_after < 0 || entry.troop_hp_after < 0)
         { return Err("战斗统计记录无效".into()); }
+        if let Some(history)=&self.event_history {
+            if history.len()>1_000_000 {return Err("event history exceeds size limit".into());}
+            event_stack::verify_record(history)?;
+        }
         if let Some(b) = &self.battle {
+            if !b.reactions.valid() {return Err("invalid listener stack".into());}
+            if let Some(history)=&self.event_history {
+                if b.event_seq>0 && history.last().is_none_or(|e|
+                    e.encounter!=self.telemetry.totals.battles_started
+                    || e.event.seq!=b.event_seq)
+                    {return Err("current battle and event archive disagree".into());}
+            }
             for c in b.draw.iter().chain(b.hand.iter()).chain(b.discard.iter()).chain(b.exhausted.iter()) {
                 if card_spec(&c.id).is_none() { return Err(format!("未知战斗卡牌: {}", c.id)); }
             }
@@ -725,7 +767,7 @@ impl Game {
             troops_hp: if self.hero == Hero::CaoCao { 12 } else { 0 },
             troops_attack: if self.hero == Hero::CaoCao { 2 } else { 0 },
             discard_tokens: 0,
-            powers: vec![], events: vec![], event_seq: 0, thought_used: false,
+            powers: vec![], events: vec![], event_seq: 0, reactions: event_stack::Stack::default(), thought_used: false,
             turn: 1,
         });
         self.roll_intents();
@@ -879,6 +921,11 @@ impl Game {
         let event = CombatEvent {
             seq: b.event_seq, kind, source: source.to_owned(), amount, target,
         };
+        if let Some(history)=self.event_history.as_mut() {
+            history.push(event_stack::RunEvent{
+                encounter:self.telemetry.totals.battles_started,
+                floor:self.floor,event:event.clone()});
+        }
         b.events.push(event.clone());
         if b.events.len() > MAX_RECENT_EVENTS {
             let count = b.events.len() - MAX_RECENT_EVENTS;
@@ -899,6 +946,20 @@ impl Game {
     }
 
     fn dispatch_combat_event(&mut self, event: &CombatEvent) {
+        if event.kind==EventKind::CardResolved {
+            use event_stack::{Listener,Response};
+            let reaction=match event.source.as_str() {
+                "hold_line"=>Some(Listener::once("hold_line:weak","weak",Response::Cancel)),
+                "kongcheng"=>Some(Listener::once("kongcheng:vulnerable","vulnerable",Response::Reduce(1))),
+                "qiaoying"=>Some(Listener::once("qiaoying:weak","weak",Response::Reduce(1))),
+                "zhongyi"=>Some(Listener::once("zhongyi:weak","weak",Response::Replace(1))),
+                _=>None,
+            };
+            if let Some(rule)=reaction {
+                self.battle.as_mut().expect("battle").reactions.install(rule)
+                    .expect("valid builtin listener");
+            }
+        }
         match event.kind {
             EventKind::CardResolved => {
                 let attack = card_spec(&event.source).is_some_and(|card| Self::attack_effect(card.effect));
@@ -1023,6 +1084,22 @@ impl Game {
     /// Exactly the applied duration is written to the ordered event journal.
     fn apply_hero_status(&mut self, status: &str, amount: u8) {
         if amount == 0 { return; }
+        let proposed=CombatEvent{seq:0,kind:EventKind::StatusApplied,
+            source:status.into(),amount:i32::from(amount),target:Some("hero".into())};
+        let outcome=self.battle.as_mut().expect("battle").reactions.resolve(&proposed);
+        if outcome.cancelled || outcome.amount==0 {
+            if let Some(by)=outcome.by {
+                self.combat_event(EventKind::EventCountered,&by,i32::from(amount),
+                    Some("hero".into()));
+            }
+            return;
+        }
+        if outcome.amount!=i32::from(amount) {
+            self.combat_event(EventKind::EventReplaced,
+                outcome.by.as_deref().unwrap_or("reaction"),
+                i32::from(amount)-outcome.amount,Some("hero".into()));
+        }
+        let amount=outcome.amount.clamp(0,255) as u8;
         let applied = {
             let b = self.battle.as_mut().expect("battle");
             match status {
