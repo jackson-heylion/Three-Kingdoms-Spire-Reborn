@@ -641,34 +641,6 @@ impl App {
     }
 }
 
-#[cfg(test)]
-mod secondary_choice_cli_tests {
-    use super::*;
-    use three_kingdoms_spire_reborn::content::Hero;
-
-    #[test]
-    fn cli_secondary_choice_listing_is_read_only_and_uses_authoritative_order() {
-        let mut game = Game::new(Hero::ZhugeLiang,983);
-        game.apply(Action::Choose { index: 1 }).unwrap();
-        let battle = game.battle.as_mut().unwrap();
-        battle.hand = vec![Card::new("xingpan_tutor")];
-        battle.draw = vec![Card::new("defend"), Card::new("strike"), Card::new("qinglong")];
-        let before = game.to_json().unwrap();
-        let mut app = App {
-            game: Some(game), profile: Profile::new(), theme: Theme::Dark,
-            dir: PathBuf::new(), use_ansi: false, message: String::new(),
-        };
-        assert!(app.command("selections 1"));
-        assert!(app.message.contains("1. 青龙"));
-        assert!(app.message.contains("2. 突刺"));
-        assert!(!app.message.contains("3. "));
-        assert_eq!(app.game.as_ref().unwrap().to_json().unwrap(),before);
-        assert!(app.command("selections 0"));
-        assert!(app.message.starts_with("错误："));
-        assert_eq!(app.game.as_ref().unwrap().to_json().unwrap(),before);
-    }
-}
-
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.iter().any(|a| a == "--help" || a == "-h") {
@@ -721,5 +693,33 @@ fn main() {
             Ok(_) => if !app.command(input.trim()) { break; },
             Err(e) => { eprintln!("输入错误：{e}"); break; }
         }
+    }
+}
+
+#[cfg(test)]
+mod secondary_choice_cli_tests {
+    use super::*;
+    use three_kingdoms_spire_reborn::content::Hero;
+
+    #[test]
+    fn cli_secondary_choice_listing_is_read_only_and_uses_authoritative_order() {
+        let mut game = Game::new(Hero::ZhugeLiang,983);
+        game.apply(Action::Choose { index: 1 }).unwrap();
+        let battle = game.battle.as_mut().unwrap();
+        battle.hand = vec![Card::new("xingpan_tutor")];
+        battle.draw = vec![Card::new("defend"), Card::new("strike"), Card::new("qinglong")];
+        let before = game.to_json().unwrap();
+        let mut app = App {
+            game: Some(game), profile: Profile::new(), theme: Theme::Dark,
+            dir: PathBuf::new(), use_ansi: false, message: String::new(),
+        };
+        assert!(app.command("selections 1"));
+        assert!(app.message.contains("1. 青龙"));
+        assert!(app.message.contains("2. 突刺"));
+        assert!(!app.message.contains("3. "));
+        assert_eq!(app.game.as_ref().unwrap().to_json().unwrap(),before);
+        assert!(app.command("selections 0"));
+        assert!(app.message.starts_with("错误："));
+        assert_eq!(app.game.as_ref().unwrap().to_json().unwrap(),before);
     }
 }
