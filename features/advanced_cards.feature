@@ -30,6 +30,9 @@ Feature: X-cost techniques, selected pile searches and battle-only cards
     When I start a battle
     And I replace draw pile with "defend,strike,qinglong"
     And I replace hand with "xingpan_tutor"
+    Then the last card offers secondary choice 1 "qinglong"
+    And the last card offers secondary choice 2 "strike"
+    And the last card excludes secondary choice 3
     And I remember the current snapshot
     And I attempt to play the last card selecting 99
     Then the action is rejected
@@ -45,6 +48,8 @@ Feature: X-cost techniques, selected pile searches and battle-only cards
     When I start a battle
     And I replace discard pile with "strike,defend"
     And I replace hand with "feiyu_copy"
+    Then the last card offers secondary choice 1 "defend"
+    And the last card offers secondary choice 2 "strike"
     And I play the last card selecting 2
     Then my hand has a temporary "strike"
     And combat event "card_copied" from "strike" occurs exactly once

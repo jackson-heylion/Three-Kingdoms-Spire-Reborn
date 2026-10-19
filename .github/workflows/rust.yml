@@ -218,7 +218,7 @@ jobs:
           game['battle']['energy'] = 3
           path.write_text(json.dumps(game,ensure_ascii=False))
           PY
-          printf 'piles\nplay 1 1 2\nquit\n' | cargo run --quiet -- --plain --save-dir "$SAVEDIR" > "$RUNNER_TEMP/tks-selected.log"
+          printf 'piles\nselections 1\nselections 0\nplay 1 1 2\nquit\n' | cargo run --quiet -- --plain --save-dir "$SAVEDIR" > "$RUNNER_TEMP/tks-selected.log"
           python3 - <<'PY'
           import json,os,pathlib
           path = pathlib.Path(os.environ['RUNNER_TEMP'])/'tks-select'/'save.json'
@@ -228,8 +228,11 @@ jobs:
           assert any(c['id']=='strike' for c in battle['hand'])
           assert [c['id'] for c in battle['draw']]==['defend','qinglong']
           assert any(e['kind']=='card_tutored' and e['source']=='strike' for e in battle['events'])
-          assert '抽牌堆' in (pathlib.Path(os.environ['RUNNER_TEMP'])/'tks-selected.log').read_text()
-          print('CLI selected-pile tutor integration passed')
+          display = (pathlib.Path(os.environ['RUNNER_TEMP'])/'tks-selected.log').read_text()
+          assert '抽牌堆' in display
+          assert '1. 青龙偃月' in display and '2. 突刺' in display, display
+          assert '错误：手牌编号从1开始' in display, display
+          print('CLI secondary-choice listing, rejection and selected tutor passed')
           PY
 
       - name: CLI doctrine selection persists across process restarts
