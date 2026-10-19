@@ -26,6 +26,41 @@ jobs:
       - name: Release build
         run: cargo build --release
 
+      - name: CLI replacement campaigns survive blocked writes (both platforms)
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess
+          base = pathlib.Path(os.environ['RUNNER_TEMP']) / 'tks-new-run-failure'
+          binary = str(pathlib.Path.cwd() / 'target' / 'release' / 'tks')
+          cmd = [binary, '--plain', '--save-dir', str(base)]
+          started = subprocess.run(cmd, input='new guanyu 96121\nquit\n',
+                                   capture_output=True, text=True, timeout=20)
+          assert started.returncode == 0, (started.stdout, started.stderr)
+          primary = base / 'save.json'
+          original = primary.read_text()
+          backup = base / 'save.bak'
+          assert backup.is_file()
+          backup.unlink()
+          backup.mkdir()
+          for command in ('new cao 96122 0', 'custom sun 96123 5', 'daily 2026-10-19'):
+              refused = subprocess.run(cmd, input=command + '\nstatus\n',
+                                       capture_output=True, text=True, timeout=20)
+              assert refused.returncode == 2, (refused.stdout, refused.stderr)
+              assert '新战役未能保存' in refused.stdout, refused.stdout
+              assert '体力' in refused.stdout, 'old campaign no longer interactive'
+              assert primary.read_text() == original, 'refused new run damaged prior save'
+          backup.rmdir()
+          resumed = subprocess.run(cmd, input='custom sun 96123 5\nquit\n',
+                                   capture_output=True, text=True, timeout=20)
+          assert resumed.returncode == 0, (resumed.stdout, resumed.stderr)
+          current = json.loads(primary.read_text())
+          assert current['seed'] == 96123 and current['ascension'] == 5, current
+          assert json.loads(backup.read_text())['seed'] == 96123, 'exit backup should capture new run'
+          assert '以 孙尚香 开始' in resumed.stdout
+          print('new/custom/daily failure preserved prior snapshot; repaired storage commits once')
+          PY
+
       - name: CLI market card purchase and resume (both platforms)
         shell: bash
         run: |

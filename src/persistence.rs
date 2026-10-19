@@ -125,6 +125,19 @@ pub fn apply_and_persist(
     Ok(messages)
 }
 
+/// Commit a replacement campaign only after its complete snapshot has been stored.
+/// Failed persistence must keep the previously running campaign in memory.
+/// The profile/chronicle is a separate file and is not part of this commit.
+pub fn replace_run_and_persist(
+    current: &mut Option<crate::Game>,
+    next: crate::Game,
+    persist: impl FnOnce(&crate::Game) -> Result<(), String>,
+) -> Result<(), String> {
+    persist(&next)?;
+    *current = Some(next);
+    Ok(())
+}
+
 /// Atomically replace a JSON file and rotate complete previous bytes into .bak.
 /// This does not make multiple different JSON files a shared transaction.
 pub fn atomic_write(path: &Path, data: &str) -> io::Result<()> {
@@ -267,6 +280,53 @@ mod tests {
         Game::from_json(&fs::read_to_string(&path).unwrap()).unwrap()
             .verify_action_replay().unwrap();
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn replacing_run_waits_for_successful_disk_commit() {
+        use crate::{Game, content::Hero};
+        let dir = directory();
+        let path = dir.join("save.json");
+        let first = Game::new(Hero::GuanYu, 96111);
+        let original = first.to_json().unwrap();
+        atomic_write(&path, &original).unwrap();
+        let mut current = Some(first);
+        fs::create_dir(dir.join("save.bak")).unwrap();
+
+        let failed = replace_run_and_persist(
+            &mut current,
+            Game::new(Hero::CaoCao, 96112),
+            |next| atomic_write(&path, &next.to_json()?)
+                .map_err(|error| error.to_string()),
+        );
+        assert!(failed.is_err());
+        assert_eq!(current.as_ref().unwrap().to_json().unwrap(), original);
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+
+        fs::remove_dir(dir.join("save.bak")).unwrap();
+        replace_run_and_persist(
+            &mut current,
+            Game::new(Hero::CaoCao, 96112),
+            |next| atomic_write(&path, &next.to_json()?)
+                .map_err(|error| error.to_string()),
+        ).unwrap();
+        let committed = current.as_ref().unwrap();
+        assert_eq!(committed.seed, 96112);
+        assert_eq!(fs::read_to_string(&path).unwrap(), committed.to_json().unwrap());
+        assert_eq!(fs::read_to_string(dir.join("save.bak")).unwrap(), original);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn rejected_run_replacement_keeps_an_empty_session_empty() {
+        use crate::{Game, content::Hero};
+        let mut current = None;
+        let error = replace_run_and_persist(
+            &mut current, Game::new(Hero::GuanYu, 96113),
+            |_| Err("simulated disk failure".into()),
+        ).unwrap_err();
+        assert!(error.contains("simulated"));
+        assert!(current.is_none());
     }
 
     #[test]
