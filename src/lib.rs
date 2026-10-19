@@ -1104,22 +1104,47 @@ impl Game {
         self.stage = Stage::Reward;
         format!("战斗胜利！获得{payout}金，选择一张战利品，或输入 choose 0 跳过。")
     }
+    /// Keep the read-only card picker and the authoritative resolver in sync.
+    fn eligible_pile_card(card: &Card, attack_only: bool) -> bool {
+        card_spec(&card.id).is_some_and(|spec| {
+            !matches!(spec.effect, Effect::Unplayable | Effect::CopyDiscard)
+                && (!attack_only || Self::attack_effect(spec.effect))
+        })
+    }
+
+    /// Returns legal 1-based secondary choices, top of pile first, for a hand card.
+    /// None means this card needs no secondary choice. Reading never changes RNG or the save.
+    pub fn secondary_choices(&self, hand_number: usize)
+        -> Result<Option<Vec<(usize, Card)>>, String>
+    {
+        let b = self.battle.as_ref().ok_or("当前不在战斗中")?;
+        let idx = hand_number.checked_sub(1).ok_or("手牌编号从1开始")?;
+        let card = b.hand.get(idx).ok_or("无效手牌编号")?;
+        let spec = card_spec(&card.id).ok_or("未知卡牌")?;
+        let (pile, attack_only) = match spec.effect {
+            Effect::TutorAttack => (&b.draw, true),
+            Effect::CopyDiscard => (&b.discard, false),
+            _ => return Ok(None),
+        };
+        Ok(Some(pile.iter().rev().enumerate()
+            .filter(|(_, card)| Self::eligible_pile_card(card, attack_only))
+            .map(|(idx, card)| (idx + 1, card.clone())).collect()))
+    }
+
     /// Pile choices use 1-based visual order, top first.
     fn choose_pile_card(cards: &[Card], selection: Option<usize>, attack_only: bool)
         -> Result<Option<usize>, String>
     {
-        let eligible = |card: &Card| card_spec(&card.id).is_some_and(|spec| {
-            !matches!(spec.effect, Effect::Unplayable | Effect::CopyDiscard)
-                && (!attack_only || Self::attack_effect(spec.effect))
-        });
         if let Some(number) = selection {
             let idx = number.checked_sub(1)
                 .and_then(|n| cards.len().checked_sub(n+1))
                 .ok_or("选牌编号超出当前牌堆")?;
-            if !eligible(&cards[idx]) { return Err("所选卡牌不符合检索条件".into()); }
+            if !Self::eligible_pile_card(&cards[idx], attack_only) {
+                return Err("所选卡牌不符合检索条件".into());
+            }
             Ok(Some(idx))
         } else {
-            Ok(cards.iter().rposition(eligible))
+            Ok(cards.iter().rposition(|card| Self::eligible_pile_card(card, attack_only)))
         }
     }
 
@@ -2290,6 +2315,34 @@ impl Game {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn secondary_choices_share_resolver_order_and_never_mutate_snapshot() {
+        let mut game = Game::new(Hero::ZhugeLiang, 983);
+        game.apply(Action::Choose { index: 1 }).unwrap();
+        {
+            let battle = game.battle.as_mut().unwrap();
+            battle.hand = vec![Card::new("xingpan_tutor")];
+            battle.draw = vec![Card::new("defend"), Card::new("strike"), Card::new("qinglong")];
+        }
+        let before = game.to_json().unwrap();
+        let candidates = game.secondary_choices(1).unwrap().unwrap();
+        assert_eq!(candidates.iter().map(|(n, c)| (*n, c.id.as_str())).collect::<Vec<_>>(),
+            vec![(1, "qinglong"), (2, "strike")]);
+        assert_eq!(game.to_json().unwrap(), before);
+        assert!(game.secondary_choices(0).is_err());
+        assert!(game.secondary_choices(2).is_err());
+        assert!(game.apply(Action::PlaySelected { index: 1, target: 1, selection: 3 }).is_err());
+        assert_eq!(game.to_json().unwrap(), before);
+        game.apply(Action::PlaySelected { index: 1, target: 1, selection: 2 }).unwrap();
+        assert!(game.battle.as_ref().unwrap().hand.iter().any(|c| c.id == "strike"));
+
+        let battle = game.battle.as_mut().unwrap();
+        battle.hand = vec![Card::new("feiyu_copy")];
+        battle.discard = vec![Card::new("strike"), Card::new("defend")];
+        assert_eq!(game.secondary_choices(1).unwrap().unwrap().iter()
+            .map(|(n, c)| (*n, c.id.as_str())).collect::<Vec<_>>(),
+            vec![(1, "defend"), (2, "strike")]);
+    }
     use super::*;
     #[test]
     fn market_card_purchase_adds_exactly_one_permanent_card_and_is_atomic() {
