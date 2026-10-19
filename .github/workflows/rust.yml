@@ -143,7 +143,7 @@ jobs:
           directory = pathlib.Path(os.environ["RUNNER_TEMP"]) / "tks-durable-restore"
           primary = json.loads((directory / "save.json").read_text())
           backup = json.loads((directory / "save.bak").read_text())
-          assert primary["revision"] == 1 and backup["revision"] == 0
+          assert primary["revision"] == 1 and backup["revision"] == 1  # quit saves once more
           assert primary["seed"] == backup["seed"] == 55555
           (directory / "save.json").write_text("{damaged")
           PY
@@ -153,7 +153,7 @@ jobs:
           directory = pathlib.Path(os.environ["RUNNER_TEMP"]) / "tks-durable-restore"
           primary = json.loads((directory / "save.json").read_text())
           backup = json.loads((directory / "save.bak").read_text())
-          assert primary["revision"] == 0 and backup["revision"] == 0
+          assert primary["revision"] == 1 and backup["revision"] == 1
           assert (directory / "save.corrupt").read_text() == "{damaged"
           assert primary["seed"] == backup["seed"] == 55555
           assert not list(directory.glob("*.tmp.*")), "staging files must not leak"
