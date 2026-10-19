@@ -6,6 +6,7 @@ use serde::Serialize;
 use three_kingdoms_spire_reborn::{
     Action, Card, CombatCounters, Game, Intent, Node, Stage,
     archetypes::Doctrine,
+    builds::{BuildPlan, PLANS},
     content::{Effect, Hero, card_spec},
 };
 
@@ -292,7 +293,16 @@ fn simulate_policy_package(hero:Hero,seed:u64,ascension:u8,policy:Policy,package
 fn simulate_config(hero:Hero,seed:u64,ascension:u8,policy:Policy,package:SunPackage,
     focus:Option<Doctrine>)->Result<Outcome,String>
 {
+    simulate_config_blueprint(hero,seed,ascension,policy,package,focus,None)
+}
+/// Identical action policy and seeds for baseline/curated tests. Curated
+/// starting decks are experimental fixtures, not legal standard-run drafts.
+fn simulate_config_blueprint(hero:Hero,seed:u64,ascension:u8,policy:Policy,
+    package:SunPackage,focus:Option<Doctrine>,blueprint:Option<&BuildPlan>)
+    ->Result<Outcome,String>
+{
     let mut game = Game::new_with_ascension(hero, seed, ascension);
+    if let Some(plan)=blueprint { apply_curated_plan(&mut game,plan)?; }
     if package!=SunPackage::Standard {apply_sun_package(&mut game,package)?;}
     if let Some(focus)=focus {
         game.apply(Action::SetDoctrine{id:focus.id().into()})?;
@@ -637,8 +647,104 @@ fn print_sun_archetypes(report:&SunArchetypeReport) {
     }
 }
 
+/// Controlled build fixture: preserve ten-card deck and starting resource
+/// budget. Swapping four strikes and two guards is NOT a normal reward path.
+fn apply_curated_plan(game:&mut Game,plan:&BuildPlan)->Result<(),String> {
+    if game.hero!=plan.hero || !plan.is_catalog_valid() {
+        return Err("invalid or cross-hero curated plan".into());
+    }
+    for (id,idx) in plan.core.iter().chain(plan.support.iter())
+        .copied().zip([0usize,1,2,3,5,6])
+    {
+        if game.deck[idx].id!=if idx<5 {"strike"} else {"defend"} {
+            return Err("invalid baseline deck for blueprint".into());
+        }
+        game.deck[idx]=Card::new(id);
+    }
+    Ok(())
+}
+#[derive(Debug,Serialize)]
+struct BuildCell {
+    id:String,
+    hero:String,
+    counter_enemy:String,
+    ascension:u8,
+    samples:usize,
+    baseline_wins:usize,
+    blueprint_wins:usize,
+    baseline_floor_sum:u64,
+    blueprint_floor_sum:u64,
+    /// Losses where the last recorded live encounter included this enemy.
+    /// This does NOT represent exposure count or counter matchup win rate.
+    counter_last_encounter_deaths:usize,
+}
+#[derive(Debug,Serialize)]
+struct BuildBlueprintReport {
+    schema_version:u8,
+    seed_formula:String,
+    interpretation:String,
+    samples_per_cell:usize,
+    cells:Vec<BuildCell>,
+}
+fn build_blueprint_report(samples:usize)->Result<BuildBlueprintReport,String> {
+    let mut cells=Vec::new();
+    for (plan_index,plan) in PLANS.iter().enumerate() {
+        for ascension in 0..=10_u8 {
+            let mut cell=BuildCell {
+                id:plan.id.into(),hero:plan.hero.name().into(),
+                counter_enemy:plan.counter_enemy.into(),ascension,samples,
+                baseline_wins:0,blueprint_wins:0,baseline_floor_sum:0,
+                blueprint_floor_sum:0,counter_last_encounter_deaths:0,
+            };
+            for trial in 0..samples {
+                let ordinal=(plan_index as u64)*11*10_000+
+                    u64::from(ascension)*10_000+trial as u64+1;
+                let seed=ordinal.wrapping_mul(0x9E3779B97F4A7C15);
+                let baseline=simulate_config_blueprint(plan.hero,seed,ascension,
+                    Policy::Tactical,SunPackage::Standard,None,None)?;
+                let curated=simulate_config_blueprint(plan.hero,seed,ascension,
+                    Policy::Tactical,SunPackage::Standard,None,Some(plan))?;
+                cell.baseline_wins+=usize::from(baseline.won);
+                cell.blueprint_wins+=usize::from(curated.won);
+                cell.baseline_floor_sum+=u64::from(baseline.floor);
+                cell.blueprint_floor_sum+=u64::from(curated.floor);
+                if !curated.won && curated.death_encounter.as_ref()
+                    .is_some_and(|s|s.split('+').any(|id|id==plan.counter_enemy))
+                { cell.counter_last_encounter_deaths+=1; }
+            }
+            cells.push(cell);
+        }
+    }
+    Ok(BuildBlueprintReport {
+        schema_version:1,samples_per_cell:samples,
+        seed_formula:"((plan_index*110000+ascension*10000+trial+1)*0x9E3779B97F4A7C15) mod 2^64".into(),
+        interpretation:"equal 10-card curated fixture, four strikes and two guards replaced; paired fixed seeds, tactical heuristic bot, not natural draft nor human win rate; counter-death count lacks exposure denominator".into(),
+        cells,
+    })
+}
+
 fn main() {
     let arguments=std::env::args().collect::<Vec<_>>();
+    if arguments.get(1).is_some_and(|arg|arg=="--build-archetypes") {
+        let samples=arguments.get(2).and_then(|s|s.parse::<usize>().ok())
+            .unwrap_or(2).clamp(1,20);
+        let report=build_blueprint_report(samples)
+            .unwrap_or_else(|e|panic!("paired build fixture failed: {e}"));
+        println!("BUILD FIXTURES: {} cells, {} paired simulated runs (curated ten-card decks, not human win rates).",
+            report.cells.len(),report.cells.len()*samples*2);
+        for plan in PLANS {
+            let cells=report.cells.iter().filter(|c|c.id==plan.id).collect::<Vec<_>>();
+            let n=cells.iter().map(|c|c.samples).sum::<usize>();
+            let wins=cells.iter().map(|c|c.blueprint_wins).sum::<usize>();
+            let baseline=cells.iter().map(|c|c.baseline_wins).sum::<usize>();
+            println!("{}: curated {wins}/{n}, paired starter {baseline}/{n}",plan.id);
+        }
+        if let Some(path)=arguments.get(3) {
+            fs::write(path,serde_json::to_string_pretty(&report)
+                .expect("serialize 15-build report")).unwrap_or_else(|e|panic!("write {path}: {e}"));
+        }
+        return;
+    }
     if arguments.get(1).is_some_and(|arg|arg=="--natural-drafting") {
         let samples=arguments.get(2).and_then(|s|s.parse::<usize>().ok())
             .unwrap_or(15).clamp(1,200);
@@ -707,6 +813,20 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn fifteen_curated_blueprints_are_equal_size_and_saveable() {
+        for plan in PLANS {
+            let mut game=Game::new(plan.hero,2221);
+            apply_curated_plan(&mut game,plan).unwrap();
+            assert_eq!(game.deck.len(),10);
+            assert_eq!(game.deck[0].id,plan.core[0]);
+            assert_eq!(game.deck[5].id,plan.support[0]);
+            let json=game.to_json().unwrap();
+            assert_eq!(Game::from_json(&json).unwrap().to_json().unwrap(),json);
+        }
+        let mut wrong=Game::new(Hero::GuanYu,2221);
+        assert!(apply_curated_plan(&mut wrong,&PLANS[3]).is_err());
+    }
     #[test]
     fn tactical_bot_uses_discard_tokens_instead_of_ignoring_sun_mechanics() {
         let mut game=Game::new(Hero::SunShangxiang,5151);
