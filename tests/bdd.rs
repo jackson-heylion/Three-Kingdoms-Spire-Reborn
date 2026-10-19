@@ -145,6 +145,30 @@ impl World {
             let result = self.game_mut()?.apply(Action::Choose { index });
             self.error = result.err();
             if self.error.is_none() { return Err("expected rejected choice but command succeeded".into()); }
+        } else if step == "I forge a negative-gold save document" {
+            let original = self.game()?.to_json()?;
+            let mut document: serde_json::Value = serde_json::from_str(&original)
+                .map_err(|e| e.to_string())?;
+            document["gold"] = serde_json::json!(-1);
+            self.error = Game::from_json(&document.to_string()).err();
+            self.before = Some(original);
+        } else if step == "I enter the first battle for save validation" {
+            self.game_mut()?.apply(Action::Choose { index: 1 })?;
+            if self.game()?.stage != Stage::Combat {
+                return Err("test fixture never entered combat".into());
+            }
+        } else if step == "I forge a zero-health-cap enemy save document" {
+            let original = self.game()?.to_json()?;
+            let mut document: serde_json::Value = serde_json::from_str(&original)
+                .map_err(|e| e.to_string())?;
+            document["battle"]["foes"][0]["max_hp"] = serde_json::json!(0);
+            self.error = Game::from_json(&document.to_string()).err();
+            self.before = Some(original);
+        } else if step.starts_with("the forged save is rejected as \"") {
+            let expected = quoted(step)?;
+            if !self.error.as_deref().is_some_and(|error| error.contains(expected)) {
+                return Err(format!("expected invalid save error containing {expected:?}, got {:?}", self.error));
+            }
         } else if step.starts_with("I stage a market offering \"") {
             let id = quoted(step)?;
             if three_kingdoms_spire_reborn::content::card_spec(id).is_none() {
@@ -849,11 +873,12 @@ fn gherkin_bdd_acceptance_suite() {
         ("features/lore.feature", include_str!("../features/lore.feature")),
         ("features/save_resume.feature", include_str!("../features/save_resume.feature")),
         ("features/durable_save.feature", include_str!("../features/durable_save.feature")),
+        ("features/save_integrity.feature", include_str!("../features/save_integrity.feature")),
         ("features/novel_provenance.feature", include_str!("../features/novel_provenance.feature")),
     ];
     let scenarios: usize = documents.iter().map(|(name,text)|
         run_feature(text,name).unwrap_or_else(|error|panic!("{error}"))).sum();
-    assert!(scenarios >= 63, "BDD suite lost scenarios: {scenarios}");
+    assert!(scenarios >= 65, "BDD suite lost scenarios: {scenarios}");
     println!("Verified {scenarios} executable Given/When/Then acceptance scenarios");
 }
 
