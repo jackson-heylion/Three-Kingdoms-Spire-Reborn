@@ -962,8 +962,14 @@ impl Game {
                             foe.poison - before
                         });
                     if applied > 0 {
-                        self.combat_event(EventKind::PowerTriggered,"toxic_reversal",
-                            applied,Some(format!("foe:{idx}")));
+                        // The bonus is a real poison application, not just a power
+                        // notification. Attribute it separately without redispatching
+                        // the base "poison" trigger and recursively adding more poison.
+                        let target = Some(format!("foe:{idx}"));
+                        self.combat_event(EventKind::PowerTriggered, "toxic_reversal",
+                            applied, target.clone());
+                        self.combat_event(EventKind::StatusApplied, "poison:toxic_reversal",
+                            applied, target);
                     }
                 }
             }
@@ -2819,11 +2825,15 @@ mod tests {
         let emitted = battle.events.iter().filter(|event| event.seq > previous_seq)
             .collect::<Vec<_>>();
         assert_eq!(emitted.iter().map(|event| event.kind).collect::<Vec<_>>(),
-            vec![EventKind::PotionUsed, EventKind::StatusApplied, EventKind::PowerTriggered]);
+            vec![EventKind::PotionUsed, EventKind::StatusApplied,
+                EventKind::PowerTriggered, EventKind::StatusApplied]);
         assert_eq!(emitted[0].source, "poison");
         assert_eq!(emitted[0].target.as_deref(), Some("foe:0"));
         assert_eq!(emitted[1].amount, 12);
         assert_eq!(emitted[2].amount, 2);
+        assert_eq!(emitted[3].source, "poison:toxic_reversal");
+        assert_eq!(emitted[3].amount, 2);
+        assert_eq!(emitted[3].target.as_deref(), Some("foe:0"));
         assert_eq!(game.potions, 0);
         let snapshot = game.to_json().unwrap();
         assert_eq!(Game::from_json(&snapshot).unwrap().to_json().unwrap(), snapshot);
@@ -3375,9 +3385,43 @@ mod tests {
         assert_eq!(statuses,1);
         assert_eq!(b.events.iter().filter(|e|e.kind==EventKind::PowerTriggered
             && e.source=="toxic_reversal").count(),1);
+        assert_eq!(b.events.iter().filter(|e|e.kind==EventKind::StatusApplied
+            && e.source=="poison:toxic_reversal" && e.amount==2
+            && e.target.as_deref()==Some("foe:0")).count(),1);
+        let poison_events: Vec<_> = b.events.iter()
+            .filter(|e| e.kind == EventKind::StatusApplied && e.target.as_deref() == Some("foe:0"))
+            .collect();
+        assert_eq!(poison_events.iter().map(|e| e.amount).sum::<i32>(), 5);
+        assert!(b.events.windows(2).all(|pair| pair[0].seq < pair[1].seq));
         let first= b.events.len();
         g.apply_foe_status(0,"weak",2);
         assert_eq!(g.battle.as_ref().unwrap().events.len(),first+1);
+    }
+    #[test]
+    fn toxic_reversal_journal_reports_only_effective_poison_at_cap() {
+        let mut g = Game::new(Hero::ZhugeLiang, 93420);
+        g.apply(Action::Choose { index: 1 }).unwrap();
+        g.gain_power(PowerId::ToxicReversal, 4);
+        g.battle.as_mut().unwrap().foes[0].poison = 9994;
+        let cursor = g.battle.as_ref().unwrap().event_seq;
+        g.apply_foe_status(0, "poison", 1);
+        let b = g.battle.as_ref().unwrap();
+        assert_eq!(b.foes[0].poison, 9999);
+        let events: Vec<_> = b.events.iter().filter(|e| e.seq > cursor).collect();
+        assert_eq!(events.len(), 3);
+        assert_eq!((events[0].kind, events[0].source.as_str(), events[0].amount),
+            (EventKind::StatusApplied, "poison", 1));
+        assert_eq!((events[1].kind, events[1].source.as_str(), events[1].amount),
+            (EventKind::PowerTriggered, "toxic_reversal", 4));
+        assert_eq!((events[2].kind, events[2].source.as_str(), events[2].amount),
+            (EventKind::StatusApplied, "poison:toxic_reversal", 4));
+        assert!(events.iter().all(|e| e.target.as_deref() == Some("foe:0")));
+        let snap = g.to_json().unwrap();
+        assert_eq!(Game::from_json(&snap).unwrap().to_json().unwrap(), snap);
+        let before_seq = g.battle.as_ref().unwrap().event_seq;
+        g.apply_foe_status(0, "poison", 10);
+        assert_eq!(g.battle.as_ref().unwrap().event_seq, before_seq,
+            "poison at cap must not emit fictitious bonus or recursively trigger");
     }
     #[test]
     fn defeat_drum_triggers_once_for_each_enemy_not_each_hit() {
