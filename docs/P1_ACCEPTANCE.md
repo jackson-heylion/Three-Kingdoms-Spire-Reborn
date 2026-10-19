@@ -110,3 +110,10 @@ TUI 菜单增加 TTY 宽度检测及 Unicode 列宽裁剪；冒号命令补 UTF-
 - 新主版本写入前先稳定落盘上一版本备份。备份旋转失败则主文件不变并清理本轮临时文件。坏档恢复复用已由 Game::from_json 成功解析的备份原文字节，在隔离 .corrupt 后原子恢复主文件，不以坏档覆盖有效 .bak。
 - 新增 3 条 Rust 单测（多代主档/备份、不可替换备份失败、恢复保留备份）、3 条严格 Gherkin BDD，以及 macOS/Linux GitHub Actions 真实 CLI 恢复进程验证。需等 PR 双平台 CI 完成后才算机器验证通过。
 - 限制：仅覆盖遵守单写者锁约定的**单文件本地 POSIX 写入原子性与同步**；三个 JSON 文件之间尚非跨文件事务，不能承诺断电后所有磁盘控制器缓存、网络盘、外部非合作写入安全，也不保证 save 失败后内存行动自动回滚。真人终端测试、120回正文审校、完整国际化和全部职业/事件栈等 P1 阻断继续未验收，不得发布正式 1.0。
+
+## 2026-10-19 P1 命令动作提交前落盘保护（PR CI 待验证）
+
+- 单个成功 `Action` 的新快照先在 Rust 核心内隔离执行，精确保存该候选 `save.json` 后才公开到当前 CLI/TUI 会话。失败时保持旧 `Game`、修订号、RNG、动作历史与盘上主档一致。恢复可写后重试只提交一次。
+- 证据：`src/persistence.rs` Rust 单元、`src/main.rs` CLI 命令级单测、`features/action_persistence.feature` 严格 Gherkin 测试、`.github/workflows/rust.yml` 双系统真实 CLI 进程故障注入。**合并前须以本 PR 最新 SHA 的真实 macOS/Linux CI 成功为准**。
+- 不包含新战役替换的跨文件事务、`chronicle.json` / `settings.json` 的原子成组提交、强制关机和外部写盘竞争保障；完整 P1 的游戏内容深度、动态事件栈、真人试玩、120回逐回审校和全面国际化仍未完成。
+
