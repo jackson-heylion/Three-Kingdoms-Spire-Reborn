@@ -39,6 +39,43 @@ struct App {
 fn save_path(dir: &std::path::Path) -> PathBuf { dir.join("save.json") }
 fn prefs_path(dir: &std::path::Path) -> PathBuf { dir.join("settings.json") }
 fn profile_path(dir: &std::path::Path) -> PathBuf { dir.join("chronicle.json") }
+/// Never silently replace a corrupted achievement ledger with an empty profile.
+/// Restore only a fully parsed backup, preserving the damaged original for
+/// inspection; if neither document is valid, fail closed before gameplay starts.
+fn load_profile(directory: &std::path::Path) -> Result<Profile, String> {
+    let primary = profile_path(directory);
+    let backup = primary.with_extension("bak");
+    if !primary.exists() && !backup.exists() {
+        return Ok(Profile::new());
+    }
+    let current = fs::read_to_string(&primary)
+        .map_err(|error| error.to_string())
+        .and_then(|raw| Profile::from_json(&raw));
+    match current {
+        Ok(profile) => Ok(profile),
+        Err(primary_error) => {
+            let fallback = fs::read_to_string(&backup)
+                .map_err(|error| error.to_string())
+                .and_then(|raw| Profile::from_json(&raw).map(|profile| (profile, raw)));
+            match fallback {
+                Ok((profile, verified_raw)) => {
+                    if primary.exists() {
+                        fs::rename(&primary, primary.with_extension("corrupt"))
+                            .map_err(|error| format!("无法隔离损坏的战功簿：{error}"))?;
+                    }
+                    restore_primary_from_backup(&primary, &verified_raw)
+                        .map_err(|error| format!("备份有效但战功簿恢复失败：{error}"))?;
+                    eprintln!("战功簿异常，已从有效 chronicle.bak 恢复；损坏原件保留为 chronicle.corrupt");
+                    Ok(profile)
+                }
+                Err(backup_error) => Err(format!(
+                    "主战功簿不可读取：{primary_error}；备份亦不可用：{backup_error}；为避免覆盖成就记录，已拒绝启动"
+                )),
+            }
+        }
+    }
+}
+
 fn new_run_id() -> String {
     let nanos = SystemTime::now().duration_since(UNIX_EPOCH)
         .map_or(0, |duration| duration.as_nanos());
@@ -715,9 +752,13 @@ fn main() {
     let theme = fs::read_to_string(prefs_path(&dir)).ok()
         .and_then(|s| serde_json::from_str::<Preferences>(&s).ok())
         .map_or(Theme::Dark, |settings| settings.theme);
-    let profile = fs::read_to_string(profile_path(&dir)).ok()
-        .and_then(|s| Profile::from_json(&s).ok())
-        .unwrap_or_default();
+    let profile = match load_profile(&dir) {
+        Ok(profile) => profile,
+        Err(error) => {
+            eprintln!("无法安全载入战功簿：{error}");
+            std::process::exit(2);
+        }
+    };
     let mut app = App {
         game: None, profile, theme, dir,
         use_ansi: io::stdout().is_terminal() && !args.iter().any(|a| a == "--plain"),
@@ -934,6 +975,35 @@ mod profile_reconciliation_tests {
             game: None, profile, theme: Theme::Dark,
             dir: dir.to_owned(), use_ansi: false, message: String::new(),
         }
+    }
+
+    #[test]
+    fn corrupted_chronicle_recovers_only_verified_backup_and_never_resets_history() {
+        let dir = isolated_dir();
+        fs::create_dir_all(&dir).unwrap();
+        let path = profile_path(&dir);
+        let mut first = Profile::new();
+        first.started = 5;
+        atomic_write(&path, &first.to_json().unwrap()).unwrap();
+        let mut second = Profile::new();
+        second.started = 6;
+        atomic_write(&path, &second.to_json().unwrap()).unwrap();
+        fs::write(&path, "{invalid-profile").unwrap();
+
+        let restored = load_profile(&dir).unwrap();
+        assert_eq!(restored.started, 5);
+        assert_eq!(Profile::from_json(&fs::read_to_string(&path).unwrap()).unwrap().started, 5);
+        assert_eq!(fs::read_to_string(dir.join("chronicle.corrupt")).unwrap(), "{invalid-profile");
+        assert_eq!(Profile::from_json(
+            &fs::read_to_string(dir.join("chronicle.bak")).unwrap()
+        ).unwrap().started, 5);
+
+        fs::write(&path, "{broken-primary").unwrap();
+        fs::write(dir.join("chronicle.bak"), "{broken-backup").unwrap();
+        let error = load_profile(&dir).err().expect("unrecoverable profile must refuse startup");
+        assert!(error.contains("拒绝启动"), "{error}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "{broken-primary");
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
