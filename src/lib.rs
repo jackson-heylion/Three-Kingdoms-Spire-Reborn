@@ -1987,7 +1987,11 @@ impl Game {
             let card = self.market.get(idx).ok_or("该商品已售出")?.clone();
             self.gold -= cost;
             self.market.remove(idx);
-            return Ok(format!("购得【{}】，花费{cost}金。", card.name()));
+            // Market cards are permanent acquisitions, just like reward cards.
+            // Never charge and remove a stock item without granting the card.
+            let name = card.name();
+            self.deck.push(card);
+            return Ok(format!("购得【{name}】，花费{cost}金，已加入永久牌组。"));
         }
         match index {
             4 => {
@@ -2286,6 +2290,47 @@ impl Game {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn market_card_purchase_adds_exactly_one_permanent_card_and_is_atomic() {
+        let mut g = Game::new(Hero::GuanYu, 93401);
+        g.stage = Stage::Market;
+        g.last_node = Some(Node::Market);
+        g.market = vec![Card::new("huogong")];
+        g.gold = 90;
+        let deck_before = g.deck.len();
+        let revision = g.revision;
+        let untouched = g.to_json().unwrap();
+        assert!(g.apply(Action::Choose { index: 2 }).is_err());
+        assert_eq!(g.to_json().unwrap(), untouched,
+            "buying an unavailable market slot must not spend gold or RNG");
+        let messages = g.apply(Action::Choose { index: 1 }).unwrap();
+        assert!(messages[0].contains("已加入永久牌组"));
+        assert_eq!(g.gold, 45);
+        assert_eq!(g.deck.len(), deck_before + 1);
+        assert_eq!(g.deck.iter().filter(|c| c.id == "huogong").count(), 1);
+        assert!(g.market.is_empty());
+        assert_eq!(g.revision, revision + 1);
+        let snapshot = g.to_json().unwrap();
+        let restored = Game::from_json(&snapshot).unwrap();
+        assert_eq!(restored.to_json().unwrap(), snapshot);
+        assert_eq!(restored.deck.last().unwrap().id, "huogong");
+        assert!(g.apply(Action::Choose { index: 1 }).is_err());
+        assert_eq!(g.to_json().unwrap(), snapshot,
+            "sold-out stock cannot be charged a second time");
+        g.apply(Action::Choose { index: 0 }).unwrap();
+        assert_eq!(g.stage, Stage::Map);
+        assert_eq!(g.deck.iter().filter(|c| c.id == "huogong").count(), 1);
+    }
+    #[test]
+    fn market_card_purchase_rejects_insufficient_funds_without_state_drift() {
+        let mut g = Game::new(Hero::ZhugeLiang, 93402);
+        g.stage = Stage::Market;
+        g.market = vec![Card::new("huogong")];
+        g.gold = 44;
+        let snapshot = g.to_json().unwrap();
+        assert!(g.apply(Action::Choose { index: 1 }).is_err());
+        assert_eq!(g.to_json().unwrap(), snapshot);
+    }
     #[test]
     fn thorn_kill_interrupts_thunder_follow_up_and_preserves_event_order() {
         let mut g = Game::new(Hero::GuanYu, 93201);

@@ -59,6 +59,37 @@ impl World {
             let result = self.game_mut()?.apply(Action::Choose { index });
             self.error = result.err();
             if self.error.is_none() { return Err("expected rejected choice but command succeeded".into()); }
+        } else if step.starts_with("I stage a market offering \"") {
+            let id = quoted(step)?;
+            if three_kingdoms_spire_reborn::content::card_spec(id).is_none() {
+                return Err(format!("unknown market card {id}"));
+            }
+            let game = self.game_mut()?;
+            game.stage = Stage::Market;
+            game.last_node = Some(Node::Market);
+            game.market = vec![Card::new(id)];
+            game.gold = 90;
+        } else if step == "I reduce market gold to 44" {
+            self.game_mut()?.gold = 44;
+        } else if step.starts_with("I attempt to buy market slot ") {
+            let index:usize = parse_after(step, "I attempt to buy market slot ")?
+                .parse().map_err(|_| "bad market slot")?;
+            self.error = self.game_mut()?.apply(Action::Choose { index }).err();
+            if self.error.is_none() { return Err("invalid market purchase succeeded".into()); }
+        } else if step == "I buy market slot 1" {
+            self.game_mut()?.apply(Action::Choose { index: 1 })?;
+            self.error = None;
+        } else if step == "market gold is 45 and the shelf is empty" {
+            let game = self.game()?;
+            if game.gold != 45 || !game.market.is_empty() {
+                return Err("market did not charge 45 exactly and consume the only stock".into());
+            }
+        } else if step.starts_with("my permanent deck has exactly one \"") {
+            let id = quoted(step)?;
+            let count = self.game()?.deck.iter().filter(|card| card.id == id).count();
+            if count != 1 { return Err(format!("expected one permanent {id}, got {count}")); }
+        } else if step == "I leave the market" {
+            self.game_mut()?.apply(Action::Choose { index: 0 })?;
         } else if step.starts_with("I prepare potion \"") {
             let id = quoted(step)?;
             if !three_kingdoms_spire_reborn::items::POTIONS.iter().any(|(valid, _)| *valid == id) {
@@ -691,6 +722,7 @@ fn gherkin_bdd_acceptance_suite() {
         ("features/combat_powers.feature", include_str!("../features/combat_powers.feature")),
         ("features/advanced_combat.feature", include_str!("../features/advanced_combat.feature")),
         ("features/potion_triggers.feature", include_str!("../features/potion_triggers.feature")),
+        ("features/market_purchases.feature", include_str!("../features/market_purchases.feature")),
         ("features/advanced_cards.feature", include_str!("../features/advanced_cards.feature")),
         ("features/boss_tactics.feature", include_str!("../features/boss_tactics.feature")),
         ("features/balance_guards.feature", include_str!("../features/balance_guards.feature")),

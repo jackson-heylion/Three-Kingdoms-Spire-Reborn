@@ -79,7 +79,7 @@ pub(super) fn choices(app:&App,target:usize)->Vec<(String,String)> {
         },
         Stage::Market=> {
             let mut offers=game.market.iter().enumerate()
-                .map(|(index,card)|(format!("购买 {} / {} 金",card_label(card),45+15*index),
+                .map(|(index,card)|(format!("购入牌组 {} / {} 金",card_label(card),45+15*index),
                     format!("choose {}",index+1))).collect::<Vec<_>>();
             offers.extend([
                 ("随机药剂 / 55 金".into(),"choose 4".into()),
@@ -244,6 +244,16 @@ mod tests {
     fn app(game:Option<Game>)->App {
         App{game,profile:Profile::new(),theme:Theme::Dark,
             dir:std::path::PathBuf::new(),use_ansi:false,message:String::new()}
+    }
+    #[test]
+    fn market_keyboard_menu_identifies_permanent_card_acquisition() {
+        let mut game = Game::new(Hero::GuanYu, 93403);
+        game.stage = Stage::Market;
+        game.market = vec![Card::new("huogong")];
+        let choices = choices(&app(Some(game)), 1);
+        assert!(choices.iter().any(|(label, command)|
+            label.contains("购入牌组") && label.contains("火攻")
+                && command == "choose 1"));
     }
     #[test]
     fn keyboard_menu_is_stage_aware_and_targeted() {
