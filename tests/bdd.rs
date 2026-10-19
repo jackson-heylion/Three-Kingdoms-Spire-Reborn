@@ -970,11 +970,12 @@ fn gherkin_bdd_acceptance_suite() {
         ("features/durable_save.feature", include_str!("../features/durable_save.feature")),
         ("features/save_integrity.feature", include_str!("../features/save_integrity.feature")),
         ("features/action_persistence.feature", include_str!("../features/action_persistence.feature")),
+        ("features/profile_reconciliation.feature", include_str!("../features/profile_reconciliation.feature")),
         ("features/novel_provenance.feature", include_str!("../features/novel_provenance.feature")),
     ];
     let scenarios: usize = documents.iter().map(|(name,text)|
         run_feature(text,name).unwrap_or_else(|error|panic!("{error}"))).sum();
-    assert!(scenarios >= 66, "BDD suite lost scenarios: {scenarios}");
+    assert!(scenarios >= 67, "BDD suite lost scenarios: {scenarios}");
     println!("Verified {scenarios} executable Given/When/Then acceptance scenarios");
 }
 
