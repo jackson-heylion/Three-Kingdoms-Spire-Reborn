@@ -40,9 +40,9 @@ impl Drop for SaveDirectoryLock {
 }
 
 
-//! Crash-consistent replacement for small JSON save documents.
-//! Callers must hold SaveDirectoryLock through the whole session.
-//! Temp data and backup rotations use same-directory synced file renames.
+// Crash-consistent replacement for small JSON save documents.
+// Callers must hold SaveDirectoryLock through the whole session.
+// Temp data and backup rotations use same-directory synced file renames.
 use std::{
     io::Write,
     path::PathBuf,
