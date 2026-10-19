@@ -274,12 +274,11 @@ pub(super) fn run(app:&mut App)->Result<(),String> {
                 cursor = 0;
                 continue;
             }
-            if selecting_card.is_none() {
-                if let Some(index) = selected_hand(app,&command) {
-                    selecting_card = Some(index);
-                    cursor = 0;
-                    continue;
-                }
+            if selecting_card.is_none()
+                && let Some(index) = selected_hand(app,&command) {
+                selecting_card = Some(index);
+                cursor = 0;
+                continue;
             }
             if !app.command(&command) {return Ok(());}
             selecting_card = None;
