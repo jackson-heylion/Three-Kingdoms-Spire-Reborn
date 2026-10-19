@@ -466,6 +466,25 @@ jobs:
           assert sum(x["deaths"] for x in report["tactical_death_encounters"]) == 1100 - sum(x["tactical_wins"] for x in report["cells"])
           print("Verified deterministic 55-cell paired balance sample, no invented rates")
           PY
+      - name: All fifteen hero build fixtures on paired seeds
+        run: cargo run --release --bin tks-sim -- --build-archetypes 2 "$RUNNER_TEMP/tks-builds.json"
+
+      - name: Verify fifteen build paired fixture accounting
+        run: |
+          python3 - <<'PY'
+          import json,os,pathlib
+          data=json.loads((pathlib.Path(os.environ["RUNNER_TEMP"])/"tks-builds.json").read_text())
+          assert data["schema_version"]==1
+          assert data["samples_per_cell"]==2
+          assert len(data["cells"])==15*11
+          assert len(set(c["id"] for c in data["cells"]))==15
+          assert all(c["samples"]==2 and 0<=c["baseline_wins"]<=2
+                     and 0<=c["blueprint_wins"]<=2 and
+                     0<=c["counter_last_encounter_deaths"]<=2 for c in data["cells"])
+          assert len(set((c["id"],c["ascension"]) for c in data["cells"]))==165
+          print("Validated 330 pairs / 660 deterministic build fixture runs")
+          PY
+
       - name: Sun Shangxiang equal-deck-size archetype study
         run: cargo run --release --bin tks-sim -- --sun-archetypes 15 "$RUNNER_TEMP/tks-sun.json"
 
@@ -530,6 +549,7 @@ jobs:
             ${{ runner.temp }}/tks-balance.json
             ${{ runner.temp }}/tks-sun.json
             ${{ runner.temp }}/tks-natural.json
+            ${{ runner.temp }}/tks-builds.json
           retention-days: 30
 
 
@@ -559,5 +579,9 @@ jobs:
           natural_mac=base/'tks-balance-macos-14'/'tks-natural.json'
           assert natural_linux.exists() and natural_mac.exists()
           assert natural_linux.read_bytes()==natural_mac.read_bytes(), 'OS-specific natural drafting divergence'
-          print('All three paired balance, curated archetype and normal draft reports match across OS')
+          build_linux=base/'tks-balance-ubuntu-latest'/'tks-builds.json'
+          build_mac=base/'tks-balance-macos-14'/'tks-builds.json'
+          assert build_linux.exists() and build_mac.exists()
+          assert build_linux.read_bytes()==build_mac.read_bytes(), 'OS-specific 15-build divergence'
+          print('All four paired balance, curated builds, Sun packages and natural draft reports match across OS')
           PY
