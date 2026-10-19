@@ -20,6 +20,7 @@ impl SaveDirectoryLock {
             .create(true)
             .read(true)
             .write(true)
+            .truncate(false)
             .open(directory.join(".tks.lock"))?;
         match file.try_lock() {
             Ok(()) => Ok(Self { file }),
