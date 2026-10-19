@@ -94,3 +94,19 @@ Feature: Advanced deterministic combat reactions and card lifecycle
     When I save and restore
     Then the combat event cursor returns only newer events
     And an overlarge event cursor signals reset
+
+  Scenario: Piercing attacks use an attributed single death settlement and preserve campaign saves
+    Given a "guanyu" campaign with seed 721
+    When I start a battle
+    And I duplicate the first enemy as a second combatant
+    And I put card "victory_drum" in hand
+    And I play the last card
+    And the first enemy has one health and no guard
+    And I put card "jianshu" in hand
+    And I play the last card
+    Then combat event "damage_dealt" from "pierce" occurs exactly once
+    And combat event "foe_defeated" from "pierce" occurs exactly once
+    And combat event "power_triggered" from "victory_drum" occurs exactly once
+    And the event sequence strictly increases
+    When I save and restore
+    Then the current scene is combat
