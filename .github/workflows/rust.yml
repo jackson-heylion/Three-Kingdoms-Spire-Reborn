@@ -162,6 +162,48 @@ jobs:
           print("CLI validated backup restored atomically on this runner")
           PY
 
+      - name: CLI failed-quit write guard and invalid JSON-state recovery (both platforms)
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess
+          base = pathlib.Path(os.environ['RUNNER_TEMP'])
+          directory = base / 'tks-failed-quit'
+          binary = str(pathlib.Path.cwd() / 'target' / 'release' / 'tks')
+          cmd = [binary, '--plain', '--save-dir', str(directory)]
+          initial = subprocess.run(cmd, input='new guanyu 96015\nquit\n',
+                                   capture_output=True, text=True, timeout=20)
+          assert initial.returncode == 0, (initial.stdout, initial.stderr)
+          path = directory / 'save.json'
+          baseline = path.read_text()
+          backup = directory / 'save.bak'
+          assert backup.is_file()
+          backup.unlink()
+          backup.mkdir()
+          failure = subprocess.run(cmd, input='quit\nstatus\n',
+                                   capture_output=True, text=True, timeout=20)
+          assert failure.returncode == 2, (failure.returncode, failure.stdout, failure.stderr)
+          assert '退出前保存失败' in failure.stdout
+          assert '体力' in failure.stdout, 'a rejected quit must keep handling commands'
+          assert '输入结束时自动存档失败' in failure.stderr
+          assert path.read_text() == baseline, 'save failure must preserve the last good primary'
+          backup.rmdir()
+          retry = subprocess.run(cmd, input='quit\n',
+                                 capture_output=True, text=True, timeout=20)
+          assert retry.returncode == 0, (retry.stdout, retry.stderr)
+          assert json.loads(path.read_text())['seed'] == 96015
+          invalid = json.loads(path.read_text())
+          invalid['gold'] = -1
+          path.write_text(json.dumps(invalid, ensure_ascii=False))
+          repaired = subprocess.run(cmd, input='quit\n',
+                                    capture_output=True, text=True, timeout=20)
+          assert repaired.returncode == 0, (repaired.stdout, repaired.stderr)
+          assert '已从上一次有效' in repaired.stdout
+          assert json.loads(path.read_text())['gold'] >= 0
+          assert json.loads((directory / 'save.corrupt').read_text())['gold'] == -1
+          print('Both safe exit and invalid-state recovery passed on real CLI process')
+          PY
+
       - name: CLI potion status and trigger smoke test
         shell: bash
         run: |
