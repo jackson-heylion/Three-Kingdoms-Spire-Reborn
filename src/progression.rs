@@ -29,6 +29,9 @@ pub const ACHIEVEMENTS: &[(&str,&str,&str)] = &[
 pub struct Profile {
     pub version: u32,
     pub started: u64,
+    /// Run-start receipts written only by newer CLI campaigns. Missing in
+    /// legacy profiles, which must not be re-counted just for loading a save.
+    pub started_run_ids: BTreeSet<String>,
     pub wins: u64,
     pub losses: u64,
     pub best_floor: u8,
@@ -66,7 +69,8 @@ pub struct RunRecord {
 impl Default for Profile {
     fn default() -> Self {
         Self {
-            version: PROFILE_VERSION, started: 0, wins: 0, losses: 0,
+            version: PROFILE_VERSION, started: 0, started_run_ids: BTreeSet::new(),
+            wins: 0, losses: 0,
             best_floor: 0, best_score: 0, ascensions: BTreeMap::new(),
             hero_wins: BTreeMap::new(), seen_cards: BTreeSet::new(),
             seen_enemies: BTreeSet::new(), discovered_relics: BTreeSet::new(),
@@ -98,6 +102,23 @@ impl Profile {
     pub fn on_start(&mut self, game: &Game) {
         self.started += 1;
         self.observe(game);
+    }
+
+    /// Reconcile the CLI's independently persisted save and chronicle files.
+    /// Only campaigns explicitly carrying a receipt participate: historic V2
+    /// saves had no receipt, so attempting recovery for them could double
+    /// count the already-recorded starts. The caller must persist the profile
+    /// after a true result; retries and restarts are idempotent by run ID.
+    pub fn on_start_once(&mut self, game: &Game) -> Result<bool, String> {
+        if !game.profile_start_receipt { return Ok(false); }
+        if game.run_id.is_empty() {
+            return Err("可恢复战役必须拥有唯一战役ID".into());
+        }
+        if !self.started_run_ids.insert(game.run_id.clone()) {
+            return Ok(false);
+        }
+        self.on_start(game);
+        Ok(true)
     }
     pub fn achievement_progress(&self)->Vec<(&'static str,&'static str,&'static str,bool)> {
         ACHIEVEMENTS.iter().map(|(id,name,desc)|
@@ -221,6 +242,38 @@ mod tests {
         assert!(!old.achievements.contains("final_act"));
         assert!(old.achievement_progress().len()>=12);
     }
+    #[test]
+    fn start_receipt_repairs_missing_chronicle_exactly_once_across_restarts() {
+        let mut game = Game::new_with_identity(
+            Hero::CaoCao, 96145, 0, RunMode::Standard, "cli-start-96145".into(),
+        );
+        game.profile_start_receipt = true;
+        let mut profile = Profile::new();
+        assert_eq!(profile.on_start_once(&game), Ok(true));
+        assert_eq!(profile.started, 1);
+        assert!(profile.achievements.contains("first_step"));
+        let mut reloaded = Profile::from_json(&profile.to_json().unwrap()).unwrap();
+        assert_eq!(reloaded.on_start_once(&game), Ok(false));
+        assert_eq!(reloaded.started, 1);
+
+        let mut second = Game::new_with_identity(
+            Hero::GuanYu, 96146, 0, RunMode::Standard, "cli-start-96146".into(),
+        );
+        second.profile_start_receipt = true;
+        assert_eq!(reloaded.on_start_once(&second), Ok(true));
+        assert_eq!(reloaded.started, 2);
+        assert_eq!(reloaded.on_start_once(&game), Ok(false));
+
+        let mut old_profile: serde_json::Value =
+            serde_json::from_str(&reloaded.to_json().unwrap()).unwrap();
+        old_profile.as_object_mut().unwrap().remove("started_run_ids");
+        let mut migrated = Profile::from_json(&old_profile.to_string()).unwrap();
+        let mut old_game = game.clone();
+        old_game.profile_start_receipt = false;
+        assert_eq!(migrated.on_start_once(&old_game), Ok(false));
+        assert_eq!(migrated.started, 2, "legacy saves must not be counted again");
+    }
+
     #[test]
     fn progression_counts_once_and_unlocks_ascension() {
         let mut profile = Profile::new();
