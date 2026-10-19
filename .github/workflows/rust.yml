@@ -137,6 +137,9 @@ jobs:
                   first.wait(timeout=10)
           PY
 
+      - name: Real controlling TTY keyboard and persistence smoke (both platforms)
+        run: python3 tests/tui_pty_smoke.py target/release/tks
+
       - name: CLI save and resume smoke test
         shell: bash
         run: |
