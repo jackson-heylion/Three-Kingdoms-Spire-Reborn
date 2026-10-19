@@ -13,6 +13,7 @@ use three_kingdoms_spire_reborn::{
     content::{Hero, card_spec},
     items::potion_name,
     progression::Profile,
+    persistence::SaveDirectoryLock,
     challenges::ChallengeModifier,
 };
 
@@ -637,6 +638,15 @@ fn main() {
     {
         dir = PathBuf::from(value);
     }
+    // Acquire before reading any save, profile or preferences. Keep for the
+    // entire CLI/TUI session, including recovery, autosaves and quit.
+    let _save_lock = match SaveDirectoryLock::acquire(&dir) {
+        Ok(lock) => lock,
+        Err(error) => {
+            eprintln!("无法启动：存档目录 {} 不可用：{error}", dir.display());
+            std::process::exit(2);
+        }
+    };
     let theme = fs::read_to_string(prefs_path(&dir)).ok()
         .and_then(|s| serde_json::from_str::<Preferences>(&s).ok())
         .map_or(Theme::Dark, |settings| settings.theme);

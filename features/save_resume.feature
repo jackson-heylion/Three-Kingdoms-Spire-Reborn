@@ -30,3 +30,16 @@ Feature: Literary choices are portable and transactional
     When I end turn
     And I save and restore
     Then the current scene is combat
+
+  Scenario: A second terminal cannot overwrite an active single-player session
+    Given an isolated save directory
+    When I start a writer in that directory
+    Then another writer is refused without modifying the save
+    When I close the first writer
+    Then a new writer can take the same directory lock
+
+  Scenario: A leftover lock file does not make a completed session inaccessible
+    Given an isolated save directory
+    When I start a writer in that directory
+    And I close the first writer
+    Then a new writer can take the same directory lock

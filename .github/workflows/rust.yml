@@ -58,6 +58,50 @@ jobs:
           print('CLI military market charges once, grants card and preserves it after restart')
           PY
 
+      - name: CLI single-writer process exclusion and recovery (both platforms)
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess, time
+          directory = pathlib.Path(os.environ['RUNNER_TEMP']) / 'tks-single-writer'
+          binary = str(pathlib.Path.cwd() / 'target' / 'release' / 'tks')
+          args = [binary, '--plain', '--save-dir', str(directory)]
+          first = subprocess.Popen(args, stdin=subprocess.PIPE,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+          try:
+              lock_file = directory / '.tks.lock'
+              for _ in range(100):
+                  if first.poll() is not None:
+                      raise AssertionError('first TKS process exited unexpectedly')
+                  if lock_file.exists():
+                      time.sleep(0.15)
+                      break
+                  time.sleep(0.05)
+              else:
+                  raise AssertionError('first TKS never created lock file')
+              second = subprocess.run(args, input='new guanyu 917\nquit\n',
+                                      capture_output=True, text=True, timeout=15)
+              assert second.returncode == 2, (second.returncode, second.stderr)
+              assert '另一个 TKS 实例占用' in second.stderr, second.stderr
+              assert not (directory / 'save.json').exists(), 'blocked writer wrote a save'
+              first.stdin.write('new guanyu 917\nquit\n')
+              first.stdin.flush()
+              first.stdin.close()
+              assert first.wait(timeout=20) == 0, first.stderr.read()
+              saved = json.loads((directory / 'save.json').read_text())
+              assert saved['seed'] == 917
+              third = subprocess.run(args, input='status\nquit\n',
+                                     capture_output=True, text=True, timeout=15)
+              assert third.returncode == 0, third.stderr
+              assert '读取进度成功' in third.stdout
+              assert lock_file.exists(), 'lock file intentionally remains for inode safety'
+              print('Concurrent process rejected, first saves, subsequent process resumes')
+          finally:
+              if first.poll() is None:
+                  first.kill()
+                  first.wait(timeout=10)
+          PY
+
       - name: CLI save and resume smoke test
         shell: bash
         run: |
