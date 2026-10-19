@@ -76,6 +76,20 @@ fn load_profile(directory: &std::path::Path) -> Result<Profile, String> {
     }
 }
 
+
+/// Use one stable deduplication key in both live gameplay and post-crash
+/// reconciliation. Historical saves without a run ID retain their old key.
+fn campaign_result_key(game: &Game) -> String {
+    if game.run_id.is_empty() {
+        format!(
+            "legacy:{}:{}:{}:{}:{:?}",
+            game.hero.name(), game.seed, game.floor, game.revision, game.stage,
+        )
+    } else {
+        game.run_id.clone()
+    }
+}
+
 fn new_run_id() -> String {
     let nanos = SystemTime::now().duration_since(UNIX_EPOCH)
         .map_or(0, |duration| duration.as_nanos());
@@ -112,20 +126,30 @@ fn card_label(card: &Card) -> String {
     }
 }
 impl App {
-    /// A committed save may outlive a failed chronicle update. Persist the
-    /// same run-start receipt exactly once, and retry failed profile writes
-    /// on a later load without counting the start twice.
+    /// A committed save may outlive a failed chronicle update. Reconcile
+    /// both its start and terminal result from the authoritative save, using
+    /// stable deduplication keys across repeated loads and process crashes.
     fn finish_load(&mut self, game: Game, message: &str) {
         let suffix = if game.profile_start_receipt {
-            match self.profile.on_start_once(&game) {
-                Err(error) => format!("；战功补记失败：{error}"),
-                Ok(new_start) => {
+            let reconcile = (|| -> Result<(bool, bool), String> {
+                let new_start = self.profile.on_start_once(&game)?;
+                let new_result = if matches!(game.stage, Stage::Won | Stage::Lost) {
+                    self.profile.record(&game, campaign_result_key(&game))?
+                } else {
+                    false
+                };
+                Ok((new_start, new_result))
+            })();
+            match reconcile {
+                Err(error) => format!("；战功补记失败：{error}，请核对存档"),
+                Ok((new_start, new_result)) => {
                     let desired = self.profile.to_json();
                     match desired {
                         Err(error) => format!("；战功序列化失败：{error}"),
                         Ok(json) if fs::read_to_string(profile_path(&self.dir)).ok().as_deref()
                             == Some(json.as_str()) => String::new(),
                         Ok(_) => match self.save_profile() {
+                            Ok(()) if new_result => "；已补记此前未落盘的终局战功及解锁".into(),
                             Ok(()) if new_start => "；已补记此前未落盘的出征战功".into(),
                             Ok(()) => "；已同步此前未落盘的战功簿".into(),
                             Err(error) => format!("；战功同步失败：{error}，下次读档可重试"),
@@ -205,10 +229,7 @@ impl App {
         let g = self.game.as_ref().ok_or("请先开局")?;
         self.profile.observe(g);
         if matches!(g.stage, Stage::Won | Stage::Lost) {
-            let key = if g.run_id.is_empty() {
-                format!("legacy:{}:{}:{}:{}:{:?}",g.hero.name(),g.seed,g.floor,g.revision,g.stage)
-            } else { g.run_id.clone() };
-            self.profile.record(g,key)?;
+            self.profile.record(g, campaign_result_key(g))?;
         }
         self.save_profile()
     }
