@@ -982,13 +982,23 @@ impl Game {
             b.powers.iter().find(|p| p.id == id).map_or(0, |p| p.stacks))
     }
     fn gain_power(&mut self, id: PowerId, stacks: i32) {
-        let b = self.battle.as_mut().expect("battle");
-        if let Some(existing) = b.powers.iter_mut().find(|p| p.id == id) {
-            existing.stacks = (existing.stacks + stacks).min(99);
-        } else {
-            b.powers.push(PowerStack { id, stacks: stacks.min(99) });
+        if stacks <= 0 { return; }
+        let applied = {
+            let b = self.battle.as_mut().expect("battle");
+            if let Some(existing) = b.powers.iter_mut().find(|p| p.id == id) {
+                let gained = stacks.min(99 - existing.stacks);
+                existing.stacks += gained;
+                gained
+            } else {
+                let gained = stacks.min(99);
+                b.powers.push(PowerStack { id, stacks: gained });
+                gained
+            }
+        };
+        // Audit the effective stack change, not an unapplied request at cap 99.
+        if applied > 0 {
+            self.combat_event(EventKind::PowerGained, id.name(), applied, None);
         }
-        self.combat_event(EventKind::PowerGained, id.name(), stacks, None);
     }
     fn trigger_granary(&mut self) {
         let stacks = self.power_stacks(PowerId::GranarySupport);
@@ -1002,6 +1012,32 @@ impl Game {
         }
     }
 
+
+    /// A single saturating application path for enemy-imposed hero debuffs.
+    /// Exactly the applied duration is written to the ordered event journal.
+    fn apply_hero_status(&mut self, status: &str, amount: u8) {
+        if amount == 0 { return; }
+        let applied = {
+            let b = self.battle.as_mut().expect("battle");
+            match status {
+                "weak" => {
+                    let before = b.weak;
+                    b.weak = b.weak.saturating_add(amount);
+                    b.weak - before
+                }
+                "vulnerable" => {
+                    let before = b.vulnerable;
+                    b.vulnerable = b.vulnerable.saturating_add(amount);
+                    b.vulnerable - before
+                }
+                _ => return,
+            }
+        };
+        if applied > 0 {
+            self.combat_event(EventKind::StatusApplied, status, i32::from(applied),
+                Some("hero".into()));
+        }
+    }
 
     fn apply_foe_status(&mut self, idx: usize, status: &str, amount: i32) {
         if amount <= 0 { return; }
@@ -1584,9 +1620,7 @@ impl Game {
                 let caster_alive = self.battle.as_ref().is_some_and(|b| b.foes[idx].hp > 0);
                 if hit > 0 && caster_alive {
                     let turns = 2+u8::from(phase > 0);
-                    let b = self.battle.as_mut().expect("battle");
-                    b.weak = b.weak.saturating_add(turns);
-                    self.combat_event(EventKind::StatusApplied,"weak",i32::from(turns),Some("hero".into()));
+                    self.apply_hero_status("weak", turns);
                 }
                 format!("雷咒命中，损失{hit}生命{}",
                     if !caster_alive {"；施术者遭反击阵亡，虚弱效果中断"}
@@ -1824,17 +1858,8 @@ impl Game {
                     messages.push(format!("{name}连续进攻{hits}次，受到{total}点伤害"));
                 }
                 Intent::Hex(weak, vulnerable) => {
-                    {
-                        let b = self.battle.as_mut().expect("battle");
-                        b.weak = b.weak.saturating_add(weak);
-                        b.vulnerable = b.vulnerable.saturating_add(vulnerable);
-                    }
-                    if weak>0 {
-                        self.combat_event(EventKind::StatusApplied,"weak",i32::from(weak),Some("hero".into()));
-                    }
-                    if vulnerable>0 {
-                        self.combat_event(EventKind::StatusApplied,"vulnerable",i32::from(vulnerable),Some("hero".into()));
-                    }
+                    self.apply_hero_status("weak", weak);
+                    self.apply_hero_status("vulnerable", vulnerable);
                     messages.push(format!("{name}施放诡计：虚弱{weak}/易伤{vulnerable}"));
                 }
                 Intent::Guard(amount) => {
@@ -2429,6 +2454,36 @@ mod tests {
         assert!(g.apply(Action::Choose { index: 1 }).is_err());
         assert_eq!(g.to_json().unwrap(), snapshot);
     }
+    #[test]
+    fn capped_power_and_debuff_events_report_effective_changes_only() {
+        let mut g = Game::new(Hero::ZhugeLiang, 93409);
+        g.apply(Action::Choose { index: 1 }).unwrap();
+        g.gain_power(PowerId::WisdomOnDraw, 97);
+        g.gain_power(PowerId::WisdomOnDraw, 10);
+        g.gain_power(PowerId::WisdomOnDraw, 3);
+        assert_eq!(g.power_stacks(PowerId::WisdomOnDraw), 99);
+        let gained: Vec<_> = g.battle.as_ref().unwrap().events.iter()
+            .filter(|e| e.kind == EventKind::PowerGained)
+            .map(|e| e.amount).collect();
+        assert_eq!(gained, vec![97, 2], "capped powers cannot emit fictitious extra stacks");
+
+        let b = g.battle.as_mut().unwrap();
+        b.weak = 254;
+        b.vulnerable = 255;
+        let before = b.event_seq;
+        g.apply_hero_status("weak", 3);
+        g.apply_hero_status("vulnerable", 3);
+        let b = g.battle.as_ref().unwrap();
+        assert_eq!((b.weak, b.vulnerable), (255, 255));
+        let status: Vec<_> = b.events.iter().filter(|e|
+            e.seq > before && e.kind == EventKind::StatusApplied).collect();
+        assert_eq!(status.len(), 1);
+        assert_eq!((status[0].source.as_str(), status[0].amount),
+            ("weak", 1));
+        let snapshot = g.to_json().unwrap();
+        assert_eq!(Game::from_json(&snapshot).unwrap().to_json().unwrap(), snapshot);
+    }
+
     #[test]
     fn fire_potion_is_flat_blockable_damage_with_attributed_events() {
         let mut g = Game::new(Hero::GuanYu, 93410);
