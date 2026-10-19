@@ -5,7 +5,7 @@
 use three_kingdoms_spire_reborn::{
     Action, BossMove, Card, Foe, Game, Intent, Node, Stage, content::{Hero, enemy_hp}, lore,
     combat::{EventKind, PowerId},
-    persistence::SaveDirectoryLock,
+    persistence::{SaveDirectoryLock, atomic_write, restore_primary_from_backup},
 };
 
 #[derive(Default)]
@@ -41,6 +41,62 @@ impl World {
             self.lock_dir = Some(std::env::temp_dir().join(format!(
                 "tks-bdd-single-writer-{}-{nanos}", std::process::id()
             )));
+        } else if step == "I write two atomic save generations" {
+            let dir = self.lock_dir.as_ref().ok_or("missing isolated save directory")?;
+            atomic_write(&dir.join("save.json"), r#"{"generation":1}"#)
+                .map_err(|e|e.to_string())?;
+            atomic_write(&dir.join("save.json"), r#"{"generation":2}"#)
+                .map_err(|e|e.to_string())?;
+        } else if step == "the primary is generation 2 and the backup is generation 1" {
+            let dir = self.lock_dir.as_ref().ok_or("missing isolated save directory")?;
+            if std::fs::read_to_string(dir.join("save.json")).map_err(|e|e.to_string())?
+                != r#"{"generation":2}"#
+                || std::fs::read_to_string(dir.join("save.bak")).map_err(|e|e.to_string())?
+                    != r#"{"generation":1}"#
+            { return Err("a save generation is missing or torn".into()); }
+        } else if step == "I corrupt the primary and restore the verified backup" {
+            let dir = self.lock_dir.as_ref().ok_or("missing isolated save directory")?;
+            let path = dir.join("save.json");
+            std::fs::write(&path, "{broken").map_err(|e|e.to_string())?;
+            let verified = std::fs::read_to_string(dir.join("save.bak"))
+                .map_err(|e|e.to_string())?;
+            if verified != r#"{"generation":1}"# {
+                return Err("the source backup was not verified".into());
+            }
+            std::fs::rename(&path, path.with_extension("corrupt"))
+                .map_err(|e|e.to_string())?;
+            restore_primary_from_backup(&path, &verified).map_err(|e|e.to_string())?;
+        } else if step == "the primary and backup both contain intact generation 1" {
+            let dir = self.lock_dir.as_ref().ok_or("missing isolated save directory")?;
+            if std::fs::read_to_string(dir.join("save.json")).map_err(|e|e.to_string())?
+                    != r#"{"generation":1}"#
+                || std::fs::read_to_string(dir.join("save.bak")).map_err(|e|e.to_string())?
+                    != r#"{"generation":1}"#
+                || std::fs::read_to_string(dir.join("save.corrupt")).map_err(|e|e.to_string())?
+                    != "{broken"
+            { return Err("recovery overwrote backup or lost the broken primary".into()); }
+        } else if step == "I write a first atomic save" {
+            let dir = self.lock_dir.as_ref().ok_or("missing isolated save directory")?;
+            atomic_write(&dir.join("save.json"), "first").map_err(|e|e.to_string())?;
+        } else if step == "I block backup replacement with a directory" {
+            let dir = self.lock_dir.as_ref().ok_or("missing isolated save directory")?;
+            std::fs::create_dir(dir.join("save.bak")).map_err(|e|e.to_string())?;
+        } else if step == "a second atomic save is refused" {
+            let dir = self.lock_dir.as_ref().ok_or("missing isolated save directory")?;
+            if atomic_write(&dir.join("save.json"), "second").is_ok() {
+                return Err("overwrote a directory used as the backup target".into());
+            }
+        } else if step == "the previous primary is intact and no staged files remain" {
+            let dir = self.lock_dir.as_ref().ok_or("missing isolated save directory")?;
+            if std::fs::read_to_string(dir.join("save.json")).map_err(|e|e.to_string())?
+                != "first" || std::fs::read_dir(dir).map_err(|e|e.to_string())?
+                    .any(|e|e.is_ok_and(|e|e.file_name().to_string_lossy().contains(".tmp.")))
+            { return Err("failed save modified primary or leaked temporary file".into()); }
+        } else if step == "no staged files remain in the save directory" {
+            let dir = self.lock_dir.as_ref().ok_or("missing isolated save directory")?;
+            if std::fs::read_dir(dir).map_err(|e|e.to_string())?
+                .any(|e|e.is_ok_and(|e|e.file_name().to_string_lossy().contains(".tmp.")))
+            { return Err("temporary save leaked".into()); }
         } else if step == "I start a writer in that directory" {
             let dir = self.lock_dir.as_ref().ok_or("missing isolated save directory")?;
             self.save_lock = Some(SaveDirectoryLock::acquire(dir).map_err(|e| e.to_string())?);
@@ -792,11 +848,12 @@ fn gherkin_bdd_acceptance_suite() {
         ("features/p1_replay_map.feature", include_str!("../features/p1_replay_map.feature")),
         ("features/lore.feature", include_str!("../features/lore.feature")),
         ("features/save_resume.feature", include_str!("../features/save_resume.feature")),
+        ("features/durable_save.feature", include_str!("../features/durable_save.feature")),
         ("features/novel_provenance.feature", include_str!("../features/novel_provenance.feature")),
     ];
     let scenarios: usize = documents.iter().map(|(name,text)|
         run_feature(text,name).unwrap_or_else(|error|panic!("{error}"))).sum();
-    assert!(scenarios >= 61, "BDD suite lost scenarios: {scenarios}");
+    assert!(scenarios >= 63, "BDD suite lost scenarios: {scenarios}");
     println!("Verified {scenarios} executable Given/When/Then acceptance scenarios");
 }
 
