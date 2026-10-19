@@ -1000,7 +1000,10 @@ mod profile_reconciliation_tests {
 
         fs::write(&path, "{broken-primary").unwrap();
         fs::write(dir.join("chronicle.bak"), "{broken-backup").unwrap();
-        let error = load_profile(&dir).err().expect("unrecoverable profile must refuse startup");
+        let error = match load_profile(&dir) {
+            Ok(_) => panic!("unrecoverable profile must refuse startup"),
+            Err(error) => error,
+        };
         assert!(error.contains("拒绝启动"), "{error}");
         assert_eq!(fs::read_to_string(&path).unwrap(), "{broken-primary");
         fs::remove_dir_all(dir).unwrap();
