@@ -2606,8 +2606,10 @@ mod tests {
             vec![EventKind::DamageDealt, EventKind::FoeDefeated, EventKind::PowerTriggered]);
         assert_eq!(events[0].source, "troops");
         assert_eq!(events[0].amount, 7);
-        game.troop_attack();
+        let cursor_after_kill = battle.event_seq;
+        game.deal_enemy_damage(0, 15, "troops");
         assert_eq!(game.telemetry.totals.troop_damage, 7, "no second hit on a corpse");
+        assert_eq!(game.battle.as_ref().unwrap().event_seq, cursor_after_kill);
     }
 
     #[test]
@@ -2635,8 +2637,9 @@ mod tests {
                  EventKind::FoeDefeated, EventKind::PowerTriggered]);
         assert_eq!(events[1].source, "thorns");
         assert_eq!(events[1].amount, 4);
+        let cursor_after_kill = events.last().unwrap().seq;
         game.deal_enemy_damage_unblockable(0, 6, "thorns");
-        assert_eq!(game.battle.as_ref().unwrap().event_seq, events.last().unwrap().seq);
+        assert_eq!(game.battle.as_ref().unwrap().event_seq, cursor_after_kill);
     }
 
     #[test]
