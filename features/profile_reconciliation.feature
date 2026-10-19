@@ -9,3 +9,13 @@ Feature: Recover committed campaign starts after an interrupted chronicle write
     Then exactly one campaign start is recorded
     When I reload and reconcile the same receipt
     Then exactly one campaign start is recorded
+
+  Scenario: A committed victory repairs its missing permanent result once
+    Given a "cao" campaign with seed 96155
+    And I assign a recoverable start receipt
+    And I mark the campaign as a completed victory
+    When I reconcile the campaign from its saved snapshot
+    Then exactly one campaign start is recorded
+    And exactly one permanent campaign victory is recorded
+    When I reload and reconcile the same receipt
+    Then exactly one permanent campaign victory is recorded
