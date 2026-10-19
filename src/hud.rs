@@ -103,7 +103,12 @@ pub(super) fn render(app:&App,columns:usize,rows:usize,target:usize,
             format!("{} {:>2}. {}",if i==cursor {"▶"}else{" "},i+1,label)
         ).collect::<Vec<_>>();
         let head=if let Some(b)=g.battle.as_ref().filter(|_|g.stage==Stage::Combat) {
-            format!("手牌与行动 · 抽{} 弃{} 耗{}  [{}-{} / {}]",
+            let heading = if options.iter().any(|(_,command)|command=="@cancel") {
+                "指定副选牌 · Enter确认、取消返回"
+            } else {
+                "手牌与行动"
+            };
+            format!("{heading} · 抽{} 弃{} 耗{}  [{}-{} / {}]",
                 b.draw.len(),b.discard.len(),b.exhausted.len(),start+1,end,options.len())
         } else {
             format!("行动选择 [{}-{} / {}]",start+usize::from(!options.is_empty()),end,options.len())
@@ -168,6 +173,19 @@ mod tests {
             assert!(end_content.contains("结束本回合"),"{end_content}");
             assert!(content.contains("敌军")&&content.contains("军令"),"{content}");
         }
+    }
+    #[test]
+    fn secondary_card_submenu_has_a_distinct_keyboard_focus_heading() {
+        let mut game = Game::new(Hero::ZhugeLiang, 983);
+        game.apply(Action::Choose { index: 1 }).unwrap();
+        let app = app(Some(game));
+        let menu = vec![
+            ("牌堆第2张：突刺".into(), "play 1 1 2".into()),
+            ("取消选牌".into(), "@cancel".into()),
+        ];
+        let screen = render(&app,80,34,1,&menu,0);
+        assert!(screen.contains("指定副选牌"),"{screen}");
+        assert!(screen.contains("取消选牌"),"{screen}");
     }
     #[test]
     fn action_menu_is_only_hand_and_no_duplicate_targets(){
