@@ -13,7 +13,7 @@ use three_kingdoms_spire_reborn::{
     content::{Hero, card_spec},
     items::potion_name,
     progression::Profile,
-    persistence::SaveDirectoryLock,
+    persistence::{SaveDirectoryLock, atomic_write, restore_primary_from_backup},
     challenges::ChallengeModifier,
 };
 
@@ -39,14 +39,6 @@ struct App {
 fn save_path(dir: &std::path::Path) -> PathBuf { dir.join("save.json") }
 fn prefs_path(dir: &std::path::Path) -> PathBuf { dir.join("settings.json") }
 fn profile_path(dir: &std::path::Path) -> PathBuf { dir.join("chronicle.json") }
-fn atomic_write(path: &std::path::Path, data: &str) -> io::Result<()> {
-    if let Some(parent) = path.parent() { fs::create_dir_all(parent)?; }
-    let temporary = path.with_extension(format!("tmp.{}", std::process::id()));
-    fs::write(&temporary, data)?;
-    if path.exists() { fs::copy(path,path.with_extension("bak"))?; }
-    fs::rename(temporary, path)?;
-    Ok(())
-}
 fn new_run_id() -> String {
     let nanos = SystemTime::now().duration_since(UNIX_EPOCH)
         .map_or(0, |duration| duration.as_nanos());
@@ -96,16 +88,17 @@ impl App {
             Err(original_error)=>{
                 let backup=path.with_extension("bak");
                 let fallback=fs::read_to_string(&backup)
-                    .map_err(|e|e.to_string()).and_then(|raw|Game::from_json(&raw));
+                    .map_err(|e|e.to_string())
+                    .and_then(|raw|Game::from_json(&raw).map(|game| (game,raw)));
                 match fallback {
-                    Ok(game)=>{
+                    Ok((game,verified_raw))=>{
                         // Preserve the damaged source for manual inspection;
                         // do not overwrite the last verified good backup.
                         if path.exists() {
                             fs::rename(&path,path.with_extension("corrupt"))
                                 .map_err(|e|format!("无法保留受损存档: {e}"))?;
                         }
-                        fs::copy(&backup,&path)
+                        restore_primary_from_backup(&path,&verified_raw)
                             .map_err(|e|format!("备份有效，但恢复到主路径失败: {e}"))?;
                         self.game=Some(game);
                         self.message="主存档异常，已从上一次有效 .bak 备份恢复；损坏原文件已保留为 .corrupt。".into();
