@@ -294,6 +294,10 @@ pub struct Game {
     #[serde(default)] pub variants: Option<[u8; 3]>,
     #[serde(default)] pub mode: RunMode,
     #[serde(default)] pub run_id: String,
+    /// Opt-in receipt for CLI campaigns whose separate chronicle start can be
+    /// recovered after save.json committed but chronicle.json did not.
+    /// Older V2 snapshots default to false and are never re-counted on load.
+    #[serde(default)] pub profile_start_receipt: bool,
     #[serde(default)] pub act_map: Option<map::ActMap>,
     #[serde(default)] pub map_lane: Option<u8>,
     #[serde(default)] pub route_lanes: Vec<u8>,
@@ -348,7 +352,7 @@ impl Game {
             potion_bag: vec!["healing".into()], shop_relic: None,
             relic_history: vec!["军旗".into()], victories: 0,
             boons: vec![], boon_choices: vec![], variants: None,
-            mode: RunMode::Standard, run_id: String::new(),
+            mode: RunMode::Standard, run_id: String::new(), profile_start_receipt: false,
             act_map: None, map_lane: None, route_lanes: Vec::new(),
             lore_flags: vec![], lore_seen: vec![], lore_current: None,
             easter_unlocked: Vec::new(),
@@ -368,6 +372,9 @@ impl Game {
         if actions.len()>50_000 { return Err("操作历史超过单次回放保护上限".into()); }
         let mut replayed=Game::new_with_identity(
             self.hero,self.seed,self.ascension,self.mode,self.run_id.clone());
+        // Profile bookkeeping is external to the deterministic action journal.
+        // Preserve its persisted receipt while replaying gameplay from the seed.
+        replayed.profile_start_receipt = self.profile_start_receipt;
         for (index,action) in actions.iter().enumerate() {
             replayed.apply(action.clone()).map_err(|e|
                 format!("重放第{}步失败：{e}",index+1))?;
@@ -402,6 +409,9 @@ impl Game {
         }
         if self.action_history.as_ref().is_some_and(|actions|actions.len()>50_000) {
             return Err("操作日志长度超限".into());
+        }
+        if self.profile_start_receipt && self.run_id.is_empty() {
+            return Err("可恢复战功凭证缺少唯一战役ID".into());
         }
         if (self.stage == Stage::Combat) != self.battle.is_some() {
             return Err("存档战斗阶段与战斗快照不一致".into());
