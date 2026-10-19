@@ -39,6 +39,8 @@ Feature: Advanced deterministic combat reactions and card lifecycle
     Then the first enemy has at least 5 poison
     And combat event "status_applied" from "poison" occurs exactly once
     And combat event "power_triggered" from "toxic_reversal" occurs exactly once
+    And combat event "status_applied" from "poison:toxic_reversal" occurs exactly once
+    And the event sequence strictly increases
     When I save and restore
     Then the first enemy has at least 5 poison
 
