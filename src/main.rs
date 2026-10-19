@@ -75,14 +75,41 @@ fn card_label(card: &Card) -> String {
     }
 }
 impl App {
+    /// A committed save may outlive a failed chronicle update. Persist the
+    /// same run-start receipt exactly once, and retry failed profile writes
+    /// on a later load without counting the start twice.
+    fn finish_load(&mut self, game: Game, message: &str) {
+        let suffix = if game.profile_start_receipt {
+            match self.profile.on_start_once(&game) {
+                Err(error) => format!("；战功补记失败：{error}"),
+                Ok(new_start) => {
+                    let desired = self.profile.to_json();
+                    match desired {
+                        Err(error) => format!("；战功序列化失败：{error}"),
+                        Ok(json) if fs::read_to_string(profile_path(&self.dir)).as_deref()
+                            == Ok(json.as_str()) => String::new(),
+                        Ok(_) => match self.save_profile() {
+                            Ok(()) if new_start => "；已补记此前未落盘的出征战功".into(),
+                            Ok(()) => "；已同步此前未落盘的战功簿".into(),
+                            Err(error) => format!("；战功同步失败：{error}，下次读档可重试"),
+                        },
+                    }
+                }
+            }
+        } else {
+            String::new()
+        };
+        self.game = Some(game);
+        self.message = format!("{message}{suffix}");
+    }
+
     fn load(&mut self) -> Result<(), String> {
         let path=save_path(&self.dir);
         let current=fs::read_to_string(&path)
             .map_err(|e|e.to_string()).and_then(|raw|Game::from_json(&raw));
         match current {
             Ok(game)=>{
-                self.game=Some(game);
-                self.message="读取进度成功，战斗牌堆和随机状态已恢复。".into();
+                self.finish_load(game, "读取进度成功，战斗牌堆和随机状态已恢复。");
                 Ok(())
             }
             Err(original_error)=>{
@@ -100,8 +127,7 @@ impl App {
                         }
                         restore_primary_from_backup(&path,&verified_raw)
                             .map_err(|e|format!("备份有效，但恢复到主路径失败: {e}"))?;
-                        self.game=Some(game);
-                        self.message="主存档异常，已从上一次有效 .bak 备份恢复；损坏原文件已保留为 .corrupt。".into();
+                        self.finish_load(game, "主存档异常，已从上一次有效 .bak 备份恢复；损坏原文件已保留为 .corrupt。");
                         Ok(())
                     }
                     Err(backup_error)=>Err(format!("主存档错误：{original_error}；备份恢复失败：{backup_error}"))
@@ -113,13 +139,17 @@ impl App {
     /// chronicle.json is a separate document: if its update fails after the
     /// game commits, report the partial result accurately and retain the
     /// committed game/profile in memory for a later profile retry.
-    fn start_run(&mut self, next: Game) -> Result<(), String> {
+    fn start_run(&mut self, mut next: Game) -> Result<(), String> {
+        if next.run_id.is_empty() {
+            return Err("新战役缺少唯一ID，无法安全恢复战功".into());
+        }
+        next.profile_start_receipt = true;
         let path = save_path(&self.dir);
         replace_run_and_persist(&mut self.game, next, |candidate| {
             atomic_write(&path, &candidate.to_json()?)
                 .map_err(|error| format!("新战役未能保存，原有进度保持不变：{error}"))
         })?;
-        self.profile.on_start(self.game.as_ref().expect("committed campaign"));
+        self.profile.on_start_once(self.game.as_ref().expect("committed campaign"))?;
         self.save_profile().map_err(|error| {
             format!("新战役已成功保存，但战功簿写入失败：{error}；后续行动会重试同步")
         })
@@ -342,7 +372,7 @@ impl App {
                     _ => Err("每日挑战请输入 YYYY-MM-DD（如 daily 2026-10-16）".into())
                 }
             }
-            "load" => self.load().map(|_| "已读档。".into()),
+            "load" => self.load().map(|_| self.message.clone()),
             "save" => self.save().map(|_| "已保存。".into()),
             "theme" => match args.get(1).copied() {
                 Some("light") => { self.theme = Theme::Light; self.preferences().map(|_| "亮色主题已保存。".into()) }
