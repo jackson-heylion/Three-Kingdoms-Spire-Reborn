@@ -5,7 +5,7 @@
 use three_kingdoms_spire_reborn::{
     Action, BossMove, Card, Foe, Game, Intent, Node, Stage, content::{Hero, enemy_hp}, lore,
     combat::{EventKind, PowerId},
-    persistence::{SaveDirectoryLock, atomic_write, restore_primary_from_backup},
+    persistence::{SaveDirectoryLock, apply_and_persist, atomic_write, restore_primary_from_backup},
 };
 
 #[derive(Default)]
@@ -41,6 +41,47 @@ impl World {
             self.lock_dir = Some(std::env::temp_dir().join(format!(
                 "tks-bdd-single-writer-{}-{nanos}", std::process::id()
             )));
+        } else if step == "I write the initial campaign snapshot" {
+            let dir = self.lock_dir.as_ref().ok_or("missing isolated save directory")?;
+            atomic_write(&dir.join("save.json"), &self.game()?.to_json()?)
+                .map_err(|error| error.to_string())?;
+        } else if step == "I attempt a persisted choice while disk write is blocked" {
+            let path = self.lock_dir.as_ref().ok_or("missing isolated save directory")?
+                .join("save.json");
+            self.error = apply_and_persist(
+                self.game.as_mut().ok_or("missing game")?,
+                Action::Choose { index: 1 },
+                |candidate| atomic_write(&path, &candidate.to_json()?)
+                    .map_err(|error| error.to_string()),
+            ).err();
+            if self.error.is_none() {
+                return Err("expected failed persist but action committed".into());
+            }
+        } else if step == "I unblock save replacement" {
+            let dir = self.lock_dir.as_ref().ok_or("missing isolated save directory")?;
+            std::fs::remove_dir(dir.join("save.bak")).map_err(|error| error.to_string())?;
+        } else if step == "I retry the persisted choice" {
+            let path = self.lock_dir.as_ref().ok_or("missing isolated save directory")?
+                .join("save.json");
+            apply_and_persist(
+                self.game.as_mut().ok_or("missing game")?,
+                Action::Choose { index: 1 },
+                |candidate| atomic_write(&path, &candidate.to_json()?)
+                    .map_err(|error| error.to_string()),
+            )?;
+            self.error = None;
+        } else if step == "the disk snapshot matches the current campaign" {
+            let dir = self.lock_dir.as_ref().ok_or("missing isolated save directory")?;
+            let raw = std::fs::read_to_string(dir.join("save.json"))
+                .map_err(|error| error.to_string())?;
+            if raw != self.game()?.to_json()? {
+                return Err("disk save diverged from authoritative game".into());
+            }
+            Game::from_json(&raw)?.verify_action_replay()?;
+        } else if step == "the campaign revision is exactly one" {
+            if self.game()?.revision != 1 {
+                return Err(format!("expected one committed action; got {}", self.game()?.revision));
+            }
         } else if step == "I write two atomic save generations" {
             let dir = self.lock_dir.as_ref().ok_or("missing isolated save directory")?;
             atomic_write(&dir.join("save.json"), r#"{"generation":1}"#)
@@ -874,11 +915,12 @@ fn gherkin_bdd_acceptance_suite() {
         ("features/save_resume.feature", include_str!("../features/save_resume.feature")),
         ("features/durable_save.feature", include_str!("../features/durable_save.feature")),
         ("features/save_integrity.feature", include_str!("../features/save_integrity.feature")),
+        ("features/action_persistence.feature", include_str!("../features/action_persistence.feature")),
         ("features/novel_provenance.feature", include_str!("../features/novel_provenance.feature")),
     ];
     let scenarios: usize = documents.iter().map(|(name,text)|
         run_feature(text,name).unwrap_or_else(|error|panic!("{error}"))).sum();
-    assert!(scenarios >= 65, "BDD suite lost scenarios: {scenarios}");
+    assert!(scenarios >= 66, "BDD suite lost scenarios: {scenarios}");
     println!("Verified {scenarios} executable Given/When/Then acceptance scenarios");
 }
 

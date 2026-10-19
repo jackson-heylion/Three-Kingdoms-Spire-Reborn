@@ -107,6 +107,24 @@ fn sync_directory(directory: &Path) -> io::Result<()> {
     }
 }
 
+/// Apply a deterministic action to an isolated candidate and publish it to memory
+/// only once the caller has durably persisted that exact candidate. A rejected action
+/// or failed persistence leaves revision, RNG, history and all gameplay state intact.
+///
+/// This guarantees per-action *save-file* atomicity for cooperating CLI/TUI sessions;
+/// a separate profile document is not part of this transaction.
+pub fn apply_and_persist(
+    game: &mut crate::Game,
+    action: crate::Action,
+    persist: impl FnOnce(&crate::Game) -> Result<(), String>,
+) -> Result<Vec<String>, String> {
+    let mut candidate = game.clone();
+    let messages = candidate.apply(action)?;
+    persist(&candidate)?;
+    *game = candidate;
+    Ok(messages)
+}
+
 /// Atomically replace a JSON file and rotate complete previous bytes into .bak.
 /// This does not make multiple different JSON files a shared transaction.
 pub fn atomic_write(path: &Path, data: &str) -> io::Result<()> {
@@ -216,6 +234,51 @@ mod tests {
             !entry.unwrap().file_name().to_string_lossy().contains(".tmp.")
         }));
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn action_commit_failure_preserves_memory_and_disk_until_retry() {
+        use crate::{Action, Game, content::Hero};
+        let dir = directory();
+        let path = dir.join("save.json");
+        let mut game = Game::new(Hero::GuanYu, 96099);
+        let initial = game.to_json().unwrap();
+        atomic_write(&path, &initial).unwrap();
+        fs::create_dir(dir.join("save.bak")).unwrap();
+
+        let rejected = apply_and_persist(&mut game, Action::Choose { index: 1 }, |next| {
+            atomic_write(&path, &next.to_json()?).map_err(|error| error.to_string())
+        });
+        assert!(rejected.is_err());
+        assert_eq!(game.to_json().unwrap(), initial);
+        assert_eq!(fs::read_to_string(&path).unwrap(), initial);
+        assert!(!dir.join("save.tmp").exists());
+        assert!(fs::read_dir(&dir).unwrap().all(|entry| {
+            !entry.unwrap().file_name().to_string_lossy().contains(".tmp.")
+        }));
+
+        fs::remove_dir(dir.join("save.bak")).unwrap();
+        apply_and_persist(&mut game, Action::Choose { index: 1 }, |next| {
+            atomic_write(&path, &next.to_json()?).map_err(|error| error.to_string())
+        }).unwrap();
+        assert_eq!(game.revision, 1);
+        assert_eq!(fs::read_to_string(&path).unwrap(), game.to_json().unwrap());
+        assert_eq!(fs::read_to_string(dir.join("save.bak")).unwrap(), initial);
+        Game::from_json(&fs::read_to_string(&path).unwrap()).unwrap()
+            .verify_action_replay().unwrap();
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn invalid_action_never_invokes_persistence_callback() {
+        use crate::{Action, Game, content::Hero};
+        let mut game = Game::new(Hero::GuanYu, 96100);
+        let before = game.to_json().unwrap();
+        let result = apply_and_persist(&mut game, Action::Choose { index: 999 }, |_| {
+            panic!("invalid action reached persistence callback");
+        });
+        assert!(result.is_err());
+        assert_eq!(game.to_json().unwrap(), before);
     }
 
     #[test]

@@ -162,6 +162,41 @@ jobs:
           print("CLI validated backup restored atomically on this runner")
           PY
 
+      - name: CLI failed action is not committed until save succeeds (both platforms)
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess
+          base = pathlib.Path(os.environ['RUNNER_TEMP'])
+          directory = base / 'tks-action-durable'
+          binary = str(pathlib.Path.cwd() / 'target' / 'release' / 'tks')
+          cmd = [binary, '--plain', '--save-dir', str(directory)]
+          setup = subprocess.run(cmd, input='new guanyu 96103\\nquit\\n'.replace('\\n','\n'),
+                                 capture_output=True, text=True, timeout=20)
+          assert setup.returncode == 0, (setup.stdout, setup.stderr)
+          path = directory / 'save.json'
+          baseline = path.read_text()
+          assert json.loads(baseline)['revision'] == 0
+          backup = directory / 'save.bak'
+          backup.unlink()
+          backup.mkdir()
+          failed = subprocess.run(cmd, input='choose 1\\nhistory\\nstatus\\n'.replace('\\n','\n'),
+                                  capture_output=True, text=True, timeout=20)
+          assert failed.returncode == 2, (failed.returncode, failed.stdout, failed.stderr)
+          assert '错误：' in failed.stdout, failed.stdout
+          assert '累计0次成功操作' in failed.stdout, failed.stdout
+          assert path.read_text() == baseline, 'failed action wrote or altered primary'
+          backup.rmdir()
+          retried = subprocess.run(cmd, input='choose 1\\nquit\\n'.replace('\\n','\n'),
+                                   capture_output=True, text=True, timeout=20)
+          assert retried.returncode == 0, (retried.stdout, retried.stderr)
+          game = json.loads(path.read_text())
+          assert game['revision'] == 1, game['revision']
+          assert len(game['action_history']) == 1
+          assert game['stage'] == 'combat'
+          print('A failed command leaves RAM and disk unchanged; retry commits once')
+          PY
+
       - name: CLI failed-quit write guard and invalid JSON-state recovery (both platforms)
         shell: bash
         run: |
