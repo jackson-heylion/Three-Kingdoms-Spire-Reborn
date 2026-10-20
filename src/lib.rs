@@ -827,6 +827,12 @@ impl Game {
             }
             if self.hero == Hero::CaoCao && self.lore_flags.iter().any(|f| f == "guandu_grain") {
                 b.block += 7;
+                // Chapter 4's acknowledgement of Chen Gong's warning pays off
+                // only after the chapter 14 court arc and chapter 30 Guandu arc.
+                // This is an alternate player choice, not the novel's history.
+                if self.lore_flags.iter().any(|f| f == "sevenstar_vow") {
+                    b.command += 1;
+                }
             }
             if self.hero == Hero::LuBu && self.lore_flags.iter().any(|f| f == "red_hare") {
                 b.fury += 3;
