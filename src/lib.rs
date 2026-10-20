@@ -4985,3 +4985,81 @@ mod p1_incoming_damage_reaction_regression {
         assert_eq!(Game::from_json(&saved).unwrap().to_json().unwrap(),saved);
     }
 }
+
+#[cfg(test)]
+mod p1_saturated_status_listener_regression {
+    use super::*;
+    use crate::event_stack::{Listener, Response};
+
+    #[test]
+    fn one_shot_status_reactions_survive_saturated_hero_and_foe_targets() {
+        for (source, target, ceiling) in [
+            ("weak", "hero", 255i32),
+            ("vulnerable", "hero", 255),
+            ("weak", "foe:0", 255),
+            ("vulnerable", "foe:0", 255),
+            ("poison", "foe:0", 9999),
+        ] {
+            let mut g=Game::new_with_mode(Hero::ZhugeLiang, 9011, 0, RunMode::Custom);
+            g.apply(Action::Choose {index:1}).unwrap();
+            let mut listener=Listener::once("unspent", source, Response::Cancel);
+            listener.target=Some(target.into());
+            g.apply(Action::RegisterReaction {listener}).unwrap();
+            {
+                let b=g.battle.as_mut().unwrap();
+                if target=="hero" {
+                    if source=="weak" {b.weak=u8::MAX;} else {b.vulnerable=u8::MAX;}
+                } else {
+                    let foe=&mut b.foes[0];
+                    match source {
+                        "weak"=>foe.weak=u8::MAX,
+                        "vulnerable"=>foe.vulnerable=u8::MAX,
+                        _=>foe.poison=9999,
+                    }
+                }
+            }
+            let start_seq=g.battle.as_ref().unwrap().event_seq;
+            if target=="hero" {
+                g.apply_hero_status(source,5);
+            } else {
+                g.apply_foe_status(0,source,5);
+            }
+            let b=g.battle.as_ref().unwrap();
+            assert_eq!(b.event_seq,start_seq,"phantom event at cap {source}/{target}");
+            assert_eq!(b.reactions.listeners.len(),1,
+                "saturated status consumed listener {source}/{target}");
+
+            // Lower cap, retry; the *same* listener must now fire once.
+            {
+                let b=g.battle.as_mut().unwrap();
+                if target=="hero" {
+                    if source=="weak" {b.weak=254;} else {b.vulnerable=254;}
+                } else {
+                    let foe=&mut b.foes[0];
+                    match source {
+                        "weak"=>foe.weak=254,
+                        "vulnerable"=>foe.vulnerable=254,
+                        _=>foe.poison=9998,
+                    }
+                }
+            }
+            if target=="hero" {g.apply_hero_status(source,5);}
+            else {g.apply_foe_status(0,source,5);}
+            let b=g.battle.as_ref().unwrap();
+            assert_eq!(b.event_seq,start_seq+1,"missing counter {source}/{target}");
+            assert_eq!(b.events.last().unwrap().kind,EventKind::EventCountered);
+            assert!(b.reactions.listeners.is_empty());
+            assert_eq!(if target=="hero" {
+                if source=="weak" {i32::from(b.weak)} else {i32::from(b.vulnerable)}
+            } else {
+                match source {
+                    "weak"=>i32::from(b.foes[0].weak),
+                    "vulnerable"=>i32::from(b.foes[0].vulnerable),
+                    _=>b.foes[0].poison,
+                }
+            },ceiling-1);
+            let raw=g.to_json().unwrap();
+            assert_eq!(Game::from_json(&raw).unwrap().to_json().unwrap(),raw);
+        }
+    }
+}
