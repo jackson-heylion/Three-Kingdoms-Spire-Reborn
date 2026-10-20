@@ -1082,14 +1082,14 @@ impl Game {
     }
 
 
-    /// Resolve a proposed status through the deterministic observer stack BEFORE
-    /// changing any combat stat. Each consumed rule writes its own audit event.
-    /// No random numbers, card resolution or journal mutation for unmatched rules.
-    fn preflight_status(&mut self, status:&str, target:&str, amount:i32) -> Option<i32> {
+    /// Resolve a proposed status or enemy-damage delta BEFORE settlement.
+    /// Each consumed rule writes its own audit event in deterministic order.
+    /// The proposal is NOT the post-block DamageDealt event stored in the journal.
+    fn preflight_event(&mut self, kind:EventKind, source:&str, target:&str, amount:i32) -> Option<i32> {
         if amount<=0 {return None;}
         let proposed=CombatEvent{
-            seq:0,kind:EventKind::StatusApplied,
-            source:status.into(),amount,target:Some(target.into()),
+            seq:0,kind,
+            source:source.into(),amount,target:Some(target.into()),
         };
         let outcome=self.battle.as_mut().expect("battle").reactions.resolve(&proposed);
         for step in &outcome.steps {
@@ -1102,6 +1102,9 @@ impl Game {
             }
         }
         (!outcome.cancelled && outcome.amount>0).then_some(outcome.amount)
+    }
+    fn preflight_status(&mut self, status:&str, target:&str, amount:i32) -> Option<i32> {
+        self.preflight_event(EventKind::StatusApplied,status,target,amount)
     }
 
     /// Saturating hero-debuff application after all registered observers have
@@ -1195,6 +1198,13 @@ impl Game {
     /// Piercing, poison and thorns bypass armor; all other sources consume
     /// armor first. A defeated enemy cannot take damage or die twice.
     fn settle_foe_damage(&mut self, idx: usize, damage: i32, source: &str, ignores_block: bool) -> i32 {
+        // Dead targets never consume a charge. Active reactions see the raw hit
+        // before armor, so cancelling a hit cannot secretly strip enemy block.
+        if self.battle.as_ref().expect("battle").foes[idx].hp <= 0 { return 0; }
+        let damage = if damage > 0 {
+            self.preflight_event(EventKind::DamageDealt,source,&format!("foe:{idx}"),damage)
+                .unwrap_or(0)
+        } else { 0 };
         let (actual, killed) = {
             let b = self.battle.as_mut().expect("battle");
             let foe = &mut b.foes[idx];
@@ -4760,3 +4770,6 @@ mod p1_enemy_potion_matrix_regression {
         assert_eq!(cases,1550);
     }
 }
+
+#[cfg(test)]
+mod reaction_damage_tests;
