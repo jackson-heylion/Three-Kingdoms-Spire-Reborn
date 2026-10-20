@@ -1085,19 +1085,28 @@ impl Game {
     }
     fn gain_power(&mut self, id: PowerId, stacks: i32) {
         if stacks <= 0 { return; }
+        // A power already at cap has no proposed delta. Do not consume
+        // listeners on an effect that could not change the actual state.
+        let capacity=(99-self.power_stacks(id)).max(0);
+        if capacity==0 {return;}
+        let proposed=stacks.min(capacity);
+        let Some(adjusted)=self.preflight_event(
+            EventKind::PowerGained,id.key(),"hero",proposed) else {return;};
+        // An external Replace can exceed remaining room; only actual gain is
+        // journalled, and the power never exceeds its original cap.
+        let gain=adjusted.min(capacity);
         let applied = {
             let b = self.battle.as_mut().expect("battle");
             if let Some(existing) = b.powers.iter_mut().find(|p| p.id == id) {
-                let gained = stacks.min(99 - existing.stacks);
+                let gained = gain.min(99 - existing.stacks);
                 existing.stacks += gained;
                 gained
             } else {
-                let gained = stacks.min(99);
+                let gained = gain.min(99);
                 b.powers.push(PowerStack { id, stacks: gained });
                 gained
             }
         };
-        // Audit the effective stack change, not an unapplied request at cap 99.
         if applied > 0 {
             self.combat_event(EventKind::PowerGained, id.name(), applied, None);
         }
@@ -5069,5 +5078,96 @@ mod p1_saturated_status_listener_regression {
             let raw=g.to_json().unwrap();
             assert_eq!(Game::from_json(&raw).unwrap().to_json().unwrap(),raw);
         }
+    }
+}
+
+#[cfg(test)]
+mod dynamic_power_gain_reactions {
+    use super::*;
+    use event_stack::{Listener,Response};
+
+    fn custom() -> Game {
+        let mut game=Game::new_with_mode(Hero::ZhugeLiang,925145,0,RunMode::Custom);
+        game.apply(Action::Choose{index:1}).unwrap();
+        assert_eq!(game.stage,Stage::Combat);
+        game
+    }
+    fn power_listener(id:&str,source:&str,effect:Response,priority:i16,charges:u8)->Listener {
+        Listener {
+            id:id.into(),kind:EventKind::PowerGained,source:source.into(),
+            target:Some("hero".into()),priority,charges,effect,
+        }
+    }
+    #[test]
+    fn power_delta_is_ordered_and_persisted_before_settlement() {
+        let mut game=custom();
+        game.apply(Action::RegisterReaction {
+            listener:power_listener("last","oath_guard",Response::Replace(1),5,1)
+        }).unwrap();
+        game.apply(Action::RegisterReaction {
+            listener:power_listener("first","oath_guard",Response::Reduce(2),-5,2)
+        }).unwrap();
+        assert_eq!(game.verify_action_replay().unwrap(),3);
+        let seq=game.battle.as_ref().unwrap().event_seq;
+        game.gain_power(PowerId::OathGuard,6);
+        assert_eq!(game.power_stacks(PowerId::OathGuard),1);
+        let b=game.battle.as_ref().unwrap();
+        let audit=b.events.iter().filter(|e|e.seq>seq).collect::<Vec<_>>();
+        assert_eq!(audit.iter().map(|e|e.kind).collect::<Vec<_>>(),
+            vec![EventKind::EventReplaced,EventKind::EventReplaced,EventKind::PowerGained]);
+        assert_eq!(audit.iter().map(|e|e.amount).collect::<Vec<_>>(),vec![2,3,1]);
+        assert_eq!(audit[0].source,"first");
+        assert_eq!(audit[1].source,"last");
+        assert_eq!(b.reactions.listeners.len(),1);
+        assert_eq!(b.reactions.listeners[0].charges,1);
+        game.gain_power(PowerId::OathGuard,3);
+        assert_eq!(game.power_stacks(PowerId::OathGuard),2);
+        assert!(game.battle.as_ref().unwrap().reactions.is_empty());
+        let raw=game.to_json().unwrap();
+        assert_eq!(Game::from_json(&raw).unwrap().to_json().unwrap(),raw);
+    }
+    #[test]
+    fn cancelled_gain_and_full_stack_do_not_consume_unrelated_charges() {
+        let mut game=custom();
+        game.apply(Action::RegisterReaction {
+            listener:power_listener("stop","victory_drum",Response::Cancel,0,2)
+        }).unwrap();
+        let seq=game.battle.as_ref().unwrap().event_seq;
+        game.gain_power(PowerId::VictoryDrum,5);
+        assert_eq!(game.power_stacks(PowerId::VictoryDrum),0);
+        let after=&game.battle.as_ref().unwrap().events;
+        let audit=after.iter().filter(|e|e.seq>seq).collect::<Vec<_>>();
+        assert_eq!(audit.len(),1);
+        assert_eq!(audit[0].kind,EventKind::EventCountered);
+        assert_eq!(audit[0].source,"stop");
+        assert_eq!(game.battle.as_ref().unwrap().reactions.listeners[0].charges,1);
+        // Fill a different power to the cap, then register an on-gain watcher.
+        game.gain_power(PowerId::OathGuard,99);
+        game.apply(Action::RegisterReaction {
+            listener:power_listener("cap","oath_guard",Response::Cancel,0,1)
+        }).unwrap();
+        let before=game.battle.as_ref().unwrap().event_seq;
+        game.gain_power(PowerId::OathGuard,5);
+        assert_eq!(game.battle.as_ref().unwrap().event_seq,before);
+        assert_eq!(game.battle.as_ref().unwrap().reactions.listeners
+            .iter().find(|r|r.id=="cap").unwrap().charges,1);
+    }
+    #[test]
+    fn unknown_or_mistargeted_power_proposals_are_atomic_rejections() {
+        let mut game=custom();
+        for invalid in [
+            power_listener("bad","unknown",Response::Cancel,0,1),
+            Listener {target:Some("foe:0".into()),
+                ..power_listener("bad","oath_guard",Response::Cancel,0,1)},
+        ] {
+            let saved=game.to_json().unwrap();
+            assert!(game.apply(Action::RegisterReaction{listener:invalid}).is_err());
+            assert_eq!(game.to_json().unwrap(),saved);
+        }
+        let mut standard=Game::new(Hero::ZhugeLiang,925145);
+        standard.apply(Action::Choose{index:1}).unwrap();
+        assert!(standard.apply(Action::RegisterReaction {
+            listener:power_listener("ranked","oath_guard",Response::Reduce(1),0,1)
+        }).is_err());
     }
 }

@@ -15,6 +15,27 @@ pub enum PowerId {
     VictoryDrum,
 }
 impl PowerId {
+    /// Stable identifier for event preflight; localized labels are for the settled journal.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::OathGuard => "oath_guard",
+            Self::ThoughtSpring => "thought_spring",
+            Self::ArrowsOnDiscard => "arrows_on_discard",
+            Self::GranarySupport => "granary_support",
+            Self::BloodCourage => "blood_courage",
+            Self::WisdomOnDraw => "wisdom_on_draw",
+            Self::ToxicReversal => "toxic_reversal",
+            Self::VictoryDrum => "victory_drum",
+        }
+    }
+    /// Reject unknown power names rather than accepting inert listeners.
+    pub fn from_key(key: &str) -> Option<Self> {
+        [
+            Self::OathGuard, Self::ThoughtSpring, Self::ArrowsOnDiscard,
+            Self::GranarySupport, Self::BloodCourage, Self::WisdomOnDraw,
+            Self::ToxicReversal, Self::VictoryDrum,
+        ].into_iter().find(|power| power.key() == key)
+    }
     pub fn name(self) -> &'static str {
         match self {
             Self::OathGuard => "义军护阵",

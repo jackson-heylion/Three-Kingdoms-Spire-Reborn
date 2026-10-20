@@ -67,6 +67,11 @@ impl Stack {
                     r.target.as_deref()==Some("hero")
                     && r.source.strip_prefix("foe:").is_some_and(|index|
                         index.parse::<usize>().is_ok_and(|index|index<4)),
+                // Only actual stack increases on the eight defined powers can
+                // be rewritten. No interruption of arbitrary passive dispatch.
+                EventKind::PowerGained =>
+                    r.target.as_deref()==Some("hero")
+                    && crate::combat::PowerId::from_key(&r.source).is_some(),
                 _ => false,
             }
             && match r.effect {

@@ -400,7 +400,7 @@ impl App {
                     )),
                 }
             }
-            "help" | "h" => Ok("new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 在出征前指定三幕变体；daily YYYY-MM-DD；load/save；choose N；play N [目标] [副选牌编号]；selections N 查可选副牌；discard N 弃换；end；use [药剂号] [目标]（火/毒指定存活目标，弱化影响全体） ；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看路径与评分；inventory 背包；achievements 成就；codex 图鉴；relics；lore 看纪事；bonds 看人物羁绊；chapter 1-120 回目索引；powers 持续能力/监听器；react-remove ID 注销监听；react <ID> <weak|vulnerable|poison|damage:来源|damage:foe:N> <hero|foe:0..3> <cancel|reduce|replace> [数值] [优先级] [次数]（仅自由战斗）；events [游标] [条数1-80] 分页审计当前战斗事件；eventsource 查看跨战斗记录；verify-events 重建校验全量战斗事件；metrics 战役统计；verify 回放检验；history 最近操作；doctrine 查看流派 / doctrine auto|代码 选择；builds 查看3套候选构筑及反制；chronicle；timeline 战功时间线；modifier 查看挑战 / modifier 代码 on|off；theme dark|light|highcontrast；status；quit。".into()),
+            "help" | "h" => Ok("new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 在出征前指定三幕变体；daily YYYY-MM-DD；load/save；choose N；play N [目标] [副选牌编号]；selections N 查可选副牌；discard N 弃换；end；use [药剂号] [目标]（火/毒指定存活目标，弱化影响全体） ；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看路径与评分；inventory 背包；achievements 成就；codex 图鉴；relics；lore 看纪事；bonds 看人物羁绊；chapter 1-120 回目索引；powers 持续能力/监听器；react-remove ID 注销监听；react <ID> <weak|vulnerable|poison|damage:来源|damage:foe:N|power:军略ID> <hero|foe:0..3> <cancel|reduce|replace> [数值] [优先级] [次数]（仅自由战斗）；events [游标] [条数1-80] 分页审计当前战斗事件；eventsource 查看跨战斗记录；verify-events 重建校验全量战斗事件；metrics 战役统计；verify 回放检验；history 最近操作；doctrine 查看流派 / doctrine auto|代码 选择；builds 查看3套候选构筑及反制；chronicle；timeline 战功时间线；modifier 查看挑战 / modifier 代码 on|off；theme dark|light|highcontrast；status；quit。".into()),
             "new" | "custom" => {
                 let mode = if args[0] == "custom" {RunMode::Custom} else {RunMode::Standard};
                 let hero = args.get(1).and_then(|s| Hero::parse(s)).unwrap_or(Hero::GuanYu);
@@ -734,7 +734,7 @@ impl App {
                     "react" => (|| -> Result<Action,String> {
                         use three_kingdoms_spire_reborn::combat::EventKind;
                         use three_kingdoms_spire_reborn::event_stack::{Listener,Response};
-                        let usage="用法：react ID weak|vulnerable|poison|damage:hero|damage:fire|damage:poison|damage:pierce|damage:troops|damage:thorns|damage:arrows_on_discard|damage:feishi|damage:foe:0..3 hero|foe:0..3 cancel|reduce|replace [数值] [优先级] [次数]（伤害入射damage:foe:N仅允许hero，出射伤害只允许foe:0..3；仅自由战斗）";
+                        let usage="用法：react ID weak|vulnerable|poison|damage:来源|damage:foe:0..3|power:军略ID hero|foe:0..3 cancel|reduce|replace [数值] [优先级] [次数]（power:仅允许hero且限8种军略，军略ID参见powers；仅自由战斗）";
                         if !(5..=8).contains(&args.len()) { return Err(usage.into()); }
                         let value=args.get(5).copied().unwrap_or("0").parse::<i32>()
                             .map_err(|_|"监听数值必须为整数".to_owned())?;
@@ -748,11 +748,15 @@ impl App {
                             .map_err(|_|"优先级必须为i16整数".to_owned())?;
                         let charges=args.get(7).copied().unwrap_or("1").parse::<u8>()
                             .map_err(|_|"监听次数必须为u8整数".to_owned())?;
-                        let (kind,source)=match args[2].strip_prefix("damage:") {
-                            Some(source) if source.starts_with("foe:") =>
-                                (EventKind::DamageReceived,source),
-                            Some(source)=>(EventKind::DamageDealt,source),
-                            None=>(EventKind::StatusApplied,args[2]),
+                        let (kind,source)=if let Some(source)=args[2].strip_prefix("power:") {
+                            (EventKind::PowerGained,source)
+                        } else {
+                            match args[2].strip_prefix("damage:") {
+                                Some(source) if source.starts_with("foe:") =>
+                                    (EventKind::DamageReceived,source),
+                                Some(source)=>(EventKind::DamageDealt,source),
+                                None=>(EventKind::StatusApplied,args[2]),
+                            }
                         };
                         Ok(Action::RegisterReaction{listener:Listener{
                             id:args[1].into(),kind,
