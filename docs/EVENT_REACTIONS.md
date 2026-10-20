@@ -16,7 +16,7 @@ verify-events
 verify
 ```
 
-句法：`react <监听ID> <weak|vulnerable|poison> <hero|foe:0..3> <cancel|reduce|replace> [数值] [优先级] [次数]`。监听只在该场战斗有效，角色进入新战斗自动清空。ID 最长64字节；同名更新替换原监听。监听上限16条，次数1–16，数值0–9999；`poison hero` 不合法，索引范围0–3且为**战场内部索引**，不同于出牌时从1开始的目标编号。只允许自由模式战斗注册，不影响标准/每日榜单。
+句法：`react <监听ID> <weak|vulnerable|poison> <hero|foe:0..3> <cancel|reduce|replace> [数值] [优先级] [次数]`。监听只在该场战斗有效，角色进入新战斗自动清空。ID 最长64字节；同名更新替换原监听。**外部监听最多16条，另为四种防御卡内建反制保留4条独立槽位**（总上限20）；外部登记不得使用 `hold_line:weak`、`kongcheng:vulnerable`、`qiaoying:weak`、`zhongyi:weak` 这些保留ID。超额或占用保留ID均原子拒绝；次数1–16，数值0–9999；`poison hero` 不合法，索引范围0–3且为**战场内部索引**，不同于出牌时从1开始的目标编号。只允许自由模式战斗注册，不影响标准/每日榜单。
 
 ## 确定性规则
 
