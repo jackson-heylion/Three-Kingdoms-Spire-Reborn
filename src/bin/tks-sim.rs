@@ -350,7 +350,7 @@ fn simulate_config_blueprint(hero:Hero,seed:u64,ascension:u8,policy:Policy,
                 if let Some((index,_))=game.rewards.iter().enumerate()
                     .filter(|(_,card)|requested(&card.id))
                     .max_by_key(|(index,card)| (
-                        i32::from(plan.core.contains(&card.id)),
+                        i32::from(plan.core.contains(&card.id.as_str())),
                         tactical_card_value(&game,card,14),
                         -(*index as i32)
                     )) {
