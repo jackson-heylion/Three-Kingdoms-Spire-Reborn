@@ -82,7 +82,12 @@ fn every_potion_power_foe_hero_combination_has_correct_immediate_delta() {
                         _=>hp,
                     };
                     assert_eq!(game.hp,expected_hp,"HP {potion}/{power:?}/{enemy}");
-                    assert_eq!(battle.block,start_block+if *potion=="shield"{20}else{0},
+                    // WisdomOnDraw reacts to each card actually drawn by
+                    // Insight, independently of the potion's own value.
+                    let drawn_guard=if *potion=="insight"
+                        && *power==PowerId::WisdomOnDraw {3}else{0};
+                    assert_eq!(battle.block,start_block
+                        +if *potion=="shield"{20}else{0}+drawn_guard,
                         "armor {potion}/{power:?}/{enemy}");
                     assert_eq!(battle.energy,start_energy+if *potion=="energy"{2}else{0},
                         "energy {potion}/{power:?}/{enemy}");
