@@ -293,14 +293,18 @@ fn simulate_policy_package(hero:Hero,seed:u64,ascension:u8,policy:Policy,package
 fn simulate_config(hero:Hero,seed:u64,ascension:u8,policy:Policy,package:SunPackage,
     focus:Option<Doctrine>)->Result<Outcome,String>
 {
-    simulate_config_blueprint(hero,seed,ascension,policy,package,focus,None)
+    simulate_config_blueprint(hero,seed,ascension,policy,package,focus,None,None)
 }
 /// Identical action policy and seeds for baseline/curated tests. Curated
 /// starting decks are experimental fixtures, not legal standard-run drafts.
 fn simulate_config_blueprint(hero:Hero,seed:u64,ascension:u8,policy:Policy,
-    package:SunPackage,focus:Option<Doctrine>,blueprint:Option<&BuildPlan>)
-    ->Result<Outcome,String>
+    package:SunPackage,focus:Option<Doctrine>,blueprint:Option<&BuildPlan>,
+    natural_plan:Option<&BuildPlan>) ->Result<Outcome,String>
 {
+    if natural_plan.is_some_and(|plan|plan.hero!=hero)
+        || (blueprint.is_some() && natural_plan.is_some()) {
+        return Err("invalid natural build focus combination".into());
+    }
     let mut game = Game::new_with_ascension(hero, seed, ascension);
     if let Some(plan)=blueprint { apply_curated_plan(&mut game,plan)?; }
     if package!=SunPackage::Standard {apply_sun_package(&mut game,package)?;}
@@ -328,10 +332,32 @@ fn simulate_config_blueprint(hero:Hero,seed:u64,ascension:u8,policy:Policy,
                 combo_distinct:Doctrine::SunCombo.distinct_owned(&game.deck),
             });
         }
-        let action = preferred_action_policy(&game,policy)?;
+        let mut action = preferred_action_policy(&game,policy)?;
         if game.stage==Stage::Reward {
             reward_screens+=1;
-            if let Some(active)=game.effective_doctrine() {
+            if let Some(plan)=natural_plan {
+                // Focusing modifies only genuine reward *choices*. The
+                // starting deck, RNG, map, market and reward rolls stay legal.
+                // Never pick an already-owned core/support card merely for
+                // the appearance of "formation".
+                let requested=|id:&str| {
+                    !game.deck.iter().any(|card|card.id==id)
+                        && (plan.core.contains(&id) || plan.support.contains(&id))
+                };
+                if game.rewards.iter().any(|c|requested(&c.id)) {
+                    focus_offer_screens+=1;
+                }
+                if let Some((index,_))=game.rewards.iter().enumerate()
+                    .filter(|(_,card)|requested(&card.id))
+                    .max_by_key(|(index,card)| (
+                        i32::from(plan.core.contains(&card.id)),
+                        tactical_card_value(&game,card,14),
+                        -(*index as i32)
+                    )) {
+                    action=Action::Choose{index:index+1};
+                    focus_picks+=1;
+                }
+            } else if let Some(active)=game.effective_doctrine() {
                 if game.rewards.iter().any(|c|active.contains(&c.id)) {
                     focus_offer_screens+=1;
                 }
@@ -701,9 +727,9 @@ fn build_blueprint_report(samples:usize)->Result<BuildBlueprintReport,String> {
                     u64::from(ascension)*10_000+trial as u64+1;
                 let seed=ordinal.wrapping_mul(0x9E3779B97F4A7C15);
                 let baseline=simulate_config_blueprint(plan.hero,seed,ascension,
-                    Policy::Tactical,SunPackage::Standard,None,None)?;
+                    Policy::Tactical,SunPackage::Standard,None,None,None)?;
                 let curated=simulate_config_blueprint(plan.hero,seed,ascension,
-                    Policy::Tactical,SunPackage::Standard,None,Some(plan))?;
+                    Policy::Tactical,SunPackage::Standard,None,Some(plan),None)?;
                 cell.baseline_wins+=usize::from(baseline.won);
                 cell.blueprint_wins+=usize::from(curated.won);
                 cell.baseline_floor_sum+=u64::from(baseline.floor);
