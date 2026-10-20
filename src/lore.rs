@@ -58,6 +58,7 @@ pub const BONDS: &[Bond] = &[
     Bond { protagonist: Hero::GuanYu, companion: "刘备", relation: Relation::Sworn, chapter: 1, flag: "taoyuan_oath", note: "一诺穿越兴亡，战斗开场义气护甲增加" },
     Bond { protagonist: Hero::GuanYu, companion: "张飞", relation: Relation::Sworn, chapter: 1, flag: "taoyuan_oath", note: "三兄弟相救相携" },
     Bond { protagonist: Hero::GuanYu, companion: "张飞", relation: Relation::Sworn, chapter: 2, flag: "anxi_seal", note: "安喜县拒贿弃印，见义须同时顾及暴烈与怜民" },
+    Bond { protagonist: Hero::GuanYu, companion: "曹操", relation: Relation::Patron, chapter: 5, flag: "wenjiu_oath", note: "汜水关前以武勇举荐无职微者；盟军粮秣不济是另一笔旧账" },
     Bond { protagonist: Hero::GuanYu, companion: "曹操", relation: Relation::Patron, chapter: 25, flag: "baima_debt", note: "曹营礼遇与华容报恩构成跨幕因果" },
     Bond { protagonist: Hero::GuanYu, companion: "周仓", relation: Relation::Friend, chapter: 28, flag: "ancient_reunion", note: "古城聚义与旧部重逢" },
     Bond { protagonist: Hero::GuanYu, companion: "吕蒙", relation: Relation::Rival, chapter: 75, flag: "jingzhou_warning", note: "荆州之得失从白衣渡江埋下回声" },
@@ -89,6 +90,7 @@ pub const BONDS: &[Bond] = &[
 pub const BEATS: &[Beat] = &[
     Beat {id:"taoyuan",title:"桃园残誓",chapter:1,act:0,hero:Some(Hero::GuanYu),prerequisite:None,flag:"taoyuan_oath",character:"刘备、张飞",premise:"荒园旧土有三杯浊酒。今夜再起誓言，是背负责任，还是只取其名？",vow:"重整义旗",bargain:"卖掉盟誓旧物",reward_card:"oath_guard",reward_gold:12,reward_heal:8},
     Beat {id:"anxi",title:"安喜断印",chapter:2,act:0,hero:Some(Hero::GuanYu),prerequisite:Some("taoyuan_oath"),flag:"anxi_seal",character:"刘备、张飞、督邮",premise:"督邮逼县吏诬陷刘备，门前父老求告无门；张飞怒鞭督邮，刘备制止杀戮。关羽想起桃园誓词：救民与快意报复，并非一回事。",vow:"劝止杀戮，缴印离任保全百姓",bargain:"私收督邮赔银，暂保虚职",reward_card:"hold_line",reward_gold:25,reward_heal:7},
+    Beat {id:"wenjiu",title:"温酒与断粮",chapter:5,act:0,hero:Some(Hero::GuanYu),prerequisite:Some("anxi_seal"),flag:"wenjiu_oath",character:"曹操、袁术、孙坚、华雄",premise:"孙坚因袁术疑忌断粮失势，祖茂战殁；关羽斩华雄归帐，酒尚温而袁术仍以马弓手轻之。功名与粮秣，孰轻孰重？",vow:"记下曹操举荐与盟军断粮之责",bargain:"独取斩将赏格，不问粮道",reward_card:"pojun",reward_gold:18,reward_heal:5},
     Beat {id:"gucheng",title:"古城重会",chapter:28,act:0,hero:Some(Hero::GuanYu),prerequisite:Some("taoyuan_oath"),flag:"ancient_reunion",character:"张飞、周仓",premise:"刀锋误认故人，旧部周仓递上一面未曾褪色的义旗。",vow:"释疑重整旧部",bargain:"先攻疑敌",reward_card:"yidao",reward_gold:24,reward_heal:8},
     Beat {id:"baima",title:"白马旧恩",chapter:25,act:0,hero:Some(Hero::GuanYu),prerequisite:None,flag:"baima_debt",character:"曹操、颜良",premise:"战书背后是曹营待客的厚礼；刀下功名也会成为未来的债。",vow:"记下曹营恩义",bargain:"只收军资",reward_card:"qinglong",reward_gold:28,reward_heal:2},
     Beat {id:"huarong",title:"华容雨路",chapter:50,act:1,hero:Some(Hero::GuanYu),prerequisite:Some("baima_debt"),flag:"huarong_mercy",character:"曹操",premise:"旧日恩客逃至岔路。军令与私义在刀锋相撞，先前因果终于来偿。",vow:"以义偿恩，留其生路",bargain:"按军令索回赏格",reward_card:"guanxi",reward_gold:16,reward_heal:12},
