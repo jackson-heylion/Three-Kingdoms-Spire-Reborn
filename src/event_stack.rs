@@ -46,12 +46,22 @@ impl Stack {
         self.listeners.len()<=16 && self.listeners.iter().enumerate().all(|(i,r)|
             !r.id.is_empty() && r.id.len()<=64 && !r.source.is_empty()
             && r.source.len()<=64 && r.charges>0 && r.charges<=16
-            && r.kind==EventKind::StatusApplied
-            && matches!(r.source.as_str(),"weak"|"vulnerable"|"poison")
             && r.target.as_deref().is_some_and(|t| t=="hero"
                 || (t.strip_prefix("foe:").is_some_and(|index|
                     index.parse::<usize>().is_ok_and(|index|index<4))))
-            && !(r.source=="poison" && r.target.as_deref()==Some("hero"))
+            && match r.kind {
+                EventKind::StatusApplied =>
+                    matches!(r.source.as_str(),"weak"|"vulnerable"|"poison")
+                    && !(r.source=="poison" && r.target.as_deref()==Some("hero")),
+                // Damage proposals carry raw incoming damage, before enemy armor.
+                // Only known settled sources and living-foe slots can be intercepted.
+                EventKind::DamageDealt =>
+                    r.target.as_deref().is_some_and(|t|t.starts_with("foe:"))
+                    && matches!(r.source.as_str(),
+                        "hero"|"fire"|"poison"|"pierce"|"troops"|"thorns"
+                        |"arrows_on_discard"|"feishi"),
+                _ => false,
+            }
             && match r.effect {
                 Response::Cancel => true,
                 Response::Replace(n) | Response::Reduce(n) => (0..=9999).contains(&n),
