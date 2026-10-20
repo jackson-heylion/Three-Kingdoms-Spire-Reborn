@@ -34,3 +34,17 @@ verify
 - GitHub Actions：macOS 14 / Ubuntu Release CLI 真进程、退出重开、动作和事件源核验。
 
 **仍未验收**：任意事件类型的统一前置捕获与替换、插件生命周期/循环检测和防重入、更复杂的伤害和死亡插队、敌人不同阶段的全部意图树、全部卡牌与道具乘积组合、15套真实自然成型胜率、120回逐段正文审校、真人使用体验。不得因本增量把完整P1改为完成。
+
+## 2026-10-20 敌军承伤前拦截增量
+
+自由模式增加与状态监听共用同一序列化栈的 **`DamageDealt` 前置候选**。在终端输入：
+
+```text
+react firebreak damage:fire foe:0 reduce 7 -10 2
+react parry damage:hero foe:0 cancel 0 -20 1
+react purge damage:poison foe:0 replace 1 5 1
+```
+
+允许的 `damage:` 来源仅为 `hero`、`fire`、`poison`、`pierce`、`troops`、`thorns`、`arrows_on_discard`、`feishi`；目标仅限 `foe:0..3`。不允许拦截英雄受伤、任意敌方技能、死亡事件或跨战斗事件。效果在 **护甲计算之前** 作用于此次拟造成的原始数值；护甲穿透与否沿用原伤害源规则，`DamageDealt` 仍记录扣除护甲后的实际失血。一次性取消不消耗护甲或 HP，旧存档与旧状态监听格式不变。规则按优先级/ID 确定顺序，先记录 `EventReplaced` / `EventCountered`，随后记录实际 `DamageDealt` 和（若致死）`FoeDefeated` / `PowerTriggered`。零伤和已经阵亡的目标不消耗监听次数。毒伤减少的是当前 tick，不撤回已经消耗的中毒层。
+
+本增量要求 Cargo 单测、CLI 与原有确定性双平台 CI 通过后才能认定回归通过；自由战役人为修改伤害不用于正常构筑胜率。仍非所有游戏事件通用拦截器、全量事件本体源重建、成熟十五流派或全章正文审校。
