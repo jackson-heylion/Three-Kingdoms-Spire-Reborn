@@ -57,6 +57,7 @@ pub struct Bond {
 pub const BONDS: &[Bond] = &[
     Bond { protagonist: Hero::GuanYu, companion: "刘备", relation: Relation::Sworn, chapter: 1, flag: "taoyuan_oath", note: "一诺穿越兴亡，战斗开场义气护甲增加" },
     Bond { protagonist: Hero::GuanYu, companion: "张飞", relation: Relation::Sworn, chapter: 1, flag: "taoyuan_oath", note: "三兄弟相救相携" },
+    Bond { protagonist: Hero::GuanYu, companion: "张飞", relation: Relation::Sworn, chapter: 2, flag: "anxi_seal", note: "安喜县拒贿弃印，见义须同时顾及暴烈与怜民" },
     Bond { protagonist: Hero::GuanYu, companion: "曹操", relation: Relation::Patron, chapter: 25, flag: "baima_debt", note: "曹营礼遇与华容报恩构成跨幕因果" },
     Bond { protagonist: Hero::GuanYu, companion: "周仓", relation: Relation::Friend, chapter: 28, flag: "ancient_reunion", note: "古城聚义与旧部重逢" },
     Bond { protagonist: Hero::GuanYu, companion: "吕蒙", relation: Relation::Rival, chapter: 75, flag: "jingzhou_warning", note: "荆州之得失从白衣渡江埋下回声" },
@@ -86,10 +87,11 @@ pub const BONDS: &[Bond] = &[
 /// A foreshadowing flag only becomes available through the corresponding first choice.
 pub const BEATS: &[Beat] = &[
     Beat {id:"taoyuan",title:"桃园残誓",chapter:1,act:0,hero:Some(Hero::GuanYu),prerequisite:None,flag:"taoyuan_oath",character:"刘备、张飞",premise:"荒园旧土有三杯浊酒。今夜再起誓言，是背负责任，还是只取其名？",vow:"重整义旗",bargain:"卖掉盟誓旧物",reward_card:"oath_guard",reward_gold:12,reward_heal:8},
+    Beat {id:"anxi",title:"安喜断印",chapter:2,act:0,hero:Some(Hero::GuanYu),prerequisite:Some("taoyuan_oath"),flag:"anxi_seal",character:"刘备、张飞、督邮",premise:"督邮逼县吏诬陷刘备，门前父老求告无门；张飞怒鞭督邮，刘备制止杀戮。关羽想起桃园誓词：救民与快意报复，并非一回事。",vow:"劝止杀戮，缴印离任保全百姓",bargain:"私收督邮赔银，暂保虚职",reward_card:"hold_line",reward_gold:25,reward_heal:7},
     Beat {id:"gucheng",title:"古城重会",chapter:28,act:0,hero:Some(Hero::GuanYu),prerequisite:Some("taoyuan_oath"),flag:"ancient_reunion",character:"张飞、周仓",premise:"刀锋误认故人，旧部周仓递上一面未曾褪色的义旗。",vow:"释疑重整旧部",bargain:"先攻疑敌",reward_card:"yidao",reward_gold:24,reward_heal:8},
     Beat {id:"baima",title:"白马旧恩",chapter:25,act:0,hero:Some(Hero::GuanYu),prerequisite:None,flag:"baima_debt",character:"曹操、颜良",premise:"战书背后是曹营待客的厚礼；刀下功名也会成为未来的债。",vow:"记下曹营恩义",bargain:"只收军资",reward_card:"qinglong",reward_gold:28,reward_heal:2},
     Beat {id:"huarong",title:"华容雨路",chapter:50,act:1,hero:Some(Hero::GuanYu),prerequisite:Some("baima_debt"),flag:"huarong_mercy",character:"曹操",premise:"旧日恩客逃至岔路。军令与私义在刀锋相撞，先前因果终于来偿。",vow:"以义偿恩，留其生路",bargain:"按军令索回赏格",reward_card:"guanxi",reward_gold:16,reward_heal:12},
-    Beat {id:"jingzhou",title:"荆州警柝",chapter:75,act:2,hero:Some(Hero::GuanYu),prerequisite:Some("taoyuan_oath"),flag:"jingzhou_warning",character:"吕蒙、陆逊",premise:"江上看似无兵，渔火却连成密信。傲敌或审势，只在一念之间。",vow:"审查江防",bargain:"轻骑抢夺粮仓",reward_card:"tiebi",reward_gold:25,reward_heal:4},
+    Beat {id:"jingzhou",title:"荆州警柝",chapter:75,act:2,hero:Some(Hero::GuanYu),prerequisite:Some("anxi_seal"),flag:"jingzhou_warning",character:"吕蒙、陆逊",premise:"江上看似无兵，渔火却连成密信。傲敌或审势，只在一念之间。",vow:"审查江防",bargain:"轻骑抢夺粮仓",reward_card:"tiebi",reward_gold:25,reward_heal:4},
     Beat {id:"longzhong",title:"草庐三请",chapter:37,act:0,hero:Some(Hero::ZhugeLiang),prerequisite:None,flag:"longzhong_plan",character:"刘备、徐庶",premise:"草庐尚寒，故人荐书未干。三顾之礼，换来三分天下的责任。",vow:"定下隆中之策",bargain:"出售古籍残卷",reward_card:"thought_spring",reward_gold:10,reward_heal:4},
     Beat {id:"borrow_arrows",title:"雾江借箭",chapter:46,act:1,hero:Some(Hero::ZhugeLiang),prerequisite:Some("longzhong_plan"),flag:"mist_arrows",character:"周瑜、鲁肃",premise:"江面浓雾拥船。胜负未必在造箭的匠炉，而在识天时的人心。",vow:"以雾布疑兵",bargain:"冒进夺船",reward_card:"caochuan",reward_gold:20,reward_heal:0},
     Beat {id:"redcliff",title:"东风未至",chapter:49,act:1,hero:Some(Hero::ZhugeLiang),prerequisite:Some("longzhong_plan"),flag:"redcliff_wind",character:"周瑜、黄盖",premise:"连环战船已系，风向却未转。苦肉与借风相隔一线，盟友各藏心思。",vow:"守候风候，点燃火阵",bargain:"抢先夺粮",reward_card:"huogong",reward_gold:18,reward_heal:5},
@@ -240,6 +242,21 @@ mod tests {
         assert_eq!(newly_completed_eggs(Hero::GuanYu,&flags,&[])[0].id, "sword_debt");
         assert!(newly_completed_eggs(Hero::ZhugeLiang,&flags,&[]).is_empty());
         assert!(newly_completed_eggs(Hero::GuanYu,&flags,&["sword_debt".into()]).is_empty());
+    }
+    #[test]
+    #[test]
+    fn early_pledge_and_public_office_create_a_cross_act_debt() {
+        let seen=vec!["taoyuan".into()];
+        assert_eq!(next_beat(Hero::GuanYu,0,&["taoyuan_oath".into()],&seen)
+            .map(|b|b.id),Some("anxi"));
+        assert!(next_beat(Hero::GuanYu,2,&["taoyuan_oath".into()],&[]).is_none(),
+            "an oath without the anti-bribery choice cannot unlock Jingzhou");
+        assert_eq!(next_beat(Hero::GuanYu,2,
+            &["taoyuan_oath".into(),"anxi_seal".into()],&[])
+            .map(|b|b.id),Some("jingzhou"));
+        assert_eq!(next_beat(Hero::GuanYu,2,
+            &["taoyuan_oath".into(),"anxi_seal".into(),"jingzhou_warning".into()],
+            &["jingzhou".into()]).map(|b|b.id),Some("maicheng"));
     }
     #[test]
     fn without_an_earlier_choice_its_payoff_is_not_selected() {
