@@ -411,10 +411,14 @@ impl Game {
         if let Some(expected)=&self.event_history {
             if &history!=expected {return Err("persisted event archive differs from replay".into());}
         } else {
+            // A legacy snapshot cannot claim it persisted events it never recorded.
             replay.event_history=None;
-            if replay.to_json()?!=self.to_json()? {
-                return Err("legacy snapshot state differs from replay".into());
-            }
+        }
+        // The event stream alone does not prove the live snapshot was untouched:
+        // HP, gold, resource counters or an active listener could be modified
+        // without altering any archived CombatEvent. Verify *all* game state.
+        if replay.to_json()?!=self.to_json()? {
+            return Err("event replay snapshot differs from committed actions".into());
         }
         Ok(history)
     }
@@ -496,6 +500,19 @@ impl Game {
             event_stack::verify_record(history)?;
         }
         if let Some(b) = &self.battle {
+            if let Some(archive)=&self.event_history {
+                // A complete archive must agree byte-for-byte with any retained
+                // current-battle audit window; sequence numbers alone are insufficient.
+                if !b.events.is_empty() {
+                    let start=archive.len().checked_sub(b.events.len())
+                        .ok_or("event archive shorter than battle window")?;
+                    if !archive[start..].iter().zip(&b.events).all(|(entry,event)|
+                        entry.encounter==self.telemetry.totals.battles_started
+                        && entry.floor==self.floor && entry.event==*event) {
+                        return Err("battle window differs from event archive".into());
+                    }
+                }
+            }
             if !b.reactions.valid() {return Err("invalid listener stack".into());}
             if self.event_history.as_ref().is_some_and(|history|
                 b.event_seq>0 && history.last().is_none_or(|e|
