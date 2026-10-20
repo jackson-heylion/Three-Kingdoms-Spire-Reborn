@@ -56,3 +56,19 @@ react purge damage:poison foe:0 replace 1 5 1
 读档阶段新增廉价一致性校验：当前战斗保留的非空事件窗口必须与完整档案的等长末尾逐项一致，包含 encounter、floor、事件类型、来源、金额和目标，不再只检查递增序号。老 V2 未持有 `event_history` 的快照保持兼容；旧版空近期事件窗口仍可载入，但不能伪造不存在的审计历史。
 
 回归 `tests/event_replay_integrity.rs` 验证自由模式动态监听登记正常重放、金币/血量/军令/监听次数篡改拒绝、完整事件与最近窗口双向失配拒绝，以及旧版缺失事件档案但动作仍完整的可重建路径。**这是可重放性与损坏检测补强，而非以事件日志作为唯一输入就能恢复游戏状态的通用 event sourcing 实现**，更不代表所有事件前置拦截已覆盖。
+
+## 2026-10-20 敌军对英雄承伤前反制（限自由战斗）
+
+与 `damage:hero foe:N` 等英雄→敌军规则相对，新增 **敌军→英雄** 方向：
+
+```text
+react intercept damage:foe:0 hero cancel 0 -20 1
+react guarded damage:foe:1 hero reduce 6 -10 2
+react altered damage:foe:0 hero replace 3 5 1
+```
+
+`damage:foe:N` 的 `N` 为战场内部敌军槽位 `0..3`，目标必须是 `hero`。监听 ID、优先级、用尽次数、`cancel|reduce|replace` 的严格校验沿用 `Stack::install` 和自由档 `Action::RegisterReaction` 原子提交。只有 `DamageReceived` 来源为 **存活敌军攻击** 时才会拦截；`blood_price` 自伤、`supply_exhaustion` 粮尽损血、药剂与脚本任意来源不能借此取消。
+
+结算顺序：攻击者虚弱与受击者易伤修正→事前监听器按优先级/ID替换拟伤害→英雄护甲抵挡→亲兵承伤→英雄实际 HP 扣除及 `DamageReceived` 记账→荆棘反伤。取消或减免至零会写入 `EventCountered` 且**不消耗护甲、亲兵或 HP、不反射荆棘**；正常受击（即使护甲全部吸收）仍走既有荆棘机制。未取消的每次监听修改产生 `EventReplaced`，后续 `DamageReceived` 仅记录英雄实际 HP 损失。Boss 依赖“真实命中/失血”的后续状态技沿用其既有触发条件。
+
+测试覆盖取消时护甲/亲兵/荆棘不动、双监听替换按序写事件、受击 HP 实值、非法来源/目标拒绝及标准模式禁止、随机种子真实回合的存档/动作重放。**此增量不是统一预拦截任意英雄事件**；粮尽、自伤、死亡判定和非攻击型敌方意图仍没有开放通用反制，因而完整事件系统 P1 仍未验收。
