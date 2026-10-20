@@ -2499,7 +2499,7 @@ impl Game {
                 if self.mode!=RunMode::Custom || self.stage!=Stage::Combat {
                     return Err("仅自由模式战斗可注销事件监听器".into());
                 }
-                self.battle.as_mut().expect("battle").reactions.remove(&id)
+                self.battle.as_mut().expect("battle").reactions.remove_custom(&id)
                     .map_err(str::to_owned)?;
                 format!("已注销动态监听器 {id}")
             },
