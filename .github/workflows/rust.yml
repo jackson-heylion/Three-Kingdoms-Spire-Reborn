@@ -512,6 +512,12 @@ jobs:
           print("Validated 330 pairs / 660 deterministic build fixture runs")
           PY
 
+      - name: Independently aggregate the 15 build comparison cells
+        run: |
+          python3 scripts/analyze_builds.py "$RUNNER_TEMP/tks-builds.json" > "$RUNNER_TEMP/tks-builds-summary.md"
+          grep -q 'Builds: 15; cells: 165' "$RUNNER_TEMP/tks-builds-summary.md"
+          cat "$RUNNER_TEMP/tks-builds-summary.md"
+
       - name: Sun Shangxiang equal-deck-size archetype study
         run: cargo run --release --bin tks-sim -- --sun-archetypes 15 "$RUNNER_TEMP/tks-sun.json"
 
