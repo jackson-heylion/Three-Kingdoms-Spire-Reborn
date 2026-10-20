@@ -4652,3 +4652,111 @@ mod p1_registered_status_interceptors {
         assert_eq!(Game::from_json(&json).unwrap().to_json().unwrap(),json);
     }
 }
+
+
+#[cfg(test)]
+mod p1_enemy_potion_matrix_regression {
+    use super::*;
+
+    const HEROES: [Hero; 5] = [
+        Hero::GuanYu, Hero::ZhugeLiang, Hero::SunShangxiang, Hero::CaoCao, Hero::LuBu,
+    ];
+    const SECOND_PHASE: [&str; 11] = [
+        "elite", "war_elephant", "royal_guard", "tiger_general", "sacred_beast",
+        "zhangjiao", "sunjian", "dongzhuo", "yuanshao", "simayi", "zuoci",
+    ];
+
+    fn versus(hero: Hero, foe_id: &str, ascension: u8, seed: u64) -> Game {
+        let mut game=Game::new_with_ascension(hero,seed,ascension);
+        game.apply(Action::Choose{index:1}).expect("enter the first battle");
+        game.max_hp=5000;
+        game.hp=5000;
+        {
+            let b=game.battle.as_mut().expect("battle after route");
+            b.foes.truncate(1);
+            let foe=&mut b.foes[0];
+            foe.id=foe_id.to_owned();
+            foe.hp=enemy_hp(foe_id);
+            foe.max_hp=foe.hp;
+            foe.block=0;
+            foe.poison=0;
+            foe.weak=0;
+            foe.vulnerable=0;
+            foe.phase=0;
+        }
+        game.roll_intents();
+        game
+    }
+
+    #[test]
+    fn every_enemy_and_boss_phase_resolves_three_real_turns_for_each_class_at_low_and_high_ascension() {
+        assert_eq!(content::ENEMY_IDS.len(),31,"update matrix when enemy roster changes");
+        let mut cases=0;
+        let mut turns=0;
+        for hero in HEROES {
+            for foe in content::ENEMY_IDS {
+                for ascension in [0_u8,10_u8] {
+                    let phases:&[u8]=if SECOND_PHASE.contains(foe) {&[0,1]} else {&[0]};
+                    for phase in phases {
+                        let mut game=versus(hero,foe,ascension,970_000+cases as u64);
+                        game.battle.as_mut().expect("combat").foes[0].phase=*phase;
+                        game.roll_intents();
+                        for index in 0..3 {
+                            assert_eq!(game.stage,Stage::Combat,
+                                "premature encounter exit: {} / {foe} / asc {ascension} / phase {phase} / turn {index}",hero.name());
+                            let previous=game.battle.as_ref().expect("combat").event_seq;
+                            game.apply(Action::EndTurn).unwrap_or_else(|err|panic!(
+                                "{} / {foe} / asc {ascension} / phase {phase} / turn {index}: {err}",hero.name()));
+                            let b=game.battle.as_ref().expect("combat must persist");
+                            assert!(b.event_seq>previous, "missing turn events for {foe}");
+                            assert!(b.events.windows(2).all(|pair|pair[0].seq+1==pair[1].seq),
+                                "unordered event journal: {foe}");
+                            assert!(b.foes.iter().all(|foe|foe.hp>=0 && foe.hp<=foe.max_hp),
+                                "invalid foe state: {foe}");
+                            let snapshot=game.to_json().unwrap();
+                            let restored=Game::from_json(&snapshot).unwrap_or_else(|err|panic!(
+                                "enemy {foe} / phase {phase} / turn {index} invalid save: {err}"));
+                            assert_eq!(restored.to_json().unwrap(),snapshot);
+                            turns+=1;
+                        }
+                        cases+=1;
+                    }
+                }
+            }
+        }
+        assert_eq!(cases,420);
+        assert_eq!(turns,1260);
+    }
+
+    #[test]
+    fn all_ten_potions_resolve_at_each_enemy_for_every_hero_without_corrupting_saves() {
+        assert_eq!(items::POTIONS.len(),10,"update the exhaustive potion roster");
+        let mut cases=0;
+        for hero in HEROES {
+            for foe in content::ENEMY_IDS {
+                for (potion,_) in items::POTIONS {
+                    let mut game=versus(hero,foe,0,985_000+cases as u64);
+                    game.potion_bag=vec![(*potion).into()];
+                    game.potions=1;
+                    let previous=game.battle.as_ref().expect("battle").event_seq;
+                    let revision=game.revision;
+                    game.apply(Action::UsePotionAt{slot:1,target:1}).unwrap_or_else(|err|panic!(
+                        "{} against {foe} using {potion}: {err}",hero.name()));
+                    assert_eq!(game.revision,revision+1);
+                    assert!(game.potion_bag.is_empty() && game.potions==0,
+                        "potion {potion} was not consumed for {foe}");
+                    if let Some(b)=&game.battle {
+                        assert!(b.event_seq>previous, "potion {potion} has no journal entry");
+                        assert!(b.events.iter().any(|e|e.kind==EventKind::PotionUsed
+                            && e.source==*potion), "missing potion provenance: {potion}");
+                    }
+                    let snapshot=game.to_json().unwrap();
+                    assert_eq!(Game::from_json(&snapshot).unwrap().to_json().unwrap(),snapshot,
+                        "potion {potion} against {foe} corrupts save");
+                    cases+=1;
+                }
+            }
+        }
+        assert_eq!(cases,1550);
+    }
+}
