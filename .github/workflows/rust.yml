@@ -541,6 +541,28 @@ jobs:
           grep -q 'Builds: 15; cells: 165' "$RUNNER_TEMP/tks-builds-summary.md"
           cat "$RUNNER_TEMP/tks-builds-summary.md"
 
+      - name: Normal starter deck formation for all 15 declared build plans
+        run: cargo run --release --bin tks-sim -- --natural-builds 1 "$RUNNER_TEMP/tks-natural-builds.json"
+
+      - name: Validate fifteen natural build acquisition denominators
+        run: |
+          python3 - <<'PY'
+          import json,os,pathlib
+          p=pathlib.Path(os.environ['RUNNER_TEMP'])/'tks-natural-builds.json'
+          d=json.loads(p.read_text())
+          assert d['schema_version']==1 and d['samples_per_cell']==1
+          assert len(d['cells'])==15*11
+          assert len(set((c['id'],c['ascension']) for c in d['cells']))==165
+          assert len(set(c['id'] for c in d['cells']))==15
+          assert all(c['samples']==1
+                     and 0<=c['baseline_wins']<=1 and 0<=c['focused_wins']<=1
+                     and 0<=c['complete_core']<=1 and 0<=c['complete_support']<=1
+                     and 0<=c['focus_picks']<=c['focus_offer_screens']<=c['reward_screens']
+                     and 0<=c['core_distinct_sum']<=4
+                     and 0<=c['support_distinct_sum']<=2 for c in d['cells'])
+          print('Normal ten-card starter × 15 plans × 11 ascensions: 165 seeded pairs')
+          PY
+
       - name: Sun Shangxiang equal-deck-size archetype study
         run: cargo run --release --bin tks-sim -- --sun-archetypes 15 "$RUNNER_TEMP/tks-sun.json"
 
@@ -606,6 +628,7 @@ jobs:
             ${{ runner.temp }}/tks-sun.json
             ${{ runner.temp }}/tks-natural.json
             ${{ runner.temp }}/tks-builds.json
+            ${{ runner.temp }}/tks-natural-builds.json
           retention-days: 30
 
 
@@ -639,5 +662,9 @@ jobs:
           build_mac=base/'tks-balance-macos-14'/'tks-builds.json'
           assert build_linux.exists() and build_mac.exists()
           assert build_linux.read_bytes()==build_mac.read_bytes(), 'OS-specific 15-build divergence'
+          nb_linux=base/'tks-balance-ubuntu-latest'/'tks-natural-builds.json'
+          nb_mac=base/'tks-balance-macos-14'/'tks-natural-builds.json'
+          assert nb_linux.exists() and nb_mac.exists()
+          assert nb_linux.read_bytes()==nb_mac.read_bytes(), 'OS-specific natural formation study divergence'
           print('All four paired balance, curated builds, Sun packages and natural draft reports match across OS')
           PY
