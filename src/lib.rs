@@ -331,6 +331,8 @@ pub enum Action {
     SetModifier { id: String, enabled: bool },
     /// Explicit, replayable modding action. Only available in unranked custom battles.
     RegisterReaction { listener: event_stack::Listener },
+    /// Remove a listener by its stable ID. Unranked custom battles only.
+    UnregisterReaction { id: String },
 }
 
 impl Game {
@@ -1134,6 +1136,14 @@ impl Game {
     /// had an opportunity to cancel, reduce or replace the incoming duration.
     fn apply_hero_status(&mut self, status: &str, amount: u8) {
         if !matches!(status,"weak"|"vulnerable") {return;}
+        // Status already capped: no effect is proposed, therefore an
+        // untriggered one-shot listener must not lose a charge.
+        let saturated=self.battle.as_ref().is_some_and(|b|match status {
+            "weak"=>b.weak==u8::MAX,
+            "vulnerable"=>b.vulnerable==u8::MAX,
+            _=>false,
+        });
+        if saturated {return;}
         let Some(amount)=self.preflight_status(status,"hero",i32::from(amount)) else {return;};
         let amount=amount.clamp(0,255) as u8;
         let applied = {
@@ -1164,6 +1174,17 @@ impl Game {
         if !matches!(status,"poison"|"weak"|"vulnerable")
             || self.battle.as_ref().is_none_or(|b|
                 b.foes.get(idx).is_none_or(|foe|foe.hp<=0)) {return;}
+        let exhausted_capacity=self.battle.as_ref().is_some_and(|b| {
+            let foe=&b.foes[idx];
+            match status {
+                "poison"=>foe.poison>=9999,
+                "weak"=>foe.weak==u8::MAX,
+                "vulnerable"=>foe.vulnerable==u8::MAX,
+                _=>false,
+            }
+        });
+        // Reserve the rule for the next *effective* status application.
+        if exhausted_capacity {return;}
         let target=format!("foe:{idx}");
         let Some(amount)=self.preflight_status(status,&target,amount) else {return;};
         let actual = {
@@ -2456,6 +2477,14 @@ impl Game {
                     .map_err(str::to_owned)?;
                 format!("已登记动态监听器 {}（优先级 {}，剩余次数 {}）",
                     listener.id,listener.priority,listener.charges)
+            },
+            Action::UnregisterReaction { id } => {
+                if self.mode!=RunMode::Custom || self.stage!=Stage::Combat {
+                    return Err("仅自由模式战斗可注销事件监听器".into());
+                }
+                self.battle.as_mut().expect("battle").reactions.remove(&id)
+                    .map_err(str::to_owned)?;
+                format!("已注销动态监听器 {id}")
             },
             Action::SetModifier { id, enabled } => {
                 if self.mode != RunMode::Custom || self.floor != 0 || self.stage != Stage::Map {
