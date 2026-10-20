@@ -232,6 +232,14 @@ impl World {
             let dir = self.lock_dir.as_ref().ok_or("missing isolated save directory")?;
             let guard = SaveDirectoryLock::acquire(dir).map_err(|e| e.to_string())?;
             drop(guard);
+        } else if let Some(prefix) = step.strip_prefix("a custom \"") {
+            let hero=prefix.split('"').next().ok_or("missing custom hero")?;
+            let seed:u64=step.split("with seed ").nth(1).ok_or("missing seed")?
+                .parse().map_err(|_|"bad custom seed")?;
+            self.game=Some(Game::new_with_mode(Hero::parse(hero).ok_or("unknown hero")?,
+                seed,0,three_kingdoms_spire_reborn::RunMode::Custom));
+            self.before=None;
+            self.error=None;
         } else if let Some(prefix) = step.strip_prefix("a \"") {
             let hero = prefix.split('"').next().ok_or("missing hero")?;
             let seed: u64 = step.split("with seed ").nth(1).ok_or("missing seed")?
@@ -268,6 +276,29 @@ impl World {
             document["gold"] = serde_json::json!(-1);
             self.error = Game::from_json(&document.to_string()).err();
             self.before = Some(original);
+        } else if step == "I register a one-shot weak reduction listener" {
+            use three_kingdoms_spire_reborn::event_stack::{Listener,Response};
+            self.game_mut()?.apply(Action::RegisterReaction {
+                listener:Listener::once("gherkin:weak","weak",Response::Reduce(1))
+            })?;
+        } else if step == "I attempt to register a listener outside custom mode" {
+            use three_kingdoms_spire_reborn::event_stack::{Listener,Response};
+            self.before=Some(self.game()?.to_json()?);
+            self.error=self.game_mut()?.apply(Action::RegisterReaction {
+                listener:Listener::once("forbidden","weak",Response::Cancel)
+            }).err();
+            if self.error.is_none(){return Err("ranked listener unexpectedly accepted".into());}
+        } else if step == "the listener and complete action replay agree after save" {
+            let game=self.game()?;
+            if game.battle.as_ref().ok_or("not in battle")?.reactions.listeners.len()!=1 {
+                return Err("registered listener missing".into());
+            }
+            game.verify_action_replay()?;
+            game.reconstruct_event_history()?;
+            let json=game.to_json()?;
+            if Game::from_json(&json)?.to_json()?!=json {
+                return Err("listener changed after save/load".into());
+            }
         } else if step == "I enter the first battle for save validation" {
             self.game_mut()?.apply(Action::Choose { index: 1 })?;
             if self.game()?.stage != Stage::Combat {
@@ -993,6 +1024,7 @@ fn gherkin_bdd_acceptance_suite() {
         ("features/action_persistence.feature", include_str!("../features/action_persistence.feature")),
         ("features/profile_reconciliation.feature", include_str!("../features/profile_reconciliation.feature")),
         ("features/novel_provenance.feature", include_str!("../features/novel_provenance.feature")),
+        ("features/dynamic_reactions.feature", include_str!("../features/dynamic_reactions.feature")),
     ];
     let scenarios: usize = documents.iter().map(|(name,text)|
         run_feature(text,name).unwrap_or_else(|error|panic!("{error}"))).sum();
