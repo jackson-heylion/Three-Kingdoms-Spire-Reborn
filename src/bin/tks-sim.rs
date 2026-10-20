@@ -293,17 +293,28 @@ fn simulate_policy_package(hero:Hero,seed:u64,ascension:u8,policy:Policy,package
 fn simulate_config(hero:Hero,seed:u64,ascension:u8,policy:Policy,package:SunPackage,
     focus:Option<Doctrine>)->Result<Outcome,String>
 {
-    simulate_config_blueprint(hero,seed,ascension,policy,package,focus,None,None)
+    simulate_config_blueprint(hero,seed,ascension,policy,package,focus,DeckTreatment::Standard)
 }
-/// Identical action policy and seeds for baseline/curated tests. Curated
-/// starting decks are experimental fixtures, not legal standard-run drafts.
+/// Curated card injections and normal-drafting focus cannot coexist.
+#[derive(Clone,Copy)]
+enum DeckTreatment<'a> {
+    Standard,
+    Curated(&'a BuildPlan),
+    Natural(&'a BuildPlan),
+}
+/// Paired runs keep the same initial seed and tactical policy, with one
+/// explicit, type-safe treatment choice and no eighth configuration argument.
 fn simulate_config_blueprint(hero:Hero,seed:u64,ascension:u8,policy:Policy,
-    package:SunPackage,focus:Option<Doctrine>,blueprint:Option<&BuildPlan>,
-    natural_plan:Option<&BuildPlan>) ->Result<Outcome,String>
+    package:SunPackage,focus:Option<Doctrine>,treatment:DeckTreatment<'_>)
+    ->Result<Outcome,String>
 {
-    if natural_plan.is_some_and(|plan|plan.hero!=hero)
-        || (blueprint.is_some() && natural_plan.is_some()) {
-        return Err("invalid natural build focus combination".into());
+    let (blueprint,natural_plan)=match treatment {
+        DeckTreatment::Standard=>(None,None),
+        DeckTreatment::Curated(plan)=>(Some(plan),None),
+        DeckTreatment::Natural(plan)=>(None,Some(plan)),
+    };
+    if natural_plan.is_some_and(|plan|plan.hero!=hero) {
+        return Err("natural plan hero mismatch".into());
     }
     let mut game = Game::new_with_ascension(hero, seed, ascension);
     if let Some(plan)=blueprint { apply_curated_plan(&mut game,plan)?; }
@@ -727,9 +738,9 @@ fn build_blueprint_report(samples:usize)->Result<BuildBlueprintReport,String> {
                     u64::from(ascension)*10_000+trial as u64+1;
                 let seed=ordinal.wrapping_mul(0x9E3779B97F4A7C15);
                 let baseline=simulate_config_blueprint(plan.hero,seed,ascension,
-                    Policy::Tactical,SunPackage::Standard,None,None,None)?;
+                    Policy::Tactical,SunPackage::Standard,None,DeckTreatment::Standard)?;
                 let curated=simulate_config_blueprint(plan.hero,seed,ascension,
-                    Policy::Tactical,SunPackage::Standard,None,Some(plan),None)?;
+                    Policy::Tactical,SunPackage::Standard,None,DeckTreatment::Curated(plan))?;
                 cell.baseline_wins+=usize::from(baseline.won);
                 cell.blueprint_wins+=usize::from(curated.won);
                 cell.baseline_floor_sum+=u64::from(baseline.floor);
@@ -795,9 +806,9 @@ fn natural_plan_report(samples:usize)->Result<NaturalPlanReport,String> {
                     +u64::from(ascension)*10_000+trial as u64+1;
                 let seed=ordinal.wrapping_mul(0x9E3779B97F4A7C15);
                 let baseline=simulate_config_blueprint(plan.hero,seed,ascension,
-                    Policy::Tactical,SunPackage::Standard,None,None,None)?;
+                    Policy::Tactical,SunPackage::Standard,None,DeckTreatment::Standard)?;
                 let focused=simulate_config_blueprint(plan.hero,seed,ascension,
-                    Policy::Tactical,SunPackage::Standard,None,None,Some(plan))?;
+                    Policy::Tactical,SunPackage::Standard,None,DeckTreatment::Natural(plan))?;
                 let final_game=Game::from_json(&focused.snapshot)?;
                 let core=plan.acquired(&final_game.deck);
                 let support=plan.support.iter()
