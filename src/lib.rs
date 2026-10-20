@@ -1681,10 +1681,27 @@ impl Game {
     }
 
     fn enemy_attack(&mut self, foe_idx: usize, power: i32) -> i32 {
+        // First compute a proposed enemy hit WITHOUT mutating hero armor or
+        // troops. An unranked custom listener may cancel or replace this raw
+        // value before the normal block -> troop -> HP settlement.
+        if self.battle.as_ref().expect("battle").foes.get(foe_idx)
+            .is_none_or(|foe|foe.hp<=0) {return 0;}
+        let modified = {
+            let b = self.battle.as_ref().expect("battle");
+            let reduced = if b.foes[foe_idx].weak > 0 { power * 3 / 4 } else { power };
+            if b.vulnerable > 0 { reduced * 3 / 2 } else { reduced }
+        };
+        let modified = if modified>0 {
+            match self.preflight_event(EventKind::DamageReceived,
+                &format!("foe:{foe_idx}"),"hero",modified) {
+                Some(value) => value,
+                // Cancelled enemy attacks never strip armor or troops, never
+                // inflict HP damage, and cannot trigger an on-hit follow-up.
+                None => return 0,
+            }
+        } else { modified };
         let (damage, protected, reflected) = {
             let b = self.battle.as_mut().expect("battle");
-            let reduced = if b.foes[foe_idx].weak > 0 { power * 3 / 4 } else { power };
-            let modified = if b.vulnerable > 0 { reduced * 3 / 2 } else { reduced };
             let blocked = modified.min(b.block);
             b.block -= blocked;
             let incoming = (modified - blocked).max(0);
