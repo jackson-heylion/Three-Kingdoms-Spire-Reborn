@@ -329,6 +329,8 @@ pub enum Action {
     SetVariants { act1: u8, act2: u8, act3: u8 },
     SetDoctrine { id: String },
     SetModifier { id: String, enabled: bool },
+    /// Explicit, replayable modding action. Only available in unranked custom battles.
+    RegisterReaction { listener: event_stack::Listener },
 }
 
 impl Game {
@@ -1080,26 +1082,34 @@ impl Game {
     }
 
 
-    /// A single saturating application path for enemy-imposed hero debuffs.
-    /// Exactly the applied duration is written to the ordered event journal.
-    fn apply_hero_status(&mut self, status: &str, amount: u8) {
-        if amount == 0 { return; }
-        let proposed=CombatEvent{seq:0,kind:EventKind::StatusApplied,
-            source:status.into(),amount:i32::from(amount),target:Some("hero".into())};
+    /// Resolve a proposed status through the deterministic observer stack BEFORE
+    /// changing any combat stat. Each consumed rule writes its own audit event.
+    /// No random numbers, card resolution or journal mutation for unmatched rules.
+    fn preflight_status(&mut self, status:&str, target:&str, amount:i32) -> Option<i32> {
+        if amount<=0 {return None;}
+        let proposed=CombatEvent{
+            seq:0,kind:EventKind::StatusApplied,
+            source:status.into(),amount,target:Some(target.into()),
+        };
         let outcome=self.battle.as_mut().expect("battle").reactions.resolve(&proposed);
-        if outcome.cancelled || outcome.amount==0 {
-            if let Some(by)=outcome.by {
-                self.combat_event(EventKind::EventCountered,&by,i32::from(amount),
-                    Some("hero".into()));
+        for step in &outcome.steps {
+            if step.cancelled || step.after==0 {
+                self.combat_event(EventKind::EventCountered,&step.listener_id,step.before,
+                    Some(target.into()));
+            } else if step.after!=step.before {
+                self.combat_event(EventKind::EventReplaced,&step.listener_id,
+                    step.before-step.after,Some(target.into()));
             }
-            return;
         }
-        if outcome.amount!=i32::from(amount) {
-            self.combat_event(EventKind::EventReplaced,
-                outcome.by.as_deref().unwrap_or("reaction"),
-                i32::from(amount)-outcome.amount,Some("hero".into()));
-        }
-        let amount=outcome.amount.clamp(0,255) as u8;
+        (!outcome.cancelled && outcome.amount>0).then_some(outcome.amount)
+    }
+
+    /// Saturating hero-debuff application after all registered observers have
+    /// had an opportunity to cancel, reduce or replace the incoming duration.
+    fn apply_hero_status(&mut self, status: &str, amount: u8) {
+        if !matches!(status,"weak"|"vulnerable") {return;}
+        let Some(amount)=self.preflight_status(status,"hero",i32::from(amount)) else {return;};
+        let amount=amount.clamp(0,255) as u8;
         let applied = {
             let b = self.battle.as_mut().expect("battle");
             match status {
@@ -1113,42 +1123,47 @@ impl Game {
                     b.vulnerable = b.vulnerable.saturating_add(amount);
                     b.vulnerable - before
                 }
-                _ => return,
+                _ => unreachable!("status prevalidated"),
             }
         };
-        if applied > 0 {
-            self.combat_event(EventKind::StatusApplied, status, i32::from(applied),
+        if applied>0 {
+            self.combat_event(EventKind::StatusApplied,status,i32::from(applied),
                 Some("hero".into()));
         }
     }
 
+    /// Enemy debuffs, including potion applications, use the SAME interception
+    /// stack. A missing or defeated target must not consume a reaction charge.
     fn apply_foe_status(&mut self, idx: usize, status: &str, amount: i32) {
-        if amount <= 0 { return; }
+        if !matches!(status,"poison"|"weak"|"vulnerable")
+            || self.battle.as_ref().is_none_or(|b|
+                b.foes.get(idx).is_none_or(|foe|foe.hp<=0)) {return;}
+        let target=format!("foe:{idx}");
+        let Some(amount)=self.preflight_status(status,&target,amount) else {return;};
         let actual = {
             let b = self.battle.as_mut().expect("battle");
-            let Some(foe) = b.foes.get_mut(idx) else { return };
-            if foe.hp <= 0 { return; }
+            let foe=&mut b.foes[idx];
             match status {
                 "poison" => {
-                    let old = foe.poison;
-                    foe.poison = foe.poison.saturating_add(amount).min(9999);
+                    let old=foe.poison;
+                    foe.poison=foe.poison.saturating_add(amount).min(9999);
                     foe.poison-old
                 }
                 "weak" => {
-                    let old = foe.weak;
-                    foe.weak = foe.weak.saturating_add(amount.min(255) as u8);
+                    let old=foe.weak;
+                    foe.weak=foe.weak.saturating_add(amount.min(255) as u8);
                     i32::from(foe.weak-old)
                 }
                 "vulnerable" => {
-                    let old = foe.vulnerable;
-                    foe.vulnerable = foe.vulnerable.saturating_add(amount.min(255) as u8);
+                    let old=foe.vulnerable;
+                    foe.vulnerable=foe.vulnerable.saturating_add(amount.min(255) as u8);
                     i32::from(foe.vulnerable-old)
                 }
-                _ => return,
+                _ => unreachable!("status prevalidated"),
             }
         };
-        if actual > 0 {
-            self.combat_event(EventKind::StatusApplied,status,actual,Some(format!("foe:{idx}")));
+        if actual>0 {
+            self.combat_event(EventKind::StatusApplied,status,actual,Some(target));
         }
     }
 
@@ -2383,6 +2398,15 @@ impl Game {
             Action::Upgrade { index } => self.upgrade_card(index)?,
             Action::Enchant { index, kind } => self.enchant_card(index, &kind)?,
             Action::Discard { index } => self.discard_card(index)?,
+            Action::RegisterReaction { listener } => {
+                if self.mode!=RunMode::Custom || self.stage!=Stage::Combat {
+                    return Err("仅自由模式战斗可动态登记事件监听器".into());
+                }
+                self.battle.as_mut().expect("battle").reactions.install(listener.clone())
+                    .map_err(str::to_owned)?;
+                format!("已登记动态监听器 {}（优先级 {}，剩余次数 {}）",
+                    listener.id,listener.priority,listener.charges)
+            },
             Action::SetModifier { id, enabled } => {
                 if self.mode != RunMode::Custom || self.floor != 0 || self.stage != Stage::Map {
                     return Err("挑战修饰符仅能在自由模式出征前调整".into());
@@ -4553,4 +4577,78 @@ mod p1_event_cursor_tests {
         assert_eq!(covered,31*5);
     }
 
+}
+
+#[cfg(test)]
+mod p1_registered_status_interceptors {
+    use super::*;
+    use event_stack::{Listener,Response};
+
+    fn prepare() -> Game {
+        let mut g=Game::new_with_mode(Hero::ZhugeLiang,925145,0,RunMode::Custom);
+        g.apply(Action::Choose{index:1}).unwrap();
+        g
+    }
+    #[test]
+    fn custom_reaction_actions_are_atomic_serializable_and_replayable() {
+        let mut g=prepare();
+        let mut rule=Listener::once("outside:weak","weak",Response::Reduce(2));
+        rule.charges=2;
+        g.apply(Action::RegisterReaction{listener:rule.clone()}).unwrap();
+        assert_eq!(g.verify_action_replay().unwrap(),2);
+        let snapshot=g.to_json().unwrap();
+        assert_eq!(Game::from_json(&snapshot).unwrap().to_json().unwrap(),snapshot);
+        let mut illegal=rule.clone();
+        illegal.effect=Response::Replace(-1);
+        let before=g.to_json().unwrap();
+        assert!(g.apply(Action::RegisterReaction{listener:illegal}).is_err());
+        assert_eq!(g.to_json().unwrap(),before);
+        let mut normal=Game::new(Hero::ZhugeLiang,123);
+        normal.apply(Action::Choose{index:1}).unwrap();
+        assert!(normal.apply(Action::RegisterReaction{listener:rule}).is_err());
+    }
+
+    #[test]
+    fn multiple_hero_reactions_write_each_intermediate_change_before_status() {
+        let mut g=prepare();
+        let mut first=Listener::once("half","weak",Response::Reduce(2));
+        first.priority=-5;
+        let mut last=Listener::once("one","weak",Response::Replace(1));
+        last.priority=8;
+        g.apply(Action::RegisterReaction{listener:last}).unwrap();
+        g.apply(Action::RegisterReaction{listener:first}).unwrap();
+        let from=g.battle.as_ref().unwrap().event_seq;
+        g.apply_hero_status("weak",5);
+        let b=g.battle.as_ref().unwrap();
+        assert_eq!(b.weak,1);
+        let events=b.events.iter().filter(|e|e.seq>from).collect::<Vec<_>>();
+        assert_eq!(events.iter().map(|e|e.kind).collect::<Vec<_>>(),
+            vec![EventKind::EventReplaced,EventKind::EventReplaced,EventKind::StatusApplied]);
+        assert_eq!(events.iter().map(|e|e.amount).collect::<Vec<_>>(),vec![2,2,1]);
+        assert_eq!(events[0].source,"half");
+        assert_eq!(events[1].source,"one");
+    }
+
+    #[test]
+    fn foe_poison_is_intercepted_before_toxic_reversal_and_tracks_true_delta() {
+        let mut g=prepare();
+        g.gain_power(PowerId::ToxicReversal,1);
+        let mut rule=Listener::once("enemy:poison","poison",Response::Reduce(3));
+        rule.target=Some("foe:0".into());
+        g.apply(Action::RegisterReaction{listener:rule}).unwrap();
+        let original=g.battle.as_ref().unwrap().foes[0].poison;
+        let from=g.battle.as_ref().unwrap().event_seq;
+        g.apply_foe_status(0,"poison",5);
+        let b=g.battle.as_ref().unwrap();
+        assert_eq!(b.foes[0].poison,original+3);
+        let events=b.events.iter().filter(|e|e.seq>from).collect::<Vec<_>>();
+        assert_eq!(events.iter().map(|e|e.kind).collect::<Vec<_>>(),
+            vec![EventKind::EventReplaced,EventKind::StatusApplied,
+                 EventKind::PowerTriggered,EventKind::StatusApplied]);
+        assert_eq!(events.iter().map(|e|e.amount).collect::<Vec<_>>(),vec![3,2,1,1]);
+        assert_eq!(events[3].source,"poison:toxic_reversal");
+        assert!(g.battle.as_ref().unwrap().reactions.listeners.is_empty());
+        let json=g.to_json().unwrap();
+        assert_eq!(Game::from_json(&json).unwrap().to_json().unwrap(),json);
+    }
 }
