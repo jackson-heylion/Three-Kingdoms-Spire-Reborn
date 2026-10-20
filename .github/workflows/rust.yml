@@ -51,6 +51,29 @@ jobs:
           print('Custom listener save/replay and cross-process verification passed')
           PY
 
+      - name: Custom listener registration removal and cross-process replay
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess
+          base=pathlib.Path(os.environ['RUNNER_TEMP'])/'tks-reaction-unregister'
+          binary=str(pathlib.Path.cwd()/'target'/'release'/'tks')
+          cmd=[binary,'--plain','--save-dir',str(base)]
+          commands='custom zhuge 925144 0\nchoose 1\nreact ward weak hero cancel\nreact-remove ward\nreact-remove ward\nverify\nverify-events\nquit\n'
+          first=subprocess.run(cmd,input=commands,capture_output=True,text=True,timeout=40)
+          assert first.returncode==0,(first.stdout,first.stderr)
+          assert '已登记动态监听器 ward' in first.stdout,first.stdout
+          assert '已注销动态监听器 ward' in first.stdout,first.stdout
+          assert 'reaction not found' in first.stdout,first.stdout
+          saved=json.loads((base/'save.json').read_text())
+          assert not saved['battle'].get('reactions',{}).get('listeners')
+          assert len(saved['action_history'])==3,saved['action_history']
+          second=subprocess.run(cmd,input='verify\nverify-events\nquit\n',
+                                capture_output=True,text=True,timeout=40)
+          assert second.returncode==0 and '错误：' not in second.stdout,(second.stdout,second.stderr)
+          print('Listener lifecycle and full action/event source replay passed')
+          PY
+
       - name: CLI replacement campaigns survive blocked writes (both platforms)
         shell: bash
         run: |
