@@ -2490,7 +2490,7 @@ impl Game {
                 if self.mode!=RunMode::Custom || self.stage!=Stage::Combat {
                     return Err("仅自由模式战斗可动态登记事件监听器".into());
                 }
-                self.battle.as_mut().expect("battle").reactions.install(listener.clone())
+                self.battle.as_mut().expect("battle").reactions.install_custom(listener.clone())
                     .map_err(str::to_owned)?;
                 format!("已登记动态监听器 {}（优先级 {}，剩余次数 {}）",
                     listener.id,listener.priority,listener.charges)
