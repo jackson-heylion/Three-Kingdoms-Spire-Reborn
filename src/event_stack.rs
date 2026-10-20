@@ -6,6 +6,11 @@ use serde::{Deserialize, Serialize};
 // The public custom slot limit must not crowd out the four defensive cards.
 const CUSTOM_LISTENER_LIMIT: usize = 16;
 const BUILTIN_LISTENER_LIMIT: usize = 4;
+/// Slot identifiers must match the actual runtime event source/target strings.
+/// Permissive integer parsing accepted foe:01 or foe:+1, producing dead listeners.
+fn canonical_foe_slot(id: &str) -> bool {
+    matches!(id, "foe:0" | "foe:1" | "foe:2" | "foe:3")
+}
 fn builtin_id(id: &str) -> bool {
     matches!(id, "hold_line:weak" | "kongcheng:vulnerable"
         | "qiaoying:weak" | "zhongyi:weak")
@@ -56,9 +61,7 @@ impl Stack {
             && self.listeners.iter().enumerate().all(|(i,r)|
             !r.id.is_empty() && r.id.len()<=64 && !r.source.is_empty()
             && r.source.len()<=64 && r.charges>0 && r.charges<=16
-            && r.target.as_deref().is_some_and(|t| t=="hero"
-                || (t.strip_prefix("foe:").is_some_and(|index|
-                    index.parse::<usize>().is_ok_and(|index|index<4))))
+            && r.target.as_deref().is_some_and(|t| t=="hero" || canonical_foe_slot(t))
             && match r.kind {
                 EventKind::StatusApplied =>
                     matches!(r.source.as_str(),"weak"|"vulnerable"|"poison")
@@ -75,8 +78,7 @@ impl Stack {
                 // hazards, self-damage and arbitrary source strings stay closed.
                 EventKind::DamageReceived =>
                     r.target.as_deref()==Some("hero")
-                    && r.source.strip_prefix("foe:").is_some_and(|index|
-                        index.parse::<usize>().is_ok_and(|index|index<4)),
+                    && canonical_foe_slot(&r.source),
                 // Only actual stack increases on the eight defined powers can
                 // be rewritten. No interruption of arbitrary passive dispatch.
                 EventKind::PowerGained =>
