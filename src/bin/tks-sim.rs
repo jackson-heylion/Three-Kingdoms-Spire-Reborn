@@ -1,6 +1,6 @@
 //! Deterministic headless simulation for balancing and softlock discovery.
 //! Run: cargo run --release --bin tks-sim -- 250
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use serde::Serialize;
 use three_kingdoms_spire_reborn::{
@@ -27,6 +27,9 @@ struct Outcome {
     telemetry: CombatCounters,
     death_encounter: Option<String>,
     death_node: Option<Node>,
+    /// Distinct foe IDs observed at a combat decision point anywhere in the run.
+    /// Run-level exposure is not a per-encounter win/loss denominator.
+    encountered_foes: Vec<String>,
     reward_screens: u32,
     focus_offer_screens: u32,
     focus_picks: u32,
@@ -326,6 +329,7 @@ fn simulate_config_blueprint(hero:Hero,seed:u64,ascension:u8,policy:Policy,
     let mut focus_offer_screens=0;
     let mut focus_picks=0;
     let mut death_context:Option<(String,Node)>=None;
+    let mut encountered_foes=BTreeSet::<String>::new();
     for count in 0..MAX_ACTIONS {
         if matches!(game.stage,Stage::Won | Stage::Lost) {
             return Ok(Outcome {
@@ -336,6 +340,7 @@ fn simulate_config_blueprint(hero:Hero,seed:u64,ascension:u8,policy:Policy,
                     else {death_context.as_ref().map(|(id,_)|id.clone())},
                 death_node:if game.stage==Stage::Won {None}
                     else {death_context.as_ref().map(|(_,node)|*node)},
+                encountered_foes:encountered_foes.into_iter().collect(),
                 reward_screens,
                 focus_offer_screens,
                 focus_picks,
@@ -381,6 +386,9 @@ fn simulate_config_blueprint(hero:Hero,seed:u64,ascension:u8,policy:Policy,
         }
         if game.stage==Stage::Combat {
             if let Some(b)=&game.battle {
+                for foe in &b.foes {
+                    encountered_foes.insert(foe.id.clone());
+                }
                 // Encounter context, not a claim about the exact killing blow.
                 let id=b.foes.iter().filter(|f|f.hp>0)
                     .map(|f|f.id.as_str()).collect::<Vec<_>>().join("+");
@@ -711,8 +719,12 @@ struct BuildCell {
     blueprint_wins:usize,
     baseline_floor_sum:u64,
     blueprint_floor_sum:u64,
+    /// Paired runs (not battles) with at least one actual sighting of the
+    /// nominated counter foe; counts both wins and losses.
+    baseline_counter_exposed_runs:usize,
+    blueprint_counter_exposed_runs:usize,
     /// Losses where the last recorded live encounter included this enemy.
-    /// This does NOT represent exposure count or counter matchup win rate.
+    /// A run-level exposure denominator is NOT a per-encounter defeat rate.
     counter_last_encounter_deaths:usize,
 }
 #[derive(Debug,Serialize)]
@@ -731,7 +743,8 @@ fn build_blueprint_report(samples:usize)->Result<BuildBlueprintReport,String> {
                 id:plan.id.into(),hero:plan.hero.name().into(),
                 counter_enemy:plan.counter_enemy.into(),ascension,samples,
                 baseline_wins:0,blueprint_wins:0,baseline_floor_sum:0,
-                blueprint_floor_sum:0,counter_last_encounter_deaths:0,
+                blueprint_floor_sum:0,baseline_counter_exposed_runs:0,
+                blueprint_counter_exposed_runs:0,counter_last_encounter_deaths:0,
             };
             for trial in 0..samples {
                 let ordinal=(plan_index as u64)*11*10_000+
@@ -745,6 +758,12 @@ fn build_blueprint_report(samples:usize)->Result<BuildBlueprintReport,String> {
                 cell.blueprint_wins+=usize::from(curated.won);
                 cell.baseline_floor_sum+=u64::from(baseline.floor);
                 cell.blueprint_floor_sum+=u64::from(curated.floor);
+                // Denominator: unique runs that really saw the named enemy;
+                // never infer encounters from terminal deaths or a blueprint ID.
+                cell.baseline_counter_exposed_runs+=usize::from(
+                    baseline.encountered_foes.iter().any(|id|id==plan.counter_enemy));
+                cell.blueprint_counter_exposed_runs+=usize::from(
+                    curated.encountered_foes.iter().any(|id|id==plan.counter_enemy));
                 if !curated.won && curated.death_encounter.as_ref()
                     .is_some_and(|s|s.split('+').any(|id|id==plan.counter_enemy))
                 { cell.counter_last_encounter_deaths+=1; }
@@ -755,7 +774,7 @@ fn build_blueprint_report(samples:usize)->Result<BuildBlueprintReport,String> {
     Ok(BuildBlueprintReport {
         schema_version:1,samples_per_cell:samples,
         seed_formula:"((plan_index*110000+ascension*10000+trial+1)*0x9E3779B97F4A7C15) mod 2^64".into(),
-        interpretation:"equal 10-card curated fixture, four strikes and two guards replaced; paired fixed seeds, tactical heuristic bot, not natural draft nor human win rate; counter-death count lacks exposure denominator".into(),
+        interpretation:"equal 10-card curated fixture, four strikes and two guards replaced; paired fixed seeds, tactical heuristic bot, not natural draft nor human win rate; counter exposure counts distinct runs with a foe present at combat decision time (not total encounters); last-encounter death is not a matchup defeat rate".into(),
         cells,
     })
 }
@@ -948,6 +967,21 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn real_simulation_records_foe_exposure_on_live_battle_snapshots() {
+        let outcome=simulate_policy(Hero::GuanYu,20261020,0,Policy::Tactical).unwrap();
+        assert!(!outcome.encountered_foes.is_empty());
+        let mut sorted=outcome.encountered_foes.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted,outcome.encountered_foes);
+        if let Some(id)=&outcome.death_encounter {
+            for foe in id.split('+') {
+                assert!(outcome.encountered_foes.iter().any(|seen|seen==foe),
+                    "last-encounter enemy {foe} missing from exposure");
+            }
+        }
+    }
     #[test]
     fn fifteen_curated_blueprints_are_equal_size_and_saveable() {
         for plan in PLANS {
