@@ -1032,10 +1032,15 @@ mod profile_reconciliation_tests {
     use three_kingdoms_spire_reborn::content::Hero;
 
     fn isolated_dir() -> PathBuf {
+        // macOS timers may return identical values to concurrent test threads.
+        // A process-local sequence guarantees that one test cannot delete a
+        // second test's fixtures when both generate a timestamp in the same tick.
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         std::env::temp_dir().join(format!(
-            "tks-profile-reconcile-{}-{}",
+            "tks-profile-reconcile-{}-{}-{}",
             std::process::id(),
             SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         ))
     }
 
