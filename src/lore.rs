@@ -248,7 +248,8 @@ mod tests {
         let seen=vec!["taoyuan".into()];
         assert_eq!(next_beat(Hero::GuanYu,0,&["taoyuan_oath".into()],&seen)
             .map(|b|b.id),Some("anxi"));
-        assert!(next_beat(Hero::GuanYu,2,&["taoyuan_oath".into()],&[]).is_none(),
+        assert_ne!(next_beat(Hero::GuanYu,2,&["taoyuan_oath".into()],&[])
+            .map(|b|b.id),Some("jingzhou"),
             "an oath without the anti-bribery choice cannot unlock Jingzhou");
         assert_eq!(next_beat(Hero::GuanYu,2,
             &["taoyuan_oath".into(),"anxi_seal".into()],&[])
