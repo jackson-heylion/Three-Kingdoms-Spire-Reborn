@@ -80,3 +80,29 @@ react altered damage:foe:0 hero replace 3 5 1
 - `tests/reaction_lifecycle.rs` 覆盖登记→取消→再登记、错误原子拒绝、老快照可读、跨动作和事件重建；核心 Rust 单元测试涵盖五种最大状态目标反复触发后的剩余监听次数及有效反制。新增真正 macOS/Linux CLI 命令回归。
 
 **仍非通用插件 ABI 或统一所有事件类型的中断/替换链**；自然流派构筑、无穷组合穷举和全120回版本校勘继续未验收。
+
+## 2026-10-20 军略叠层前置反制（本轮增量，等待双平台 CI）
+
+自由战斗可注册针对八种内建持续军略**增加层数**的动态监听：
+
+```text
+react ward power:oath_guard hero cancel 0 -10 1
+react reserve power:granary_support hero reduce 2 0 2
+react surge power:toxic_reversal hero replace 1 5 1
+```
+
+稳定军略 ID：`oath_guard`、`thought_spring`、`arrows_on_discard`、
+`granary_support`、`blood_courage`、`wisdom_on_draw`、
+`toxic_reversal`、`victory_drum`。事件类型为 `PowerGained`，
+目标必须是 `hero`；不允许任意来源、敌军目标、被动触发本身或删除既有层数。
+
+结算顺序：先根据目标当前军略层数计算最多可增加量（上限99）；已满则
+**不消耗监听次数也不伪造日志**；匹配的监听按优先级、ID依次替换、
+减免或取消，依序写 `EventReplaced/EventCountered`；最后将剩余可增加量
+写入实际 `PowerGained`。替换最多增加到上限99，已满不计入额外获得。
+原有标准/每日战役没有外部监听注册权限，因而保留原数值与事件顺序。
+
+代码回归覆盖多个优先级串行、一次性反制与后续生效、已达99层监听保持、
+非法军略名/目标的原子拒绝、自由/标准模式隔离与V2存档往返。
+**未完成**全部事件类型统一拦截、任意卡牌中断或全量事件溯源；
+不能由此认定P1完成、全部构筑平衡通过或120回校勘结束。
