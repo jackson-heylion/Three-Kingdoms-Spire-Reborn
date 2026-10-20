@@ -31,7 +31,7 @@ pub const PLANS:&[BuildPlan]=&[
     BuildPlan{id:"guan_oath",hero:Hero::GuanYu,name:"义阵反击",core:&["oath_guard","hold_line","zhongyi","victory_drum"],support:&["yibao","qinying"],counter_enemy:"pyromancer",counterplay:"灼伤与多段技消耗护甲；先叠义阵再保留挡牌",risk:"防牌过多导致输出不足"},
     BuildPlan{id:"guan_cleave",hero:Hero::GuanYu,name:"群斩破围",core:&["qinglongwu","yidao","lianzhan","guanxi"],support:&["qianli","pojun"],counter_enemy:"yuanshao",counterplay:"盟军列阵和多目标护甲反制；分配火力击杀支援",risk:"群攻卡抽不到时需单体终结"},
     BuildPlan{id:"zhuge_poison",hero:Hero::ZhugeLiang,name:"七擒毒谋",core:&["kuce","toxic_reversal","mouduan","xingpan_tutor"],support:&["bagua","fenglei"],counter_enemy:"zuoci",counterplay:"左慈自愈拖长战线；毒层积累配合穿透爆发",risk:"防止只有毒牌缺即时伤害"},
-    BuildPlan{id:"zhuge_cycle",hero:Hero::ZhugeLiang,name:"观星循环",core:&["wisdom_on_draw","thought_spring","jiecaodong","shanchang"],support:&["kongcheng","yingxin"],counter_enemy:"simayi",counterplay:"司马懿反制高频出牌；优先维持每回合少出高价值牌",risk:"高频过牌触发敌方惩罚"},
+    BuildPlan{id:"zhuge_cycle",hero:Hero::ZhugeLiang,name:"观星循环",core:&["wisdom_on_draw","thought_spring","jiecaodong","xinghuo"],support:&["lianji","kongcheng"],counter_enemy:"simayi",counterplay:"司马懿反制高频出牌；优先维持每回合少出高价值牌",risk:"高频过牌触发敌方惩罚"},
     BuildPlan{id:"zhuge_schemes",hero:Hero::ZhugeLiang,name:"八卦破军",core:&["bagua","wuhou","lianji","xinghuo"],support:&["mouduan","fenglei"],counter_enemy:"royal_guard",counterplay:"护甲厚的禁卫压制普通谋攻；用穿透处理关键目标",risk:"过多谋略卡会降低防御密度"},
     BuildPlan{id:"sun_discard",hero:Hero::SunShangxiang,name:"飞羽弃换",core:&["arrows_on_discard","huanshe","jiecang","feishi"],support:&["feiyu_copy","jibao"],counter_enemy:"tiger_general",counterplay:"虎将二阶段提高火力；弃换自动伤害需搭配闪避护甲",risk:"没有弃换 token 时收益骤降"},
     BuildPlan{id:"sun_combo",hero:Hero::SunShangxiang,name:"连弩快攻",core:&["fleeting_blade","tupo","gonglian","liandao"],support:&["lianying","lianhua"],counter_enemy:"simayi",counterplay:"四牌以上司马懿追加军令惩罚；在关键回合控制张数",risk:"过牌过量会吃敌方反制"},
@@ -60,6 +60,16 @@ mod tests {
         for hero in [Hero::GuanYu,Hero::ZhugeLiang,Hero::SunShangxiang,Hero::CaoCao,Hero::LuBu] {
             assert_eq!(for_hero(hero).count(),3);
         }
+    }
+    #[test] fn zhuge_cycle_has_two_direct_damage_outlets_after_underperforming() {
+        use crate::content::Effect;
+        let plan=PLANS.iter().find(|p|p.id=="zhuge_cycle").unwrap();
+        let offensive=plan.core.iter().chain(plan.support.iter())
+            .filter(|id|crate::content::card_spec(id).is_some_and(|spec|
+                matches!(spec.effect,Effect::All(_) | Effect::SchemeStrike(_) |
+                    Effect::Hit(_) | Effect::Pierce(_))))
+            .count();
+        assert!(offensive>=2, "cycling without damage cannot close boss fights");
     }
     #[test] fn acquisition_requires_distinct_actual_core_cards() {
         let plan=&PLANS[0];
