@@ -244,7 +244,6 @@ mod tests {
         assert!(newly_completed_eggs(Hero::GuanYu,&flags,&["sword_debt".into()]).is_empty());
     }
     #[test]
-    #[test]
     fn early_pledge_and_public_office_create_a_cross_act_debt() {
         let seen=vec!["taoyuan".into()];
         assert_eq!(next_beat(Hero::GuanYu,0,&["taoyuan_oath".into()],&seen)
