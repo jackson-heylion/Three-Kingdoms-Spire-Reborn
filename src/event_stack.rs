@@ -3,6 +3,14 @@
 use crate::combat::{CombatEvent, EventKind};
 use serde::{Deserialize, Serialize};
 
+// The public custom slot limit must not crowd out the four defensive cards.
+const CUSTOM_LISTENER_LIMIT: usize = 16;
+const BUILTIN_LISTENER_LIMIT: usize = 4;
+fn builtin_id(id: &str) -> bool {
+    matches!(id, "hold_line:weak" | "kongcheng:vulnerable"
+        | "qiaoying:weak" | "zhongyi:weak")
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Response { Cancel, Replace(i32), Reduce(i32) }
 
@@ -43,7 +51,9 @@ pub struct Resolution {
 impl Stack {
     pub fn is_empty(&self) -> bool { self.listeners.is_empty() }
     pub fn valid(&self) -> bool {
-        self.listeners.len()<=16 && self.listeners.iter().enumerate().all(|(i,r)|
+        self.listeners.len()<=CUSTOM_LISTENER_LIMIT+BUILTIN_LISTENER_LIMIT
+            && self.listeners.iter().filter(|rule| !builtin_id(&rule.id)).count()<=CUSTOM_LISTENER_LIMIT
+            && self.listeners.iter().enumerate().all(|(i,r)|
             !r.id.is_empty() && r.id.len()<=64 && !r.source.is_empty()
             && r.source.len()<=64 && r.charges>0 && r.charges<=16
             && r.target.as_deref().is_some_and(|t| t=="hero"
@@ -80,13 +90,22 @@ impl Stack {
             }
             && !self.listeners[..i].iter().any(|old|old.id==r.id))
     }
+    /// Dynamic registrations cannot impersonate the reserved card listeners.
+    /// They occupy a separate 16-slot budget so built-in cards always resolve.
+    pub fn install_custom(&mut self, rule: Listener) -> Result<(), &'static str> {
+        if builtin_id(&rule.id) {return Err("reserved builtin reaction id");}
+        self.install(rule)
+    }
     pub fn install(&mut self, rule: Listener) -> Result<(), &'static str> {
         // Validate on a candidate first: a malformed replacement must not
         // remove the already installed, valid listener.
         let mut candidate=self.clone();
         candidate.listeners.retain(|r|r.id!=rule.id);
-        if candidate.listeners.len()>=16 {return Err("reaction stack full");}
         candidate.listeners.push(rule);
+        if candidate.listeners.len()>CUSTOM_LISTENER_LIMIT+BUILTIN_LISTENER_LIMIT
+            || candidate.listeners.iter().filter(|rule| !builtin_id(&rule.id)).count()>CUSTOM_LISTENER_LIMIT {
+            return Err("reaction stack full");
+        }
         if !candidate.valid() {return Err("invalid reaction");}
         *self=candidate;
         Ok(())
