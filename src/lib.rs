@@ -1681,10 +1681,27 @@ impl Game {
     }
 
     fn enemy_attack(&mut self, foe_idx: usize, power: i32) -> i32 {
+        // First compute a proposed enemy hit WITHOUT mutating hero armor or
+        // troops. An unranked custom listener may cancel or replace this raw
+        // value before the normal block -> troop -> HP settlement.
+        if self.battle.as_ref().expect("battle").foes.get(foe_idx)
+            .is_none_or(|foe|foe.hp<=0) {return 0;}
+        let modified = {
+            let b = self.battle.as_ref().expect("battle");
+            let reduced = if b.foes[foe_idx].weak > 0 { power * 3 / 4 } else { power };
+            if b.vulnerable > 0 { reduced * 3 / 2 } else { reduced }
+        };
+        let modified = if modified>0 {
+            match self.preflight_event(EventKind::DamageReceived,
+                &format!("foe:{foe_idx}"),"hero",modified) {
+                Some(value) => value,
+                // Cancelled enemy attacks never strip armor or troops, never
+                // inflict HP damage, and cannot trigger an on-hit follow-up.
+                None => return 0,
+            }
+        } else { modified };
         let (damage, protected, reflected) = {
             let b = self.battle.as_mut().expect("battle");
-            let reduced = if b.foes[foe_idx].weak > 0 { power * 3 / 4 } else { power };
-            let modified = if b.vulnerable > 0 { reduced * 3 / 2 } else { reduced };
             let blocked = modified.min(b.block);
             b.block -= blocked;
             let incoming = (modified - blocked).max(0);
@@ -4796,3 +4813,146 @@ mod p1_enemy_potion_matrix_regression {
 
 #[cfg(test)]
 mod reaction_damage_tests;
+
+#[cfg(test)]
+mod p1_incoming_damage_reaction_regression {
+    use super::*;
+    use crate::event_stack::{Listener, Response};
+
+    fn incoming(id: &str, index: usize, effect: Response) -> Listener {
+        Listener {
+            id: id.into(),
+            kind: EventKind::DamageReceived,
+            source: format!("foe:{index}"),
+            target: Some("hero".into()),
+            priority: 0,
+            charges: 1,
+            effect,
+        }
+    }
+    fn custom() -> Game {
+        let mut g = Game::new_with_mode(Hero::CaoCao, 951, 0, RunMode::Custom);
+        g.apply(Action::Choose { index: 1 }).unwrap();
+        assert_eq!(g.stage, Stage::Combat);
+        g
+    }
+    #[test]
+    fn incoming_cancel_does_not_spend_armor_or_troops_or_reflect_thorns() {
+        let mut g=custom();
+        {
+            let b=g.battle.as_mut().unwrap();
+            b.block=10;
+            b.troops_hp=8;
+            b.thorns=4;
+        }
+        g.apply(Action::RegisterReaction { listener:
+            incoming("parry",0,Response::Cancel) }).unwrap();
+        let hp=g.hp;
+        let foe_hp=g.battle.as_ref().unwrap().foes[0].hp;
+        let start=g.battle.as_ref().unwrap().event_seq;
+        assert_eq!(g.enemy_attack(0,25),0);
+        let b=g.battle.as_ref().unwrap();
+        assert_eq!(g.hp,hp);
+        assert_eq!(b.block,10);
+        assert_eq!(b.troops_hp,8);
+        assert_eq!(b.foes[0].hp,foe_hp);
+        assert!(b.reactions.listeners.is_empty());
+        let events=b.events.iter().filter(|e|e.seq>start).collect::<Vec<_>>();
+        assert_eq!(events.len(),1);
+        assert_eq!(events[0].kind,EventKind::EventCountered);
+        assert_eq!(events[0].source,"parry");
+
+        // Expired listeners cannot cancel the next hit; original protection
+        // and reflection semantics remain intact after the cancelled proposal.
+        assert_eq!(g.enemy_attack(0,25),7);
+        let b=g.battle.as_ref().unwrap();
+        assert_eq!(g.hp,hp-7);
+        assert_eq!(b.block,0);
+        assert_eq!(b.troops_hp,0);
+        assert_eq!(b.foes[0].hp,foe_hp-4);
+    }
+
+    #[test]
+    fn ordered_incoming_replacements_precede_true_hp_damage() {
+        let mut g=custom();
+        {
+            let b=g.battle.as_mut().unwrap();
+            b.block=3;
+            b.troops_hp=2;
+            b.thorns=0;
+        }
+        let mut a=incoming("a",0,Response::Reduce(5));
+        a.priority=-2;
+        a.charges=2;
+        g.apply(Action::RegisterReaction { listener:a }).unwrap();
+        let mut z=incoming("z",0,Response::Replace(8));
+        z.priority=2;
+        g.apply(Action::RegisterReaction { listener:z }).unwrap();
+        let hp=g.hp;
+        let start=g.battle.as_ref().unwrap().event_seq;
+        assert_eq!(g.enemy_attack(0,20),3);
+        assert_eq!(g.hp,hp-3);
+        let b=g.battle.as_ref().unwrap();
+        assert_eq!(b.block,0);
+        assert_eq!(b.troops_hp,0);
+        let events=b.events.iter().filter(|e|e.seq>start).collect::<Vec<_>>();
+        assert_eq!(events.iter().map(|e|e.kind).collect::<Vec<_>>(),
+            vec![EventKind::EventReplaced,EventKind::EventReplaced,
+                EventKind::DamageReceived]);
+        assert_eq!(events.iter().map(|e|e.amount).collect::<Vec<_>>(),
+            vec![5,7,3]);
+        assert_eq!(b.reactions.listeners.len(),1);
+        assert_eq!(b.reactions.listeners[0].charges,1);
+        let saved=g.to_json().unwrap();
+        assert_eq!(Game::from_json(&saved).unwrap().to_json().unwrap(),saved);
+    }
+
+    #[test]
+    fn incoming_reactions_reject_arbitrary_sources_and_ranked_modes_atomically() {
+        let mut g=custom();
+        let valid=incoming("ward",3,Response::Cancel);
+        let original=g.to_json().unwrap();
+        for invalid in [
+            Listener{source:"supply_exhaustion".into(),..valid.clone()},
+            Listener{source:"foe:4".into(),..valid.clone()},
+            Listener{target:Some("foe:0".into()),..valid.clone()},
+        ] {
+            assert!(g.apply(Action::RegisterReaction{listener:invalid}).is_err());
+            assert_eq!(g.to_json().unwrap(),original);
+        }
+        g.apply(Action::RegisterReaction{listener:valid}).unwrap();
+        let mut ranked=Game::new(Hero::CaoCao,951);
+        ranked.apply(Action::Choose{index:1}).unwrap();
+        let baseline=ranked.to_json().unwrap();
+        assert!(ranked.apply(Action::RegisterReaction{
+            listener:incoming("ward",0,Response::Cancel)}).is_err());
+        assert_eq!(ranked.to_json().unwrap(),baseline);
+    }
+
+    #[test]
+    fn custom_incoming_listener_survives_seed_action_and_event_rebuild() {
+        // Find a seed with a first-foe Attack intent; no injected battle fields,
+        // so this checks the actual deterministic action journal.
+        let mut found=None;
+        for seed in 1..=128 {
+            let mut g=Game::new_with_mode(Hero::CaoCao,seed,0,RunMode::Custom);
+            g.apply(Action::Choose{index:1}).unwrap();
+            if matches!(g.battle.as_ref().unwrap().foes[0].intent,Intent::Attack(_)) {
+                found=Some(g);
+                break;
+            }
+        }
+        let mut g=found.expect("at least one seed attacks on turn one");
+        g.apply(Action::RegisterReaction{
+            listener:incoming("seeded_parry",0,Response::Cancel),
+        }).unwrap();
+        g.apply(Action::EndTurn).unwrap();
+        assert!(g.event_history.as_ref().unwrap().iter()
+            .any(|e|e.event.kind==EventKind::EventCountered
+                && e.event.source=="seeded_parry"));
+        assert_eq!(g.reconstruct_event_history().unwrap(),
+            g.event_history.clone().unwrap());
+        let saved=g.to_json().unwrap();
+        assert_eq!(Game::from_json(&saved).unwrap().to_json().unwrap(),saved);
+    }
+}

@@ -60,6 +60,13 @@ impl Stack {
                     && matches!(r.source.as_str(),
                         "hero"|"fire"|"poison"|"pierce"|"troops"|"thorns"
                         |"arrows_on_discard"|"feishi"),
+                // An incoming foe attack can be intercepted before hero block
+                // or troop shielding. Only enemy slot IDs may originate hits;
+                // hazards, self-damage and arbitrary source strings stay closed.
+                EventKind::DamageReceived =>
+                    r.target.as_deref()==Some("hero")
+                    && r.source.strip_prefix("foe:").is_some_and(|index|
+                        index.parse::<usize>().is_ok_and(|index|index<4)),
                 _ => false,
             }
             && match r.effect {
