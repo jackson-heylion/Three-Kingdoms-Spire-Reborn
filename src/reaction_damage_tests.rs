@@ -121,7 +121,7 @@ fn damage_rule_actions_roundtrip_replay_and_reject_invalid_target_or_source() {
     let mut g=(1..100).map(|seed|custom(Hero::GuanYu,seed))
         .find(|g|g.battle.as_ref().unwrap().hand.iter().any(|c|c.id=="strike"))
         .expect("one starter hand must contain a strike");
-    let action=Action::RegisterReaction{listener:rule("guard","hero",Response::Reduce(10))};
+    let action=Action::RegisterReaction{listener:rule("guard","hero",Response::Reduce(1))};
     g.apply(action).unwrap();
     let before=g.to_json().unwrap();
     for bad in [rule("guard","hero",Response::Replace(-1)),
