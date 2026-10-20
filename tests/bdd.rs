@@ -886,6 +886,15 @@ impl World {
             if let Some(next) = lore::next_beat(game.hero,number,&game.lore_flags,&game.lore_seen) {
                 return Err(format!("unexpected foreshadowed chapter: {}",next.id));
             }
+        } else if step.starts_with("act ") && step.contains(" does not offer the lore scene ") {
+            let number:u8=step.split_whitespace().nth(1).ok_or("no act number")?
+                .parse().map_err(|_|"bad act")?;
+            let forbidden=quoted(step)?;
+            let game=self.game()?;
+            if lore::next_beat(game.hero,number,&game.lore_flags,&game.lore_seen)
+                .is_some_and(|b|b.id==forbidden) {
+                return Err(format!("chapter {forbidden} was available without its prerequisite"));
+            }
         } else if step.starts_with("act ") && step.contains(" offers the lore scene ") {
             let number: u8 = step.split_whitespace().nth(1).ok_or("no act number")?
                 .parse().map_err(|_| "bad act")?;

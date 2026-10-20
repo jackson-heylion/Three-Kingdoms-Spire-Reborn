@@ -25,6 +25,8 @@ fn every_chapter_has_one_explicitly_scoped_audit_row_and_live_beat_refs() {
 #[test]
 fn three_cross_act_debts_require_their_prior_flags() {
     for (id,needed,act) in [
+        ("anxi","taoyuan_oath",0),
+        ("jingzhou","anxi_seal",2),
         ("maicheng","jingzhou_warning",2),
         ("yiling_bridge","river_divide",2),
         ("jieting_debt","successor_scroll",2),
@@ -34,4 +36,17 @@ fn three_cross_act_debts_require_their_prior_flags() {
         assert_eq!(beat.act,act);
         assert!(BEATS.iter().any(|earlier|earlier.flag==needed && earlier.chapter<beat.chapter));
     }
+}
+
+#[test]
+fn chapter_reading_statuses_cannot_be_mistaken_for_completed_textual_collation() {
+    let lines=include_str!("../data/chapter_body_audit.tsv").lines().skip(1)
+        .map(|line|line.split('\t').map(str::to_owned).collect::<Vec<_>>())
+        .collect::<Vec<_>>();
+    let reviewed=lines.iter().filter(|fields|fields[3]=="正文通读/未完成异本对校")
+        .map(|fields|fields[0].as_str()).collect::<Vec<_>>();
+    assert_eq!(reviewed,vec!["001","002"]);
+    assert!(lines[0][4].contains("oldid=2583915"));
+    assert!(lines[1][4].contains("oldid=8185068"));
+    assert_eq!(lines.iter().filter(|fields|fields[3]=="已完成全回正文审校").count(),0);
 }

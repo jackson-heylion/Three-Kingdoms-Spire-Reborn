@@ -97,3 +97,28 @@ Scenario: Guan Yu's debt and mercy reveal a once-only hidden ending
     When I save and restore
     Then the flag "taoyuan_oath" is present
 
+
+  Scenario: Anxi anti-corruption choice is required before Jingzhou responsibility and Maicheng reckoning
+    Given a "guanyu" campaign with seed 113
+    And the lore scene "taoyuan"
+    When I choose 1
+    Then the flag "taoyuan_oath" is present
+    And act 0 offers the lore scene "anxi"
+    And act 2 does not offer the lore scene "jingzhou"
+    And the lore scene "anxi"
+    When I choose 1
+    Then the flag "anxi_seal" is present
+    And the bond with "张飞" is active
+    And act 2 offers the lore scene "jingzhou"
+    When I save and restore
+    Then the flag "anxi_seal" is present
+    And act 2 offers the lore scene "jingzhou"
+
+  Scenario: Pocketing Anxi compensation forfeits the Jingzhou chain
+    Given a "guanyu" campaign with seed 114
+    And the lore scene "taoyuan"
+    When I choose 1
+    And the lore scene "anxi"
+    When I choose 2
+    Then the flag "anxi_seal" is absent
+    And act 2 does not offer the lore scene "jingzhou"
