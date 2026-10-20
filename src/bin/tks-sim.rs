@@ -749,8 +749,106 @@ fn build_blueprint_report(samples:usize)->Result<BuildBlueprintReport,String> {
     })
 }
 
+
+#[derive(Debug,Serialize)]
+struct NaturalPlanCell {
+    id:String,
+    hero:String,
+    ascension:u8,
+    samples:usize,
+    baseline_wins:usize,
+    focused_wins:usize,
+    baseline_floor_sum:u64,
+    focused_floor_sum:u64,
+    /// Number of games obtaining ALL required distinct core card IDs.
+    complete_core:usize,
+    /// Number obtaining all distinct support IDs.
+    complete_support:usize,
+    core_distinct_sum:usize,
+    support_distinct_sum:usize,
+    reward_screens:u64,
+    focus_offer_screens:u64,
+    focus_picks:u64,
+}
+#[derive(Debug,Serialize)]
+struct NaturalPlanReport {
+    schema_version:u8,
+    sample_policy:String,
+    samples_per_cell:usize,
+    interpretation:String,
+    cells:Vec<NaturalPlanCell>,
+}
+fn natural_plan_report(samples:usize)->Result<NaturalPlanReport,String> {
+    let mut cells=Vec::new();
+    for (plan_index,plan) in PLANS.iter().enumerate() {
+        for ascension in 0..=10_u8 {
+            let mut cell=NaturalPlanCell {
+                id:plan.id.into(),hero:plan.hero.name().into(),ascension,
+                samples,baseline_wins:0,focused_wins:0,
+                baseline_floor_sum:0,focused_floor_sum:0,
+                complete_core:0,complete_support:0,
+                core_distinct_sum:0,support_distinct_sum:0,
+                reward_screens:0,focus_offer_screens:0,focus_picks:0,
+            };
+            for trial in 0..samples {
+                let ordinal=8_000_000u64+(plan_index as u64)*11*10_000
+                    +u64::from(ascension)*10_000+trial as u64+1;
+                let seed=ordinal.wrapping_mul(0x9E3779B97F4A7C15);
+                let baseline=simulate_config_blueprint(plan.hero,seed,ascension,
+                    Policy::Tactical,SunPackage::Standard,None,None,None)?;
+                let focused=simulate_config_blueprint(plan.hero,seed,ascension,
+                    Policy::Tactical,SunPackage::Standard,None,None,Some(plan))?;
+                let final_game=Game::from_json(&focused.snapshot)?;
+                let core=plan.acquired(&final_game.deck);
+                let support=plan.support.iter()
+                    .filter(|id|final_game.deck.iter().any(|card|card.id==**id)).count();
+                cell.complete_core+=usize::from(core==plan.core.len());
+                cell.complete_support+=usize::from(support==plan.support.len());
+                cell.core_distinct_sum+=core;
+                cell.support_distinct_sum+=support;
+                cell.baseline_wins+=usize::from(baseline.won);
+                cell.focused_wins+=usize::from(focused.won);
+                cell.baseline_floor_sum+=u64::from(baseline.floor);
+                cell.focused_floor_sum+=u64::from(focused.floor);
+                cell.reward_screens+=u64::from(focused.reward_screens);
+                cell.focus_offer_screens+=u64::from(focused.focus_offer_screens);
+                cell.focus_picks+=u64::from(focused.focus_picks);
+            }
+            cells.push(cell);
+        }
+    }
+    Ok(NaturalPlanReport {
+        schema_version:1,
+        sample_policy:"tactical bot; baseline vs core/support preference; identical initial seeds".into(),
+        samples_per_cell:samples,
+        interpretation:"All 15 blueprints use legal normal starter decks and actual reward rolls. Formed means distinct core card IDs held at terminal state. Market, upgrades and strategy are unchanged. Tiny seed counts are exploratory, not proof of natural win-rate balance or boss-specific matchup.".into(),
+        cells,
+    })
+}
+
 fn main() {
     let arguments=std::env::args().collect::<Vec<_>>();
+    if arguments.get(1).is_some_and(|arg|arg=="--natural-builds") {
+        let samples=arguments.get(2).and_then(|s|s.parse::<usize>().ok())
+            .unwrap_or(1).clamp(1,20);
+        let report=natural_plan_report(samples)
+            .unwrap_or_else(|e|panic!("natural 15-plan study failed: {e}"));
+        println!("NATURAL BUILDS: {} cells, {} paired normal-starter runs; seed count is exploratory.",
+            report.cells.len(),report.cells.len()*samples*2);
+        for plan in PLANS {
+            let rows=report.cells.iter().filter(|c|c.id==plan.id).collect::<Vec<_>>();
+            let n=rows.iter().map(|c|c.samples).sum::<usize>();
+            let base=rows.iter().map(|c|c.baseline_wins).sum::<usize>();
+            let focus=rows.iter().map(|c|c.focused_wins).sum::<usize>();
+            let formed=rows.iter().map(|c|c.complete_core).sum::<usize>();
+            println!("{}: baseline {base}/{n}, focused {focus}/{n}, full core {formed}/{n}",plan.id);
+        }
+        if let Some(path)=arguments.get(3) {
+            fs::write(path,serde_json::to_string_pretty(&report).expect("serialize natural report"))
+                .unwrap_or_else(|e|panic!("write {path}: {e}"));
+        }
+        return;
+    }
     if arguments.get(1).is_some_and(|arg|arg=="--build-archetypes") {
         let samples=arguments.get(2).and_then(|s|s.parse::<usize>().ok())
             .unwrap_or(2).clamp(1,20);
