@@ -45,7 +45,7 @@ fn chapter_reading_statuses_cannot_be_mistaken_for_completed_textual_collation()
         .collect::<Vec<_>>();
     let reviewed=lines.iter().filter(|fields|fields[3]=="正文通读/未完成异本对校")
         .map(|fields|fields[0].as_str()).collect::<Vec<_>>();
-    assert_eq!(reviewed,vec!["001","002","003","004","005","006","007"]);
+    assert_eq!(reviewed,vec!["001","002","003","004","005","006","007","008"]);
     assert!(lines[0][4].contains("oldid=2583915"));
     assert!(lines[1][4].contains("oldid=8185068"));
     assert!(lines[2][4].contains("oldid=2567965"));
@@ -53,5 +53,6 @@ fn chapter_reading_statuses_cannot_be_mistaken_for_completed_textual_collation()
     assert!(lines[4][4].contains("oldid=7910939"));
     assert!(lines[5][4].contains("oldid=2567969"));
     assert!(lines[6][4].contains("oldid=2567970"));
+    assert!(lines[7][4].contains("oldid=5314829"));
     assert_eq!(lines.iter().filter(|fields|fields[3]=="已完成全回正文审校").count(),0);
 }
