@@ -812,6 +812,14 @@ impl Game {
             if self.hero == Hero::GuanYu && self.lore_flags.iter().any(|f| f == "huarong_mercy") {
                 b.strength += 1;
             }
+            // Chapter V's voluntary accounting for the coalition's supplies
+            // pays off only if the chapter LXXV Jingzhou vigilance vow was
+            // also kept. It never gates the original main story.
+            if self.hero == Hero::GuanYu
+                && self.lore_flags.iter().any(|f| f == "wenjiu_oath")
+                && self.lore_flags.iter().any(|f| f == "jingzhou_warning") {
+                b.block += 3;
+            }
             if self.hero == Hero::ZhugeLiang && self.lore_flags.iter().any(|f| f == "longzhong_plan") {
                 b.scheme += 2;
             }
