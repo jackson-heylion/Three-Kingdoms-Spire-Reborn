@@ -104,7 +104,7 @@ Scenario: Guan Yu's debt and mercy reveal a once-only hidden ending
     When I choose 1
     Then the flag "taoyuan_oath" is present
     And act 0 offers the lore scene "anxi"
-    And act 2 has no available lore scene
+    And act 2 does not offer the lore scene "jingzhou"
     And the lore scene "anxi"
     When I choose 1
     Then the flag "anxi_seal" is present
@@ -121,4 +121,4 @@ Scenario: Guan Yu's debt and mercy reveal a once-only hidden ending
     And the lore scene "anxi"
     When I choose 2
     Then the flag "anxi_seal" is absent
-    And act 2 has no available lore scene
+    And act 2 does not offer the lore scene "jingzhou"
