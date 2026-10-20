@@ -39,6 +39,11 @@ fn public_quota_and_builtin_quota_are_independent() {
     }
     assert_eq!(stack.listeners.len(), 20);
     assert!(stack.valid());
+    for id in ["hold_line:weak", "kongcheng:vulnerable", "qiaoying:weak", "zhongyi:weak"] {
+        let unchanged=stack.clone();
+        assert_eq!(stack.remove_custom(id),Err("reserved builtin reaction id"));
+        assert_eq!(stack,unchanged,"a custom command removed a card ward");
+    }
     let serialized = serde_json::to_string(&stack).unwrap();
     let roundtrip: Stack = serde_json::from_str(&serialized).unwrap();
     assert_eq!(stack, roundtrip);
@@ -84,6 +89,10 @@ fn played_defense_at_sixteen_custom_listeners_is_atomic_and_saveable() {
     assert_eq!(battle.reactions.listeners.len(), 17);
     assert!(battle.reactions.listeners.iter().any(|r| r.id == "hold_line:weak"));
     assert!(battle.reactions.valid());
+    let with_ward=game.to_json().unwrap();
+    assert!(game.apply(Action::UnregisterReaction {id:"hold_line:weak".into()}).is_err());
+    assert_eq!(game.to_json().unwrap(),with_ward,
+        "custom removal of an active defensive card must roll back atomically");
     let saved = game.to_json().unwrap();
     assert_eq!(Game::from_json(&saved).unwrap().to_json().unwrap(), saved);
 }

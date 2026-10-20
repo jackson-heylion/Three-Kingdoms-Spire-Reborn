@@ -110,6 +110,12 @@ impl Stack {
         *self=candidate;
         Ok(())
     }
+    /// Only user-created dynamic rules may be manually unregistered. Defensive
+    /// card wards are consumed on matching events, not by custom commands.
+    pub fn remove_custom(&mut self, id: &str) -> Result<(), &'static str> {
+        if builtin_id(id) { return Err("reserved builtin reaction id"); }
+        self.remove(id)
+    }
     /// Explicit listener lifecycle action. The caller's Game::apply boundary
     /// journals the removal and rolls back an unknown ID atomically.
     pub fn remove(&mut self, id:&str) -> Result<(), &'static str> {

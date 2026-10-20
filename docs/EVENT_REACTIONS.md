@@ -106,3 +106,7 @@ react surge power:toxic_reversal hero replace 1 5 1
 非法军略名/目标的原子拒绝、自由/标准模式隔离与V2存档往返。
 **未完成**全部事件类型统一拦截、任意卡牌中断或全量事件溯源；
 不能由此认定P1完成、全部构筑平衡通过或120回校勘结束。
+
+## 2026-10-20 外部注销不得取消卡牌固有反制
+
+外部自由命令 `react-remove ID` 仅允许注销自己登记的监听器。四种卡牌反制ID `hold_line:weak`、`kongcheng:vulnerable`、`qiaoying:weak`、`zhongyi:weak` 是规则保留ID；即使卡牌已经打出并有待结算监听，也不允许被该命令移除。`Stack::remove_custom()` 与前轮 `install_custom()` 对称，拒绝前不触碰监听、费用、动作历史与RNG。卡牌反制仍在实际状态施加时依既有优先级自然消耗。Rust回归覆盖真实出牌后拒绝注销，以及20槽饱和时所有保留ID不变式。完整事件编排、所有职业构筑与120回校勘仍未完成。
