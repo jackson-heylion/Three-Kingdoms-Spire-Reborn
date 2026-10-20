@@ -86,6 +86,15 @@ impl Stack {
         *self=candidate;
         Ok(())
     }
+    /// Explicit listener lifecycle action. The caller's Game::apply boundary
+    /// journals the removal and rolls back an unknown ID atomically.
+    pub fn remove(&mut self, id:&str) -> Result<(), &'static str> {
+        if id.is_empty() || id.len()>64 { return Err("invalid reaction id"); }
+        let before=self.listeners.len();
+        self.listeners.retain(|rule|rule.id!=id);
+        if self.listeners.len()==before { return Err("reaction not found"); }
+        Ok(())
+    }
     pub fn resolve(&mut self, event:&CombatEvent) -> Resolution {
         self.listeners.sort_by(|a,b| (a.priority,&a.id).cmp(&(b.priority,&b.id)));
         let mut out=Resolution {amount:event.amount,cancelled:false,by:None,steps:Vec::new()};
