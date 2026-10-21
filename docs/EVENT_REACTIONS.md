@@ -115,3 +115,37 @@ react surge power:toxic_reversal hero replace 1 5 1
 ## 2026-10-21 敌军内部槽位必须采用规范写法
 
 动态监听源和目标用真实事件格式 `foe:0` 至 `foe:3`。之前借助整数解析判断范围，错误地允许 `foe:01`、`foe:+1` 等格式；这些字符串虽然可解析成合法数字，却永远不会与实际发出的 `foe:1` 事件匹配，导致监听一次也不触发。现注册及读档校验统一采用精确槽位匹配，不自动纠正或悄悄登记不可达监听。拒绝更新按原子行动规则不影响已登记监听、费用、RNG、事件源或动作日志；原来使用规范ID的旧档和卡牌监听不变。
+
+## 2026-10-21 七擒余毒二级事件事前反制
+
+此前七擒余毒的额外中毒虽然会记录 `StatusApplied(poison:toxic_reversal)`，
+却绕开 `preflight_status` 直接增加敌军中毒，导致外部监听器只能反制
+药剂/卡牌的基础 `poison`，无法反制已经实际生效的军略追加层数。
+
+自由战斗新增独立、可持久化的二级来源：
+
+```text
+react nested_ward poison:toxic_reversal foe:0 cancel 0 -10 1
+react nested_reduce poison:toxic_reversal foe:0 reduce 2 -5 2
+react nested_cap poison:toxic_reversal foe:0 replace 1 5 1
+```
+
+1. 基础毒先接受 `poison` 监听器，再记录真实的 `StatusApplied(poison)`；
+   该已结算事件同步触发七擒余毒。只有基础毒确实增加，才会提出新的二级事件。
+2. 二级毒以 `poison:toxic_reversal` 为独立源再次通过同一优先级/ID反制栈；
+   每次减免、替换、取消先于军略触发和最终状态写入审计。
+   **二级源永不递归触发七擒余毒**，避免自身再次放大。
+3. 上限9999时按剩余可容纳毒层数提出有效增量；完全饱和不消耗监听次数。
+   取消后没有虚假的 `PowerTriggered` 或 `StatusApplied`。
+4. 此监听只能注册在 `foe:0..3`，不能瞄准英雄或伪造任意二级源；
+   非自由模式不允许登记；登记和注销继续纳入原有动作回放。
+5. 原本没有二级监听器的存档与普通标准战斗保持原先结算及四事件顺序不变。
+
+`src/lib.rs` 单测验证同一次基础施毒后的多条二级规则顺序、
+取消基础毒不触发二级链、饱和前后的一次性次数及存档；
+`tests/nested_poison_reactions.rs` 验证新来源注册、非法目标回滚、V2读档、
+成功动作和事件档案重建。结果须以 PR 最新 SHA 在 macOS/Ubuntu 的
+`cargo test --all-targets` 实际通过为准。
+
+**边界**：这是一个已确认的二级状态触发缺口修复，并非任意事件的通用
+插件中断协议；卡牌、道具、敌军全行为空间、职业成型与120回全文审校均未完成。
