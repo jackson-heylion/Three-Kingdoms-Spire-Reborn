@@ -63,9 +63,12 @@ impl Stack {
             && r.source.len()<=64 && r.charges>0 && r.charges<=16
             && r.target.as_deref().is_some_and(|t| t=="hero" || canonical_foe_slot(t))
             && match r.kind {
-                EventKind::StatusApplied =>
-                    matches!(r.source.as_str(),"weak"|"vulnerable"|"poison")
-                    && !(r.source=="poison" && r.target.as_deref()==Some("hero")),
+                EventKind::StatusApplied => match r.source.as_str() {
+                    "weak" | "vulnerable" => true,
+                    "poison" | "poison:toxic_reversal" =>
+                        r.target.as_deref().is_some_and(canonical_foe_slot),
+                    _ => false,
+                },
                 // Damage proposals carry raw incoming damage, before enemy armor.
                 // Only known settled sources and living-foe slots can be intercepted.
                 EventKind::DamageDealt =>
