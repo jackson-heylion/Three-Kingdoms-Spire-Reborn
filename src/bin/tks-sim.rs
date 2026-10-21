@@ -8,6 +8,7 @@ use three_kingdoms_spire_reborn::{
     archetypes::Doctrine,
     builds::{BuildPlan, PLANS},
     content::{Effect, Hero, card_spec},
+    combat::EventKind,
 };
 
 const MAX_ACTIONS: u32 = 6_000;
@@ -50,7 +51,7 @@ struct EncounterOutcome {
 
 struct ActiveEncounter {
     foes: BTreeSet<String>,
-    hero_hp_damage_before: u64,
+    event_start: usize,
     turns_completed_before: u64,
 }
 
@@ -436,7 +437,7 @@ fn simulate_config_blueprint(hero:Hero,seed:u64,ascension:u8,policy:Policy,
             if let Some(b)=&game.battle {
                 let tracked = active_encounter.get_or_insert_with(|| ActiveEncounter {
                     foes: BTreeSet::new(),
-                    hero_hp_damage_before: game.telemetry.totals.hero_hp_damage,
+                    event_start: game.event_history.as_ref().map_or(0, Vec::len),
                     turns_completed_before: game.telemetry.totals.turns_completed,
                 });
                 for foe in &b.foes {
@@ -457,11 +458,22 @@ fn simulate_config_blueprint(hero:Hero,seed:u64,ascension:u8,policy:Policy,
         if game.stage != Stage::Combat
             && let Some(tracked) = active_encounter.take()
         {
+            // Use the complete deterministic event archive: CombatCounters'
+            // hero_hp_damage only includes enemy attacks, while blood_price
+            // and supply_exhaustion can also cause real player HP loss.
+            let history = game.event_history.as_ref()
+                .ok_or("simulator requires a complete event archive")?;
+            let events = history.get(tracked.event_start..)
+                .ok_or("encounter event cursor exceeds archive")?;
+            let hero_hp_damage = events.iter()
+                .filter(|entry| entry.event.kind == EventKind::DamageReceived
+                    && entry.event.target.as_deref() == Some("hero"))
+                .map(|entry| entry.event.amount.max(0) as u64)
+                .fold(0u64, u64::saturating_add);
             encounter_outcomes.push(EncounterOutcome {
                 foes: tracked.foes.into_iter().collect(),
                 survived: game.stage != Stage::Lost,
-                hero_hp_damage: game.telemetry.totals.hero_hp_damage
-                    .saturating_sub(tracked.hero_hp_damage_before),
+                hero_hp_damage,
                 turns_completed: game.telemetry.totals.turns_completed
                     .saturating_sub(tracked.turns_completed_before),
             });
