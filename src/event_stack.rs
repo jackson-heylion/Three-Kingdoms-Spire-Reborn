@@ -175,13 +175,14 @@ impl Stack {
 pub struct RunEvent { pub encounter:u64, pub floor:u8, pub event:CombatEvent }
 pub fn verify_record(events:&[RunEvent]) -> Result<(),String> {
     for (i,e) in events.iter().enumerate() {
-        if e.encounter==0 || e.floor>crate::MAX_FLOOR || e.event.seq==0
+        if e.encounter==0 || e.floor==0 || e.floor>crate::MAX_FLOOR || e.event.seq==0
             {return Err("invalid event coordinate".into());}
         if let Some(p)=i.checked_sub(1).and_then(|j|events.get(j)) {
             if e.encounter==p.encounter {
-                if e.floor!=p.floor || e.event.seq!=p.event.seq.saturating_add(1)
+                if e.floor!=p.floor || p.event.seq.checked_add(1)!=Some(e.event.seq)
                     {return Err("gap in battle event stream".into());}
-            } else if e.encounter!=p.encounter.saturating_add(1) || e.event.seq!=1
+            } else if p.encounter.checked_add(1)!=Some(e.encounter)
+                || e.event.seq!=1 || e.floor<p.floor
                 {return Err("gap between battles".into());}
         } else if e.encounter!=1 || e.event.seq!=1
             {return Err("archive missing campaign start".into());}
@@ -204,6 +205,17 @@ mod tests {
         assert!(s.resolve(&weak()).cancelled);
         assert_eq!(s.resolve(&weak()).amount,2);
         assert_eq!(s.resolve(&weak()).amount,3);
+    }
+    #[test] fn event_archive_rejects_floor_regression_and_invalid_coordinates() {
+        let ev=|encounter, floor, seq|RunEvent{encounter,floor,
+            event:CombatEvent{seq,..weak()}};
+        assert!(verify_record(&[ev(1,1,1),ev(1,1,2),ev(2,1,1),ev(3,2,1)]).is_ok());
+        assert!(verify_record(&[ev(1,2,1),ev(2,1,1)]).is_err());
+        assert!(verify_record(&[ev(1,0,1)]).is_err());
+        assert!(verify_record(&[ev(1,1,1),ev(1,1,1)]).is_err());
+        assert!(verify_record(&[ev(1,1,1),ev(3,2,1)]).is_err());
+        assert!(verify_record(&[ev(1,1,1),ev(2,crate::MAX_FLOOR,1),
+            ev(3,1,1)]).is_err());
     }
     #[test] fn serialization_and_full_record_checks() {
         let mut s=Stack::default();
