@@ -454,17 +454,17 @@ fn simulate_config_blueprint(hero:Hero,seed:u64,ascension:u8,policy:Policy,
                 hero.name(),seed,count,game.floor,game.stage,e))?;
         // The battle terminates on this action: settle one denominator entry,
         // once per encounter (not per turn and not per foe in a mixed team).
-        if game.stage != Stage::Combat {
-            if let Some(tracked) = active_encounter.take() {
-                encounter_outcomes.push(EncounterOutcome {
-                    foes: tracked.foes.into_iter().collect(),
-                    survived: game.stage != Stage::Lost,
-                    hero_hp_damage: game.telemetry.totals.hero_hp_damage
-                        .saturating_sub(tracked.hero_hp_damage_before),
-                    turns_completed: game.telemetry.totals.turns_completed
-                        .saturating_sub(tracked.turns_completed_before),
-                });
-            }
+        if game.stage != Stage::Combat
+            && let Some(tracked) = active_encounter.take()
+        {
+            encounter_outcomes.push(EncounterOutcome {
+                foes: tracked.foes.into_iter().collect(),
+                survived: game.stage != Stage::Lost,
+                hero_hp_damage: game.telemetry.totals.hero_hp_damage
+                    .saturating_sub(tracked.hero_hp_damage_before),
+                turns_completed: game.telemetry.totals.turns_completed
+                    .saturating_sub(tracked.turns_completed_before),
+            });
         }
         // A state snapshot must validate on every action, not just at the end.
         if count.is_multiple_of(13) {
