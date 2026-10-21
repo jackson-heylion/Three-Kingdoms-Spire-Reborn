@@ -530,6 +530,12 @@ jobs:
                      and 0<=c["blueprint_wins"]<=2 and
                      0<=c["counter_last_encounter_deaths"]<=2 for c in data["cells"])
           assert len(set((c["id"],c["ascension"]) for c in data["cells"]))==165
+          for c in data["cells"]:
+              for side in ("baseline","blueprint"):
+                  metric=c[f"{side}_counter_battles"]
+                  assert metric["encounters"] >= c[f"{side}_counter_exposed_runs"],c
+                  assert 0 <= metric["survived"] <= metric["encounters"],c
+                  assert metric["hero_hp_damage"] >= 0 and metric["turns_completed"] >= 0,c
           zhuge_wins=sum(c["blueprint_wins"] for c in data["cells"] if c["id"]=="zhuge_cycle")
           assert zhuge_wins>0, "Zhuge cycle has zero wins across all seeds: no sustainable offensive outlet"
           print("Validated 330 pairs / 660 deterministic build fixture runs")
