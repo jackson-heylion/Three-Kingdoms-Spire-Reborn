@@ -30,12 +30,57 @@ struct Outcome {
     /// Distinct foe IDs observed at a combat decision point anywhere in the run.
     /// Run-level exposure is not a per-encounter win/loss denominator.
     encountered_foes: Vec<String>,
+    /// Every finished combat encounter, including mixed enemy teams.
+    /// These are battle-level outcomes, not run-level exposure flags.
+    encounter_outcomes: Vec<EncounterOutcome>,
     reward_screens: u32,
     focus_offer_screens: u32,
     focus_picks: u32,
     discard_distinct: usize,
     combo_distinct: usize,
 }
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct EncounterOutcome {
+    foes: Vec<String>,
+    survived: bool,
+    /// Actual cumulative HP damage during this battle, including damage healed later.
+    hero_hp_damage: u64,
+    turns_completed: u64,
+}
+
+struct ActiveEncounter {
+    foes: BTreeSet<String>,
+    hero_hp_damage_before: u64,
+    turns_completed_before: u64,
+}
+
+#[derive(Debug, Default, Serialize)]
+struct CounterEncounterMetrics {
+    encounters: usize,
+    survived: usize,
+    hero_hp_damage: u64,
+    turns_completed: u64,
+}
+fn count_counter_encounters(outcomes: &[EncounterOutcome], foe_id: &str) -> CounterEncounterMetrics {
+    let mut totals = CounterEncounterMetrics::default();
+    for encounter in outcomes {
+        if !encounter.foes.iter().any(|id| id == foe_id) { continue; }
+        totals.encounters += 1;
+        totals.survived += usize::from(encounter.survived);
+        totals.hero_hp_damage = totals.hero_hp_damage.saturating_add(encounter.hero_hp_damage);
+        totals.turns_completed = totals.turns_completed.saturating_add(encounter.turns_completed);
+    }
+    totals
+}
+impl CounterEncounterMetrics {
+    fn add(&mut self, other: Self) {
+        self.encounters += other.encounters;
+        self.survived += other.survived;
+        self.hero_hp_damage = self.hero_hp_damage.saturating_add(other.hero_hp_damage);
+        self.turns_completed = self.turns_completed.saturating_add(other.turns_completed);
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 enum Policy { FirstPlayable, Tactical }
 
@@ -330,6 +375,8 @@ fn simulate_config_blueprint(hero:Hero,seed:u64,ascension:u8,policy:Policy,
     let mut focus_picks=0;
     let mut death_context:Option<(String,Node)>=None;
     let mut encountered_foes=BTreeSet::<String>::new();
+    let mut encounter_outcomes = Vec::<EncounterOutcome>::new();
+    let mut active_encounter: Option<ActiveEncounter> = None;
     for count in 0..MAX_ACTIONS {
         if matches!(game.stage,Stage::Won | Stage::Lost) {
             return Ok(Outcome {
@@ -341,6 +388,7 @@ fn simulate_config_blueprint(hero:Hero,seed:u64,ascension:u8,policy:Policy,
                 death_node:if game.stage==Stage::Won {None}
                     else {death_context.as_ref().map(|(_,node)|*node)},
                 encountered_foes:encountered_foes.into_iter().collect(),
+                encounter_outcomes,
                 reward_screens,
                 focus_offer_screens,
                 focus_picks,
@@ -386,8 +434,14 @@ fn simulate_config_blueprint(hero:Hero,seed:u64,ascension:u8,policy:Policy,
         }
         if game.stage==Stage::Combat {
             if let Some(b)=&game.battle {
+                let tracked = active_encounter.get_or_insert_with(|| ActiveEncounter {
+                    foes: BTreeSet::new(),
+                    hero_hp_damage_before: game.telemetry.totals.hero_hp_damage,
+                    turns_completed_before: game.telemetry.totals.turns_completed,
+                });
                 for foe in &b.foes {
                     encountered_foes.insert(foe.id.clone());
+                    tracked.foes.insert(foe.id.clone());
                 }
                 // Encounter context, not a claim about the exact killing blow.
                 let id=b.foes.iter().filter(|f|f.hp>0)
@@ -398,6 +452,20 @@ fn simulate_config_blueprint(hero:Hero,seed:u64,ascension:u8,policy:Policy,
         game.apply(action).map_err(|e|
             format!("{} seed={} step={} floor={} stage={:?}: {}",
                 hero.name(),seed,count,game.floor,game.stage,e))?;
+        // The battle terminates on this action: settle one denominator entry,
+        // once per encounter (not per turn and not per foe in a mixed team).
+        if game.stage != Stage::Combat {
+            if let Some(tracked) = active_encounter.take() {
+                encounter_outcomes.push(EncounterOutcome {
+                    foes: tracked.foes.into_iter().collect(),
+                    survived: game.stage != Stage::Lost,
+                    hero_hp_damage: game.telemetry.totals.hero_hp_damage
+                        .saturating_sub(tracked.hero_hp_damage_before),
+                    turns_completed: game.telemetry.totals.turns_completed
+                        .saturating_sub(tracked.turns_completed_before),
+                });
+            }
+        }
         // A state snapshot must validate on every action, not just at the end.
         if count.is_multiple_of(13) {
             let snapshot = game.to_json()?;
@@ -726,6 +794,10 @@ struct BuildCell {
     /// Losses where the last recorded live encounter included this enemy.
     /// A run-level exposure denominator is NOT a per-encounter defeat rate.
     counter_last_encounter_deaths:usize,
+    /// True battle-level denominators for nominated counter foes, separately
+    /// from the per-run flags above. In mixed enemy teams causality is shared.
+    baseline_counter_battles: CounterEncounterMetrics,
+    blueprint_counter_battles: CounterEncounterMetrics,
 }
 #[derive(Debug,Serialize)]
 struct BuildBlueprintReport {
@@ -745,6 +817,8 @@ fn build_blueprint_report(samples:usize)->Result<BuildBlueprintReport,String> {
                 baseline_wins:0,blueprint_wins:0,baseline_floor_sum:0,
                 blueprint_floor_sum:0,baseline_counter_exposed_runs:0,
                 blueprint_counter_exposed_runs:0,counter_last_encounter_deaths:0,
+                baseline_counter_battles:CounterEncounterMetrics::default(),
+                blueprint_counter_battles:CounterEncounterMetrics::default(),
             };
             for trial in 0..samples {
                 let ordinal=(plan_index as u64)*11*10_000+
@@ -764,6 +838,10 @@ fn build_blueprint_report(samples:usize)->Result<BuildBlueprintReport,String> {
                     baseline.encountered_foes.iter().any(|id|id==plan.counter_enemy));
                 cell.blueprint_counter_exposed_runs+=usize::from(
                     curated.encountered_foes.iter().any(|id|id==plan.counter_enemy));
+                cell.baseline_counter_battles.add(count_counter_encounters(
+                    &baseline.encounter_outcomes, plan.counter_enemy));
+                cell.blueprint_counter_battles.add(count_counter_encounters(
+                    &curated.encounter_outcomes, plan.counter_enemy));
                 if !curated.won && curated.death_encounter.as_ref()
                     .is_some_and(|s|s.split('+').any(|id|id==plan.counter_enemy))
                 { cell.counter_last_encounter_deaths+=1; }
@@ -774,7 +852,7 @@ fn build_blueprint_report(samples:usize)->Result<BuildBlueprintReport,String> {
     Ok(BuildBlueprintReport {
         schema_version:1,samples_per_cell:samples,
         seed_formula:"((plan_index*110000+ascension*10000+trial+1)*0x9E3779B97F4A7C15) mod 2^64".into(),
-        interpretation:"equal 10-card curated fixture, four strikes and two guards replaced; paired fixed seeds, tactical heuristic bot, not natural draft nor human win rate; counter exposure counts distinct runs with a foe present at combat decision time (not total encounters); last-encounter death is not a matchup defeat rate".into(),
+        interpretation:"equal 10-card curated fixture, four strikes and two guards replaced; paired fixed seeds, tactical heuristic bot, not natural draft nor human win rate; counter exposure counts distinct runs with a foe present at combat decision time; counter_battles count finished encounters with that foe and report battle survival, total actual HP damage and turns, including mixed enemy teams; neither is a controlled isolated boss counterfactual".into(),
         cells,
     })
 }
@@ -1079,6 +1157,44 @@ mod tests {
         assert_eq!(sorted[1].encounter,"boss");
         assert_eq!(sorted[2].deaths,2);
     }
+    #[test]
+    fn counter_battle_denominators_are_battles_not_turns_or_run_flags() {
+        let encounters = vec![
+            EncounterOutcome {
+                foes: vec!["boss".into(), "minion".into()],
+                survived: true, hero_hp_damage: 12, turns_completed: 4,
+            },
+            EncounterOutcome {
+                foes: vec!["boss".into()], survived: false,
+                hero_hp_damage: 17, turns_completed: 3,
+            },
+            EncounterOutcome {
+                foes: vec!["minion".into()], survived: true,
+                hero_hp_damage: 2, turns_completed: 1,
+            },
+        ];
+        let boss = count_counter_encounters(&encounters, "boss");
+        assert_eq!((boss.encounters, boss.survived, boss.hero_hp_damage,
+            boss.turns_completed), (2, 1, 29, 7));
+        let minion = count_counter_encounters(&encounters, "minion");
+        assert_eq!((minion.encounters, minion.survived, minion.hero_hp_damage),
+            (2, 2, 14));
+        assert_eq!(count_counter_encounters(&encounters, "not_present").encounters, 0);
+    }
+
+    #[test]
+    fn real_encounter_outcomes_are_repeatable_and_have_unique_foe_ids() {
+        let first = simulate_policy(Hero::GuanYu, 8793, 2, Policy::Tactical).unwrap();
+        let second = simulate_policy(Hero::GuanYu, 8793, 2, Policy::Tactical).unwrap();
+        assert_eq!(first.encounter_outcomes, second.encounter_outcomes);
+        assert!(!first.encounter_outcomes.is_empty());
+        assert!(first.encounter_outcomes.iter().all(|sample| {
+            !sample.foes.is_empty() && sample.foes.windows(2).all(|two| two[0] < two[1])
+        }));
+        assert_eq!(first.encounter_outcomes.len() as u64,
+            first.telemetry.battles_won + first.telemetry.battles_lost);
+    }
+
     #[test]
     fn seeded_runs_replay_to_identical_snapshots() {
         for hero in HEROES {
