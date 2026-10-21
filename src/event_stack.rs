@@ -29,6 +29,22 @@ pub struct Listener {
     pub charges: u8,
     pub effect: Response,
 }
+/// A reserved ID represents a fixed card effect, never a free-form custom slot.
+fn valid_builtin_contract(rule: &Listener) -> bool {
+    if !builtin_id(&rule.id) { return true; }
+    if rule.kind != EventKind::StatusApplied
+        || rule.target.as_deref() != Some("hero")
+        || rule.priority != 0 || rule.charges != 1 {
+        return false;
+    }
+    match rule.id.as_str() {
+        "hold_line:weak" => rule.source == "weak" && rule.effect == Response::Cancel,
+        "kongcheng:vulnerable" => rule.source == "vulnerable" && rule.effect == Response::Reduce(1),
+        "qiaoying:weak" => rule.source == "weak" && rule.effect == Response::Reduce(1),
+        "zhongyi:weak" => rule.source == "weak" && rule.effect == Response::Replace(1),
+        _ => false,
+    }
+}
 impl Listener {
     pub fn once(id: &str, source: &str, effect: Response) -> Self {
         Self { id:id.into(), kind: EventKind::StatusApplied, source:source.into(),
@@ -61,6 +77,7 @@ impl Stack {
             && self.listeners.iter().enumerate().all(|(i,r)|
             !r.id.is_empty() && r.id.len()<=64 && !r.source.is_empty()
             && r.source.len()<=64 && r.charges>0 && r.charges<=16
+            && valid_builtin_contract(r)
             && r.target.as_deref().is_some_and(|t| t=="hero" || canonical_foe_slot(t))
             && match r.kind {
                 EventKind::StatusApplied => match r.source.as_str() {
