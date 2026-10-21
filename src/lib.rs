@@ -1050,22 +1050,31 @@ impl Game {
                     .and_then(|text| text.strip_prefix("foe:"))
                     .and_then(|text| text.parse::<usize>().ok());
                 if let Some(idx) = idx.filter(|_| amount > 0) {
-                    let applied = self.battle.as_mut().expect("battle")
-                        .foes.get_mut(idx).map_or(0, |foe| {
-                            if foe.hp <= 0 { return 0; }
-                            let before = foe.poison;
-                            foe.poison = foe.poison.saturating_add(amount).min(9999);
-                            foe.poison - before
-                        });
-                    if applied > 0 {
-                        // The bonus is a real poison application, not just a power
-                        // notification. Attribute it separately without redispatching
-                        // the base "poison" trigger and recursively adding more poison.
-                        let target = Some(format!("foe:{idx}"));
-                        self.combat_event(EventKind::PowerTriggered, "toxic_reversal",
-                            applied, target.clone());
-                        self.combat_event(EventKind::StatusApplied, "poison:toxic_reversal",
-                            applied, target);
+                    // The bonus is a separate status proposal. It must pass
+                    // through the same reaction stack as the original poison,
+                    // but its distinct source must NOT trigger this power again.
+                    let capacity = self.battle.as_ref().expect("battle").foes.get(idx)
+                        .map_or(0, |foe| if foe.hp > 0 {
+                            9999i32.saturating_sub(foe.poison)
+                        } else { 0 });
+                    if capacity > 0 {
+                        let target = format!("foe:{idx}");
+                        if let Some(adjusted) = self.preflight_status(
+                            "poison:toxic_reversal", &target, amount.min(capacity)) {
+                            let applied = self.battle.as_mut().expect("battle").foes
+                                .get_mut(idx).map_or(0, |foe| {
+                                    if foe.hp <= 0 { return 0; }
+                                    let before = foe.poison;
+                                    foe.poison = foe.poison.saturating_add(adjusted).min(9999);
+                                    foe.poison - before
+                                });
+                            if applied > 0 {
+                                self.combat_event(EventKind::PowerTriggered, "toxic_reversal",
+                                    applied, Some(target.clone()));
+                                self.combat_event(EventKind::StatusApplied,
+                                    "poison:toxic_reversal", applied, Some(target));
+                            }
+                        }
                     }
                 }
             }
@@ -5169,5 +5178,107 @@ mod dynamic_power_gain_reactions {
         assert!(standard.apply(Action::RegisterReaction {
             listener:power_listener("ranked","oath_guard",Response::Reduce(1),0,1)
         }).is_err());
+    }
+}
+
+#[cfg(test)]
+mod nested_toxic_reversal_interception {
+    use super::*;
+    use event_stack::{Listener, Response};
+
+    fn prepared() -> Game {
+        let mut game = Game::new_with_mode(Hero::ZhugeLiang, 925145, 0, RunMode::Custom);
+        game.apply(Action::Choose { index: 1 }).unwrap();
+        game.gain_power(PowerId::ToxicReversal, 4);
+        game
+    }
+
+    fn bonus_rule(id: &str, effect: Response, priority: i16, charges: u8) -> Listener {
+        Listener {
+            id: id.into(),
+            kind: EventKind::StatusApplied,
+            source: "poison:toxic_reversal".into(),
+            target: Some("foe:0".into()),
+            priority,
+            charges,
+            effect,
+        }
+    }
+
+    #[test]
+    fn nested_bonus_runs_ordered_replacements_once_without_poison_recursion() {
+        let mut game = prepared();
+        game.apply(Action::RegisterReaction {
+            listener: bonus_rule("late", Response::Replace(1), 5, 1),
+        }).unwrap();
+        game.apply(Action::RegisterReaction {
+            listener: bonus_rule("early", Response::Reduce(1), -5, 1),
+        }).unwrap();
+        let start = game.battle.as_ref().unwrap().event_seq;
+        game.apply_foe_status(0, "poison", 5);
+        let battle = game.battle.as_ref().unwrap();
+        assert_eq!(battle.foes[0].poison, 6);
+        assert!(battle.reactions.is_empty());
+        let events = battle.events.iter().filter(|e| e.seq > start).collect::<Vec<_>>();
+        assert_eq!(events.iter().map(|e| e.kind).collect::<Vec<_>>(), vec![
+            EventKind::StatusApplied, EventKind::EventReplaced,
+            EventKind::EventReplaced, EventKind::PowerTriggered,
+            EventKind::StatusApplied,
+        ]);
+        assert_eq!(events.iter().map(|e| e.amount).collect::<Vec<_>>(),
+            vec![5, 1, 2, 1, 1]);
+        assert_eq!(events[0].source, "poison");
+        assert_eq!(events[1].source, "early");
+        assert_eq!(events[2].source, "late");
+        assert_eq!(events[4].source, "poison:toxic_reversal");
+        let json = game.to_json().unwrap();
+        assert_eq!(Game::from_json(&json).unwrap().to_json().unwrap(), json);
+    }
+
+    #[test]
+    fn countered_base_never_dispatches_nested_bonus_or_consumes_nested_rule() {
+        let mut game = prepared();
+        let mut base = Listener::once("base_stop", "poison", Response::Cancel);
+        base.target = Some("foe:0".into());
+        game.apply(Action::RegisterReaction { listener: base }).unwrap();
+        game.apply(Action::RegisterReaction {
+            listener: bonus_rule("bonus_stop", Response::Cancel, 0, 1),
+        }).unwrap();
+        let start = game.battle.as_ref().unwrap().event_seq;
+        game.apply_foe_status(0, "poison", 5);
+        let battle = game.battle.as_ref().unwrap();
+        assert_eq!(battle.foes[0].poison, 0);
+        let events = battle.events.iter().filter(|e| e.seq > start).collect::<Vec<_>>();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, EventKind::EventCountered);
+        assert_eq!(events[0].source, "base_stop");
+        assert_eq!(battle.reactions.listeners.len(), 1);
+        assert_eq!(battle.reactions.listeners[0].id, "bonus_stop");
+    }
+
+    #[test]
+    fn saturated_bonus_does_not_consume_one_shot_and_later_counters() {
+        let mut game = prepared();
+        game.apply(Action::RegisterReaction {
+            listener: bonus_rule("bonus_stop", Response::Cancel, 0, 1),
+        }).unwrap();
+        game.battle.as_mut().unwrap().foes[0].poison = 9998;
+        let start = game.battle.as_ref().unwrap().event_seq;
+        game.apply_foe_status(0, "poison", 1);
+        let battle = game.battle.as_ref().unwrap();
+        assert_eq!(battle.foes[0].poison, 9999);
+        assert_eq!(battle.event_seq, start + 1);
+        assert_eq!(battle.reactions.listeners[0].charges, 1);
+        game.battle.as_mut().unwrap().foes[0].poison = 9997;
+        let next = game.battle.as_ref().unwrap().event_seq;
+        game.apply_foe_status(0, "poison", 1);
+        let battle = game.battle.as_ref().unwrap();
+        assert_eq!(battle.foes[0].poison, 9998);
+        assert!(battle.reactions.is_empty());
+        let events = battle.events.iter().filter(|e| e.seq > next).collect::<Vec<_>>();
+        assert_eq!(events.iter().map(|e| e.kind).collect::<Vec<_>>(),
+            vec![EventKind::StatusApplied, EventKind::EventCountered]);
+        assert_eq!(events[1].source, "bonus_stop");
+        assert_eq!(events[1].amount, 1);
     }
 }
