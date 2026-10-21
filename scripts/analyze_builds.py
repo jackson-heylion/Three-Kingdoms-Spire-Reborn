@@ -2,8 +2,9 @@
 """Summarize the reproducible tks-sim --build-archetypes JSON fixture.
 
 Standard library only. This is an injected starting-deck *fixture*, never a
-natural-drafting or human win-rate estimator. Counter-death events lack an
-encounter exposure denominator and cannot be interpreted as probabilities.
+natural-drafting or human win-rate estimator. Battle survival with a nominated
+counter enemy is measured on mixed real encounters, NOT an isolated boss
+counterfactual. It cannot establish enemy causality or human win rates.
 """
 import json
 import sys
@@ -19,7 +20,10 @@ def summarize(payload):
         raise ValueError("empty or invalid build experiment")
     totals = defaultdict(lambda: dict(n=0, base=0, build=0, floor_base=0,
                                       floor_build=0, high_n=0, high_base=0,
-                                      high_build=0, counter_deaths=0))
+                                      high_build=0, counter_deaths=0,
+                                      base_battles=0, base_survived=0,
+                                      build_battles=0, build_survived=0,
+                                      base_damage=0, build_damage=0))
     seen = set()
     for cell in cells:
         key = (cell["hero"], cell["id"])
@@ -40,6 +44,21 @@ def summarize(payload):
         t["floor_base"] += cell["baseline_floor_sum"]
         t["floor_build"] += cell["blueprint_floor_sum"]
         t["counter_deaths"] += cell["counter_last_encounter_deaths"]
+        for side, label in (("baseline", "base"), ("blueprint", "build")):
+            metrics = cell.get(f"{side}_counter_battles")
+            if metrics is None:
+                continue  # Read pre-instrumentation reports without inventing data.
+            if (not isinstance(metrics, dict)
+                    or not all(isinstance(metrics.get(field), int)
+                               and metrics[field] >= 0
+                               for field in ("encounters", "survived",
+                                             "hero_hp_damage", "turns_completed"))
+                    or metrics["survived"] > metrics["encounters"]
+                    or metrics["encounters"] < cell[f"{side}_counter_exposed_runs"]):
+                raise ValueError(f"invalid encounter denominator: {key}/{asc}/{side}")
+            t[f"{label}_battles"] += metrics["encounters"]
+            t[f"{label}_survived"] += metrics["survived"]
+            t[f"{label}_damage"] += metrics["hero_hp_damage"]
         if asc >= 8:
             t["high_n"] += n
             t["high_base"] += b
@@ -66,8 +85,23 @@ def main(argv):
                   f"{t['build']}/{t['n']} | {delta:+.2f} | "
                   f"{t['high_base']}/{t['high_n']} → "
                   f"{t['high_build']}/{t['high_n']}")
+    if all("baseline_counter_battles" in cell and "blueprint_counter_battles" in cell
+           for cell in payload["cells"]):
+        print("\nCounter encounter (mixed-team) | Baseline survived/encounters | "
+              "Fixture survived/encounters | Baseline HP damage/encounter | "
+              "Fixture HP damage/encounter")
+        print("--- | ---: | ---: | ---: | ---:")
+        for hero in sorted(by_hero):
+            for bid, t in sorted(by_hero[hero]):
+                bd = (f"{t['base_damage'] / t['base_battles']:.1f}"
+                      if t["base_battles"] else "n/a")
+                fd = (f"{t['build_damage'] / t['build_battles']:.1f}"
+                      if t["build_battles"] else "n/a")
+                print(f"{hero} / {bid} | {t['base_survived']}/{t['base_battles']} | "
+                      f"{t['build_survived']}/{t['build_battles']} | {bd} | {fd}")
     print("\nWarning: injected decks only; no natural acquisition, human play, "
-          "confidence intervals or per-boss exposure denominators.")
+          "confidence intervals or isolated boss counterfactuals; mixed-foe "
+          "survival is not proof of a named enemy causing the outcome.")
     return 0
 
 
