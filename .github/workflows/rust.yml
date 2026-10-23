@@ -55,6 +55,63 @@ jobs:
           assert report['total_actions'] == sum(c[s]['actions'] for c in cells for s in ('baseline','curated'))
           print('120 paired Boss duels: structured report and all aggregates verified')
           PY
+      - name: Independent Sun/Zuoci seed sweep and paired diagnostics
+        shell: bash
+        run: |
+          TKS_SUN_ZUOCI_REPORT="$RUNNER_TEMP/tks-sun-zuoci.json" cargo test --test boss_build_duels sun_zuoci_independent_seed_pairs -- --ignored --nocapture
+          python3 - <<'PY'
+          import collections, json, math, os, pathlib
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'tks-sun-zuoci.json'
+          report = json.loads(path.read_text())
+          plans = {'sun_discard', 'sun_combo', 'sun_poison'}
+          assert report['schema_version'] == 1
+          assert report['fixture'] == 'single_floor_one_boss_120hp'
+          assert report['policy'] == 'first_playable'
+          assert report['focus'] == 'sun_zuoci_independent_seeds'
+          assert report['independent_fixtures'] == 32 and report['pairs'] == 96
+          cells = report['cells']
+          assert len(cells) == 96
+          identities = [(c['plan'], c['ascension'], c['seed']) for c in cells]
+          assert len(set(identities)) == 96, 'duplicate plan/ascension/seed'
+          groups = collections.defaultdict(list)
+          for c in cells:
+              assert c['plan'] in plans and c['hero'] == 'SunShangxiang' and c['boss'] == 'zuoci'
+              asc, seed = c['ascension'], c['seed']
+              assert type(asc) is int and asc in (0, 10)
+              assert type(seed) is int and seed in {26_300_000 + asc * 100 + i for i in range(16)}
+              for side in ('baseline', 'curated'):
+                  d = c[side]
+                  assert type(d) is dict
+                  assert type(d['won']) is bool and type(d['phase_seen']) is bool
+                  assert all(type(d[k]) is int and d[k] >= 0 for k in
+                             ('hp_damage', 'techniques', 'actions'))
+                  assert d['actions'] > 0
+              groups[(asc, seed)].append(c)
+          assert len(groups) == 32
+          for group in groups.values():
+              assert {c['plan'] for c in group} == plans
+              assert all(c['baseline'] == group[0]['baseline'] for c in group), 'baseline drift'
+          assert report['baseline_wins'] == sum(c['baseline']['won'] for c in cells)
+          assert report['curated_wins'] == sum(c['curated']['won'] for c in cells)
+          def exact_p(b, c):
+              n = b + c
+              return min(1.0, 2 * sum(math.comb(n, i) for i in range(min(b, c) + 1)) / 2**n) if n else None
+          for plan in sorted(plans):
+              for asc in (0, 10):
+                  rows = [c for c in cells if c['plan'] == plan and c['ascension'] == asc]
+                  assert len(rows) == 16
+                  base = sum(c['baseline']['won'] for c in rows)
+                  built = sum(c['curated']['won'] for c in rows)
+                  b_only = sum(c['baseline']['won'] and not c['curated']['won'] for c in rows)
+                  c_only = sum(c['curated']['won'] and not c['baseline']['won'] for c in rows)
+                  base_damage = sum(c['baseline']['hp_damage'] for c in rows)
+                  built_damage = sum(c['curated']['hp_damage'] for c in rows)
+                  print(f'SUN_ZUOCI plan={plan} asc={asc} n=16 baseline={base} curated={built} '
+                        f'baseline_only={b_only} curated_only={c_only} exact_p={exact_p(b_only,c_only)} '
+                        f'damage_baseline={base_damage} damage_curated={built_damage}')
+          print('32 unique seeds, 96 paired plan outcomes, baseline equivalence and counts verified')
+          PY
+
       - name: Build evidence analyzer regressions
         run: python3 -m unittest discover -s tests -p 'test_analyze_*.py' -v
       - name: Gherkin BDD acceptance
@@ -673,6 +730,7 @@ jobs:
             ${{ runner.temp }}/tks-natural-builds.json
             ${{ runner.temp }}/tks-boss-duels.json
             ${{ runner.temp }}/tks-boss-duel-analysis.json
+            ${{ runner.temp }}/tks-sun-zuoci.json
           retention-days: 30
 
 
@@ -718,5 +776,9 @@ jobs:
           analysis_mac=base/'tks-balance-macos-14'/'tks-boss-duel-analysis.json'
           assert analysis_linux.exists() and analysis_mac.exists(), 'Missing Boss duel analysis'
           assert analysis_linux.read_bytes()==analysis_mac.read_bytes(), 'OS-specific paired Boss analysis divergence'
+          focus_linux=base/'tks-balance-ubuntu-latest'/'tks-sun-zuoci.json'
+          focus_mac=base/'tks-balance-macos-14'/'tks-sun-zuoci.json'
+          assert focus_linux.exists() and focus_mac.exists(), 'Missing focused Sun/Zuoci report'
+          assert focus_linux.read_bytes()==focus_mac.read_bytes(), 'OS-specific Sun/Zuoci focus divergence'
           print('Balance, build, natural drafting and Boss duel reports match across OS')
           PY
