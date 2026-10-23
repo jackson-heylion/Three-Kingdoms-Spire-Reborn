@@ -16,6 +16,16 @@ struct Duel {
     actions: usize,
 }
 
+fn duel_report(outcome: &Duel) -> serde_json::Value {
+    serde_json::json!({
+        "won": outcome.survived,
+        "hp_damage": outcome.hp_damage,
+        "phase_seen": outcome.phase_seen,
+        "techniques": outcome.techniques,
+        "actions": outcome.actions
+    })
+}
+
 fn encounter(plan: &BuildPlan, boss: &str, ascension: u8, seed: u64, curated: bool) -> Game {
     let mut game = Game::new_with_ascension(plan.hero, seed, ascension);
     if curated {
@@ -133,6 +143,7 @@ fn all_fifteen_curated_plans_have_paired_real_boss_outcomes() {
     let mut observed_phases = 0;
     let mut observed_techniques = 0;
     let mut total_actions = 0;
+    let mut cells = Vec::new();
     for (plan_index, plan) in PLANS.iter().enumerate() {
         for boss in ["simayi", "zuoci"] {
             for ascension in [0_u8, 10] {
@@ -148,6 +159,15 @@ fn all_fifteen_curated_plans_have_paired_real_boss_outcomes() {
                         + usize::from(curated.phase_seen);
                     observed_techniques += baseline.techniques + curated.techniques;
                     total_actions += baseline.actions + curated.actions;
+                    cells.push(serde_json::json!({
+                        "plan": plan.id,
+                        "hero": format!("{:?}", plan.hero),
+                        "boss": boss,
+                        "ascension": ascension,
+                        "seed": seed,
+                        "baseline": duel_report(&baseline),
+                        "curated": duel_report(&curated)
+                    }));
                     comparisons += 1;
                 }
             }
@@ -155,6 +175,25 @@ fn all_fifteen_curated_plans_have_paired_real_boss_outcomes() {
     }
     assert_eq!(comparisons, 15 * 2 * 2 * 2);
     assert!(total_actions >= comparisons * 2);
+    assert_eq!(cells.len(), comparisons);
+    if let Ok(path) = std::env::var("TKS_BOSS_DUEL_REPORT") {
+        let report = serde_json::json!({
+            "schema_version": 1,
+            "fixture": "single_floor_one_boss_120hp",
+            "policy": "first_playable",
+            "pairs": comparisons,
+            "baseline_wins": baseline_wins,
+            "curated_wins": curated_wins,
+            "gross_hp_damage": observed_damage,
+            "phase_observations": observed_phases,
+            "technique_events": observed_techniques,
+            "total_actions": total_actions,
+            "cells": cells
+        });
+        let mut bytes = serde_json::to_vec_pretty(&report).expect("serialize boss report");
+        bytes.push(b'\n');
+        std::fs::write(path, bytes).expect("write boss report");
+    }
     eprintln!(
         "BOSS_DUEL_FIXTURE pairs={comparisons} baseline_wins={baseline_wins} \
          curated_wins={curated_wins} gross_hp_damage={observed_damage} \

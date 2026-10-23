@@ -21,6 +21,40 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
       - name: Tests
         run: cargo test --all-targets
+      - name: Export and validate paired Boss duel evidence
+        shell: bash
+        run: |
+          TKS_BOSS_DUEL_REPORT="$RUNNER_TEMP/tks-boss-duels.json" cargo test --test boss_build_duels -- --nocapture
+          python3 - <<'PY'
+          import collections, json, os, pathlib
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'tks-boss-duels.json'
+          report = json.loads(path.read_text())
+          assert report['schema_version'] == 1
+          assert report['fixture'] == 'single_floor_one_boss_120hp'
+          assert report['policy'] == 'first_playable'
+          cells = report['cells']
+          assert report['pairs'] == len(cells) == 120
+          counts = collections.Counter((c['plan'], c['boss'], c['ascension']) for c in cells)
+          assert len(counts) == 60 and set(counts.values()) == {2}
+          assert len({c['plan'] for c in cells}) == 15
+          assert {c['boss'] for c in cells} == {'simayi', 'zuoci'}
+          assert {c['ascension'] for c in cells} == {0, 10}
+          assert len({(c['plan'], c['boss'], c['ascension'], c['seed']) for c in cells}) == 120
+          for c in cells:
+              for side in ('baseline', 'curated'):
+                  d = c[side]
+                  assert type(d['won']) is bool and type(d['phase_seen']) is bool
+                  assert all(type(d[k]) is int and d[k] >= 0 for k in
+                             ('hp_damage', 'techniques', 'actions'))
+                  assert d['actions'] > 0
+          assert report['baseline_wins'] == sum(c['baseline']['won'] for c in cells)
+          assert report['curated_wins'] == sum(c['curated']['won'] for c in cells)
+          assert report['gross_hp_damage'] == sum(c[s]['hp_damage'] for c in cells for s in ('baseline','curated'))
+          assert report['phase_observations'] == sum(c[s]['phase_seen'] for c in cells for s in ('baseline','curated'))
+          assert report['technique_events'] == sum(c[s]['techniques'] for c in cells for s in ('baseline','curated'))
+          assert report['total_actions'] == sum(c[s]['actions'] for c in cells for s in ('baseline','curated'))
+          print('120 paired Boss duels: structured report and all aggregates verified')
+          PY
       - name: Build evidence analyzer regressions
         run: python3 -m unittest discover -s tests -p 'test_analyze_builds.py' -v
       - name: Gherkin BDD acceptance
@@ -637,6 +671,7 @@ jobs:
             ${{ runner.temp }}/tks-natural.json
             ${{ runner.temp }}/tks-builds.json
             ${{ runner.temp }}/tks-natural-builds.json
+            ${{ runner.temp }}/tks-boss-duels.json
           retention-days: 30
 
 
@@ -674,5 +709,9 @@ jobs:
           nb_mac=base/'tks-balance-macos-14'/'tks-natural-builds.json'
           assert nb_linux.exists() and nb_mac.exists()
           assert nb_linux.read_bytes()==nb_mac.read_bytes(), 'OS-specific natural formation study divergence'
-          print('All four paired balance, curated builds, Sun packages and natural draft reports match across OS')
+          boss_linux=base/'tks-balance-ubuntu-latest'/'tks-boss-duels.json'
+          boss_mac=base/'tks-balance-macos-14'/'tks-boss-duels.json'
+          assert boss_linux.exists() and boss_mac.exists(), 'Missing Boss duel report'
+          assert boss_linux.read_bytes()==boss_mac.read_bytes(), 'OS-specific Boss duel result divergence'
+          print('Balance, build, natural drafting and Boss duel reports match across OS')
           PY
