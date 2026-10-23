@@ -28,28 +28,42 @@ def summarize(payload):
     for cell in cells:
         key = (cell["hero"], cell["id"])
         asc = cell["ascension"]
-        if not isinstance(asc, int) or asc < 0 or asc > 10:
+        if type(asc) is not int or asc < 0 or asc > 10:
             raise ValueError(f"invalid ascension: {asc}")
         if (*key, asc) in seen:
             raise ValueError(f"duplicate fixture cell: {key}/{asc}")
         seen.add((*key, asc))
         n = cell["samples"]
         b, c = cell["baseline_wins"], cell["blueprint_wins"]
-        if not isinstance(n, int) or n <= 0 or not 0 <= b <= n or not 0 <= c <= n:
+        if type(n) is not int or n <= 0 or any(type(w) is not int for w in (b, c)) or not 0 <= b <= n or not 0 <= c <= n:
             raise ValueError(f"invalid sample or result: {key}/{asc}")
+        deaths = cell["counter_last_encounter_deaths"]
+        if type(deaths) is not int or not 0 <= deaths <= n:
+            raise ValueError(f"invalid counter death count: {key}/{asc}")
+        for side in ("baseline", "blueprint"):
+            exposed = cell.get(f"{side}_counter_exposed_runs")
+            if exposed is not None and (type(exposed) is not int or not 0 <= exposed <= n):
+                raise ValueError(f"invalid counter exposure count: {key}/{asc}/{side}")
+        if any(type(cell[field]) is not int or cell[field] < 0
+               for field in ("baseline_floor_sum", "blueprint_floor_sum")):
+            raise ValueError(f"invalid floor totals: {key}/{asc}")
+        metric_keys = ("baseline_counter_battles", "blueprint_counter_battles")
+        if any(field in cell for field in metric_keys) and not all(
+                field in cell for field in metric_keys):
+            raise ValueError(f"incomplete paired counter metrics: {key}/{asc}")
         t = totals[key]
         t["n"] += n
         t["base"] += b
         t["build"] += c
         t["floor_base"] += cell["baseline_floor_sum"]
         t["floor_build"] += cell["blueprint_floor_sum"]
-        t["counter_deaths"] += cell["counter_last_encounter_deaths"]
+        t["counter_deaths"] += deaths
         for side, label in (("baseline", "base"), ("blueprint", "build")):
             metrics = cell.get(f"{side}_counter_battles")
             if metrics is None:
                 continue  # Read pre-instrumentation reports without inventing data.
             if (not isinstance(metrics, dict)
-                    or not all(isinstance(metrics.get(field), int)
+                    or not all(type(metrics.get(field)) is int
                                and metrics[field] >= 0
                                for field in ("encounters", "survived",
                                              "hero_hp_damage", "turns_completed"))
@@ -76,15 +90,20 @@ def main(argv):
     payload = json.loads(Path(argv[1]).read_text(encoding="utf-8"))
     by_hero, seen = summarize(payload)
     print(f"Builds: {sum(map(len, by_hero.values()))}; cells: {len(seen)}")
+    if len(seen) != 15 * 11 or any(
+            {asc for hero, bid, asc in seen if (hero, bid) == (h, b)} != set(range(11))
+            for h, builds in by_hero.items() for b, _ in builds):
+        print("Coverage warning: incomplete 15-build x 11-ascension matrix; "
+              "do not treat this as a full maturity experiment.")
     print("Character | Blueprint | Baseline | Fixture | Mean floor delta | Asc. 8–10")
     print("--- | --- | ---: | ---: | ---: | ---")
     for hero in sorted(by_hero):
         for bid, t in sorted(by_hero[hero]):
             delta = (t["floor_build"] - t["floor_base"]) / t["n"]
+            high = (f"{t['high_base']}/{t['high_n']} → "
+                    f"{t['high_build']}/{t['high_n']}") if t["high_n"] else "n/a (no asc. 8–10)"
             print(f"{hero} | {bid} | {t['base']}/{t['n']} | "
-                  f"{t['build']}/{t['n']} | {delta:+.2f} | "
-                  f"{t['high_base']}/{t['high_n']} → "
-                  f"{t['high_build']}/{t['high_n']}")
+                  f"{t['build']}/{t['n']} | {delta:+.2f} | {high}")
     if all("baseline_counter_battles" in cell and "blueprint_counter_battles" in cell
            for cell in payload["cells"]):
         print("\nCounter encounter (mixed-team) | Baseline survived/encounters | "
