@@ -85,3 +85,33 @@ fn legacy_missing_archive_is_rebuilt_only_from_complete_actions() {
     assert!(tampered.reconstruct_event_history().is_err(),
         "missing original actions cannot certify a regenerated source");
 }
+
+#[test]
+fn legacy_recent_event_window_rejects_saturated_sequence_duplicates() {
+    // Legacy V2 saves may omit the full event archive. Their retained battle
+    // window still has to be strictly increasing, even at u64::MAX.
+    let mut game = started(RunMode::Standard);
+    game.event_history = None;
+    let battle = game.battle.as_mut().unwrap();
+    let mut event = battle.events.last().unwrap().clone();
+    event.seq = u64::MAX;
+    battle.events = vec![event.clone(), event];
+    battle.event_seq = u64::MAX;
+
+    // saturating_add(MAX, 1) == MAX used to accept this forged duplicate.
+    assert!(Game::from_json(&game.to_json().unwrap()).is_err());
+}
+
+#[test]
+fn legacy_recent_event_window_accepts_strictly_increasing_sequences() {
+    let mut game = started(RunMode::Standard);
+    game.event_history = None;
+    let battle = game.battle.as_mut().unwrap();
+    let mut first = battle.events.last().unwrap().clone();
+    first.seq = u64::MAX - 1;
+    let mut second = first.clone();
+    second.seq = u64::MAX;
+    battle.events = vec![first, second];
+    battle.event_seq = u64::MAX;
+    assert!(Game::from_json(&game.to_json().unwrap()).is_ok());
+}
