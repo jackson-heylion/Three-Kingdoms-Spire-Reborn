@@ -531,7 +531,7 @@ impl Game {
                 || b.powers.iter().enumerate().any(|(idx,p)| b.powers[..idx].iter().any(|prior| prior.id == p.id))
                 || b.events.len() > MAX_RECENT_EVENTS
                 || b.events.iter().any(|event| event.seq == 0 || event.seq > b.event_seq)
-                || b.events.windows(2).any(|pair| pair[1].seq != pair[0].seq.saturating_add(1))
+                || b.events.windows(2).any(|pair| pair[0].seq.checked_add(1) != Some(pair[1].seq))
                 || b.events.last().is_some_and(|event| event.seq != b.event_seq)
                 || b.momentum < 0 || b.scheme < 0 || b.combo < 0 || b.command < 0 || b.fury < 0
                 || b.thorns < 0 || b.foes.iter().any(|f| f.max_hp <= 0 || f.hp < 0 || f.hp > f.max_hp || f.block < 0 || f.poison < 0 || f.phase > 1)
