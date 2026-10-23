@@ -69,6 +69,19 @@ class BuildEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "incomplete paired"):
             analyzer.summarize(self.report(entry))
 
+    def test_null_metrics_and_missing_exposure_are_rejected(self):
+        for key, value in (("baseline_counter_battles", None),
+                           ("baseline_counter_exposed_runs", None)):
+            with self.subTest(key=key):
+                entry = cell()
+                entry[key] = value
+                with self.assertRaises(ValueError):
+                    analyzer.summarize(self.report(entry))
+        entry = cell()
+        entry.pop("baseline_counter_exposed_runs")
+        with self.assertRaisesRegex(ValueError, "missing exposure"):
+            analyzer.summarize(self.report(entry))
+
     def test_bad_battle_metrics_are_rejected(self):
         for key, value in (("encounters", True), ("survived", 3),
                            ("hero_hp_damage", -1), ("turns_completed", False)):
