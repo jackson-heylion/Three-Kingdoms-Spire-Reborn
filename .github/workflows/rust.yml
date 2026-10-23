@@ -56,7 +56,7 @@ jobs:
           print('120 paired Boss duels: structured report and all aggregates verified')
           PY
       - name: Build evidence analyzer regressions
-        run: python3 -m unittest discover -s tests -p 'test_analyze_builds.py' -v
+        run: python3 -m unittest discover -s tests -p 'test_analyze_*.py' -v
       - name: Gherkin BDD acceptance
         run: cargo test --test bdd -- --nocapture
       - name: Release build
@@ -672,6 +672,7 @@ jobs:
             ${{ runner.temp }}/tks-builds.json
             ${{ runner.temp }}/tks-natural-builds.json
             ${{ runner.temp }}/tks-boss-duels.json
+            ${{ runner.temp }}/tks-boss-duel-analysis.json
           retention-days: 30
 
 
@@ -713,5 +714,9 @@ jobs:
           boss_mac=base/'tks-balance-macos-14'/'tks-boss-duels.json'
           assert boss_linux.exists() and boss_mac.exists(), 'Missing Boss duel report'
           assert boss_linux.read_bytes()==boss_mac.read_bytes(), 'OS-specific Boss duel result divergence'
+          analysis_linux=base/'tks-balance-ubuntu-latest'/'tks-boss-duel-analysis.json'
+          analysis_mac=base/'tks-balance-macos-14'/'tks-boss-duel-analysis.json'
+          assert analysis_linux.exists() and analysis_mac.exists(), 'Missing Boss duel analysis'
+          assert analysis_linux.read_bytes()==analysis_mac.read_bytes(), 'OS-specific paired Boss analysis divergence'
           print('Balance, build, natural drafting and Boss duel reports match across OS')
           PY
