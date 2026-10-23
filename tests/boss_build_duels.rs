@@ -201,3 +201,61 @@ fn all_fifteen_curated_plans_have_paired_real_boss_outcomes() {
          total_actions={total_actions}"
     );
 }
+
+
+/// Exploratory follow-up for the negative sun_discard/Zuoci result in the
+/// original four-seed slice. Use NEW seeds shared by all three Sun builds:
+/// the baseline is identical for a given (ascension, seed), so it is run once.
+/// This is 32 independent seed/ascension fixtures, not 96 independent baselines.
+#[test]
+#[ignore = "explicit CI focus: 32 independent seeds x three Sun plans"]
+fn sun_zuoci_independent_seed_pairs() {
+    let plans: Vec<_> = PLANS.iter()
+        .filter(|plan| plan.hero == three_kingdoms_spire_reborn::content::Hero::SunShangxiang)
+        .collect();
+    assert_eq!(plans.len(), 3);
+    let mut cells = Vec::new();
+    for ascension in [0_u8, 10] {
+        for trial in 0..16_u64 {
+            // Disjoint from the original 26_102_400 + plan_index * 1000 seeds.
+            let seed = 26_300_000 + u64::from(ascension) * 100 + trial;
+            let baseline = duel(encounter(plans[0], "zuoci", ascension, seed, false), "zuoci");
+            for plan in &plans {
+                let curated = duel(encounter(plan, "zuoci", ascension, seed, true), "zuoci");
+                cells.push(serde_json::json!({
+                    "plan": plan.id,
+                    "hero": format!("{:?}", plan.hero),
+                    "boss": "zuoci",
+                    "ascension": ascension,
+                    "seed": seed,
+                    "baseline": duel_report(&baseline),
+                    "curated": duel_report(&curated),
+                }));
+            }
+        }
+    }
+    assert_eq!(cells.len(), 3 * 2 * 16);
+    let baseline_wins: usize = cells.iter()
+        .filter(|cell| cell["baseline"]["won"] == true).count();
+    let curated_wins: usize = cells.iter()
+        .filter(|cell| cell["curated"]["won"] == true).count();
+    let report = serde_json::json!({
+        "schema_version": 1,
+        "fixture": "single_floor_one_boss_120hp",
+        "policy": "first_playable",
+        "focus": "sun_zuoci_independent_seeds",
+        "independent_fixtures": 32,
+        "pairs": cells.len(),
+        "baseline_wins": baseline_wins,
+        "curated_wins": curated_wins,
+        "cells": cells,
+    });
+    let path = std::env::var("TKS_SUN_ZUOCI_REPORT")
+        .expect("set TKS_SUN_ZUOCI_REPORT for this explicitly ignored test");
+    let mut bytes = serde_json::to_vec_pretty(&report).expect("serialize focus report");
+    bytes.push(b'\n');
+    std::fs::write(path, bytes).expect("write focus report");
+    eprintln!(
+        "SUN_ZUOCI_FOCUS fixtures=32 pairs=96 baseline_wins={baseline_wins} curated_wins={curated_wins}"
+    );
+}
