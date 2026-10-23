@@ -710,8 +710,8 @@ jobs:
           assert nb_linux.exists() and nb_mac.exists()
           assert nb_linux.read_bytes()==nb_mac.read_bytes(), 'OS-specific natural formation study divergence'
           boss_linux=base/'tks-balance-ubuntu-latest'/'tks-boss-duels.json'
-           boss_mac=base/'tks-balance-macos-14'/'tks-boss-duels.json'
-           assert boss_linux.exists() and boss_mac.exists(), 'Missing Boss duel report'
-           assert boss_linux.read_bytes()==boss_mac.read_bytes(), 'OS-specific Boss duel result divergence'
-           print('Balance, build, natural drafting and Boss duel reports match across OS')
+          boss_mac=base/'tks-balance-macos-14'/'tks-boss-duels.json'
+          assert boss_linux.exists() and boss_mac.exists(), 'Missing Boss duel report'
+          assert boss_linux.read_bytes()==boss_mac.read_bytes(), 'OS-specific Boss duel result divergence'
+          print('Balance, build, natural drafting and Boss duel reports match across OS')
           PY
