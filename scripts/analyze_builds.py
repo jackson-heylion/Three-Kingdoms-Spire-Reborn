@@ -13,7 +13,7 @@ from pathlib import Path
 
 
 def summarize(payload):
-    if payload.get("schema_version") != 1:
+    if not isinstance(payload, dict) or type(payload.get("schema_version")) is not int or payload["schema_version"] != 1:
         raise ValueError("unknown build-balance report schema")
     cells = payload.get("cells")
     if not isinstance(cells, list) or not cells:
@@ -26,7 +26,13 @@ def summarize(payload):
                                       base_damage=0, build_damage=0))
     seen = set()
     for cell in cells:
-        key = (cell["hero"], cell["id"])
+        if not isinstance(cell, dict):
+            raise ValueError("invalid fixture cell object")
+        hero, blueprint = cell.get("hero"), cell.get("id")
+        if not all(isinstance(value, str) and value.strip()
+                   for value in (hero, blueprint)):
+            raise ValueError("invalid hero or blueprint identifier")
+        key = (hero, blueprint)
         asc = cell["ascension"]
         if type(asc) is not int or asc < 0 or asc > 10:
             raise ValueError(f"invalid ascension: {asc}")
@@ -40,6 +46,11 @@ def summarize(payload):
         deaths = cell["counter_last_encounter_deaths"]
         if type(deaths) is not int or not 0 <= deaths <= n:
             raise ValueError(f"invalid counter death count: {key}/{asc}")
+        exposure_keys = ("baseline_counter_exposed_runs",
+                         "blueprint_counter_exposed_runs")
+        if any(field in cell for field in exposure_keys) and not all(
+                field in cell for field in exposure_keys):
+            raise ValueError(f"incomplete paired exposure metrics (missing exposure): {key}/{asc}")
         for side in ("baseline", "blueprint"):
             field = f"{side}_counter_exposed_runs"
             if field in cell:

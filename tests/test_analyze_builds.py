@@ -101,6 +101,37 @@ class BuildEvidenceTests(unittest.TestCase):
             self.assertIn("Coverage warning", output.getvalue())
             self.assertIn("n/a (no asc. 8", output.getvalue())
 
+    def test_schema_must_be_integer_one_and_payload_an_object(self):
+        for payload in (None, [], True, {"schema_version": True, "cells": [cell()]},
+                        {"schema_version": "1", "cells": [cell()]}):
+            with self.subTest(payload=payload):
+                with self.assertRaises(ValueError):
+                    analyzer.summarize(payload)
+
+    def test_cell_must_be_an_object_with_nonblank_string_identity(self):
+        for invalid in (None, [], 12, "not an object"):
+            with self.subTest(cell=invalid):
+                with self.assertRaisesRegex(ValueError, "invalid fixture cell"):
+                    analyzer.summarize({"schema_version": 1, "cells": [invalid]})
+        for field, value in (("hero", []), ("hero", "  "),
+                             ("id", None), ("id", 123), ("id", "")):
+            with self.subTest(field=field, value=value):
+                entry = cell()
+                entry[field] = value
+                with self.assertRaisesRegex(ValueError, "invalid hero or blueprint"):
+                    analyzer.summarize(self.report(entry))
+
+    def test_unpaired_exposure_metrics_are_rejected_even_in_legacy_reports(self):
+        for missing in ("baseline_counter_exposed_runs",
+                        "blueprint_counter_exposed_runs"):
+            entry = cell()
+            for field in ("baseline_counter_battles", "blueprint_counter_battles"):
+                entry.pop(field)
+            entry.pop(missing)
+            with self.subTest(missing=missing):
+                with self.assertRaisesRegex(ValueError, "incomplete paired exposure"):
+                    analyzer.summarize(self.report(entry))
+
     def test_duplicate_cell_is_rejected(self):
         entry = cell()
         with self.assertRaisesRegex(ValueError, "duplicate fixture cell"):
