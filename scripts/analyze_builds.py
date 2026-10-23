@@ -7,9 +7,20 @@ counter enemy is measured on mixed real encounters, NOT an isolated boss
 counterfactual. It cannot establish enemy causality or human win rates.
 """
 import json
+import math
 import sys
 from collections import defaultdict
 from pathlib import Path
+
+
+def exact_paired_pvalue(baseline_only, blueprint_only):
+    """Two-sided exact McNemar/binomial test on discordant same-seed wins."""
+    discordant = baseline_only + blueprint_only
+    if not discordant:
+        return 1.0
+    tail = sum(math.comb(discordant, k)
+               for k in range(min(baseline_only, blueprint_only) + 1))
+    return min(1.0, 2 * tail / (1 << discordant))
 
 
 def summarize(payload):
@@ -23,7 +34,8 @@ def summarize(payload):
                                       high_build=0, counter_deaths=0,
                                       base_battles=0, base_survived=0,
                                       build_battles=0, build_survived=0,
-                                      base_damage=0, build_damage=0))
+                                      base_damage=0, build_damage=0,
+                                      paired_base_only=0, paired_build_only=0))
     seen = set()
     for cell in cells:
         if not isinstance(cell, dict):
@@ -67,7 +79,22 @@ def summarize(payload):
         if all(field in cell for field in metric_keys) and not all(
                 f"{side}_counter_exposed_runs" in cell for side in ("baseline", "blueprint")):
             raise ValueError(f"counter metrics missing exposure denominator: {key}/{asc}")
+        paired_keys = ("paired_baseline_only_wins", "paired_blueprint_only_wins")
+        if any(field in cell for field in paired_keys):
+            if not all(field in cell for field in paired_keys):
+                raise ValueError(f"incomplete paired win outcomes: {key}/{asc}")
+            base_only, build_only = (cell[field] for field in paired_keys)
+            if (type(base_only) is not int or type(build_only) is not int
+                    or base_only < 0 or build_only < 0
+                    or base_only + build_only > n
+                    or b - base_only != c - build_only
+                    or b < base_only or c < build_only
+                    or b + build_only > n):
+                raise ValueError(f"invalid paired win outcomes: {key}/{asc}")
         t = totals[key]
+        if all(field in cell for field in paired_keys):
+            t["paired_base_only"] += base_only
+            t["paired_build_only"] += build_only
         t["n"] += n
         t["base"] += b
         t["build"] += c
@@ -120,6 +147,17 @@ def main(argv):
                     f"{t['high_build']}/{t['high_n']}") if t["high_n"] else "n/a (no asc. 8–10)"
             print(f"{hero} | {bid} | {t['base']}/{t['n']} | "
                   f"{t['build']}/{t['n']} | {delta:+.2f} | {high}")
+    if all("paired_baseline_only_wins" in cell and "paired_blueprint_only_wins" in cell
+           for cell in payload["cells"]):
+        print("\nSame-seed paired wins | Baseline-only | Fixture-only | Exact p (two-sided)")
+        print("--- | ---: | ---: | ---:")
+        for hero in sorted(by_hero):
+            for bid, t in sorted(by_hero[hero]):
+                p = exact_paired_pvalue(t["paired_base_only"], t["paired_build_only"])
+                print(f"{hero} / {bid} | {t['paired_base_only']} | "
+                      f"{t['paired_build_only']} | {p:.4g}")
+        print("Exploratory exact McNemar tests; 15 builds, no multiplicity correction. "
+              "Same seed is not identical battle state or a boss-specific counterfactual.")
     if all("baseline_counter_battles" in cell and "blueprint_counter_battles" in cell
            for cell in payload["cells"]):
         print("\nCounter encounter (mixed-team) | Baseline survived/encounters | "
