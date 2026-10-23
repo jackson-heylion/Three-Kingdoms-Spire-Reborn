@@ -3,7 +3,7 @@
 每一回均对应 `data/chapter_body_audit.tsv` 一行，保存正文来源、**真实审校状态**和游戏场景映射，未读章节不伪造“已审”。
 
 - **120/120**：目录与游戏场景关联可自动核对。
-- **11/120**：第1–11回已按所标维基文库固定底本通读并梳理因果；**尚未对异本、史料逐段校勘**。详见 [第1、2回](CHAPTERS_001_002_READING.md)、[第3回](CHAPTER_003_READING.md)、[第4回](CHAPTER_004_READING.md)、[第5回](CHAPTER_005_READING.md)、[第6回](CHAPTER_006_READING.md)、[第7回](CHAPTER_007_READING.md)、[第8回](CHAPTER_008_READING.md)、[第9回](CHAPTER_009_READING.md)、[第10回](CHAPTER_010_READING.md) 审读记录。
+- **11/120**：第1–11回已按所标维基文库固定底本通读并梳理因果；**尚未对异本、史料逐段校勘**。详见 [第1、2回](CHAPTERS_001_002_READING.md)、[第3回](CHAPTER_003_READING.md)、[第4回](CHAPTER_004_READING.md)、[第5回](CHAPTER_005_READING.md)、[第6回](CHAPTER_006_READING.md)、[第7回](CHAPTER_007_READING.md)、[第8回](CHAPTER_008_READING.md)、[第9回](CHAPTER_009_READING.md)、[第10回](CHAPTER_010_READING.md)、[第11回](CHAPTER_011_READING.md) 审读记录。
 - **3/120**：另有第76、84、95回的正文片段核对；不能计为完整章回审校。
 - **0/120**：完成底本与异本/史料逐段核校；因此**全本正文审校未完成**。
 - 第2回新增关羽 `anxi` 事件：`taoyuan_oath` → `anxi_seal` → 第75回 `jingzhou_warning` → 第76回 `maicheng_supply`，作为跨幕责任链而非原著原话。
