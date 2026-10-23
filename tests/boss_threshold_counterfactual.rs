@@ -1,7 +1,8 @@
 //! Isolated boss *intent* counterfactuals. These are synthetic combat
 //! fixtures, not natural-draft win rates or complete boss matchup evidence.
 use three_kingdoms_spire_reborn::{
-    Action, BossMove, Game, Hero, Intent, Node, Stage,
+    Action, BossMove, Game, Intent, Node, Stage,
+    content::Hero,
 };
 
 const HEROES: [Hero; 5] = [
