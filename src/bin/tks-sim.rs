@@ -806,10 +806,16 @@ struct BuildCell {
     /// Losses where the last recorded live encounter included this enemy.
     /// A run-level exposure denominator is NOT a per-encounter defeat rate.
     counter_last_encounter_deaths:usize,
+    /// Same-seed discordant outcomes, needed for an exact paired comparison.
+    paired_baseline_only_wins:usize,
+    paired_blueprint_only_wins:usize,
     /// True battle-level denominators for nominated counter foes, separately
     /// from the per-run flags above. In mixed enemy teams causality is shared.
     baseline_counter_battles: CounterEncounterMetrics,
     blueprint_counter_battles: CounterEncounterMetrics,
+}
+fn discordant_wins(baseline:bool, blueprint:bool)->(usize,usize) {
+    (usize::from(baseline && !blueprint),usize::from(!baseline && blueprint))
 }
 #[derive(Debug,Serialize)]
 struct BuildBlueprintReport {
@@ -829,6 +835,7 @@ fn build_blueprint_report(samples:usize)->Result<BuildBlueprintReport,String> {
                 baseline_wins:0,blueprint_wins:0,baseline_floor_sum:0,
                 blueprint_floor_sum:0,baseline_counter_exposed_runs:0,
                 blueprint_counter_exposed_runs:0,counter_last_encounter_deaths:0,
+                paired_baseline_only_wins:0,paired_blueprint_only_wins:0,
                 baseline_counter_battles:CounterEncounterMetrics::default(),
                 blueprint_counter_battles:CounterEncounterMetrics::default(),
             };
@@ -842,6 +849,9 @@ fn build_blueprint_report(samples:usize)->Result<BuildBlueprintReport,String> {
                     Policy::Tactical,SunPackage::Standard,None,DeckTreatment::Curated(plan))?;
                 cell.baseline_wins+=usize::from(baseline.won);
                 cell.blueprint_wins+=usize::from(curated.won);
+                let (baseline_only,blueprint_only)=discordant_wins(baseline.won,curated.won);
+                cell.paired_baseline_only_wins+=baseline_only;
+                cell.paired_blueprint_only_wins+=blueprint_only;
                 cell.baseline_floor_sum+=u64::from(baseline.floor);
                 cell.blueprint_floor_sum+=u64::from(curated.floor);
                 // Denominator: unique runs that really saw the named enemy;
@@ -1057,6 +1067,13 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn paired_win_discordance_counts_only_one_sided_victories() {
+        assert_eq!(discordant_wins(false,false),(0,0));
+        assert_eq!(discordant_wins(true,true),(0,0));
+        assert_eq!(discordant_wins(true,false),(1,0));
+        assert_eq!(discordant_wins(false,true),(0,1));
+    }
     #[test]
     fn real_simulation_records_foe_exposure_on_live_battle_snapshots() {
         let outcome=simulate_policy(Hero::GuanYu,20261020,0,Policy::Tactical).unwrap();
