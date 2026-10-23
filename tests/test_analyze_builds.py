@@ -132,6 +132,32 @@ class BuildEvidenceTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "incomplete paired exposure"):
                     analyzer.summarize(self.report(entry))
 
+    def test_exact_paired_discordance_probability(self):
+        self.assertEqual(analyzer.exact_paired_pvalue(0, 0), 1.0)
+        self.assertEqual(analyzer.exact_paired_pvalue(2, 2), 1.0)
+        self.assertEqual(analyzer.exact_paired_pvalue(0, 5), 0.0625)
+        self.assertEqual(analyzer.exact_paired_pvalue(1, 5), 0.21875)
+
+    def test_paired_win_outcome_consistency_and_legacy(self):
+        entry = cell()
+        entry.update(paired_baseline_only_wins=0, paired_blueprint_only_wins=1)
+        grouped, _ = analyzer.summarize(self.report(entry))
+        self.assertEqual(grouped['guan'][0][1]['paired_build_only'], 1)
+        for updates in (
+            {'paired_baseline_only_wins': 1},
+            {'paired_baseline_only_wins': True, 'paired_blueprint_only_wins': 1},
+            {'paired_baseline_only_wins': 2, 'paired_blueprint_only_wins': 0},
+            {'paired_baseline_only_wins': 0, 'paired_blueprint_only_wins': 2},
+            {'paired_baseline_only_wins': -1, 'paired_blueprint_only_wins': 0},
+        ):
+            with self.subTest(updates=updates):
+                invalid = cell()
+                invalid.update(updates)
+                with self.assertRaisesRegex(ValueError, 'paired win outcomes'):
+                    analyzer.summarize(self.report(invalid))
+        grouped, _ = analyzer.summarize(self.report(cell()))
+        self.assertEqual(grouped['guan'][0][1]['paired_build_only'], 0)
+
     def test_duplicate_cell_is_rejected(self):
         entry = cell()
         with self.assertRaisesRegex(ValueError, "duplicate fixture cell"):
