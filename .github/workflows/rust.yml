@@ -21,6 +21,8 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
       - name: Tests
         run: cargo test --all-targets
+      - name: Build evidence analyzer regressions
+        run: python3 -m unittest discover -s tests -p 'test_analyze_builds.py' -v
       - name: Gherkin BDD acceptance
         run: cargo test --test bdd -- --nocapture
       - name: Release build
