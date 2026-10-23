@@ -41,16 +41,21 @@ def summarize(payload):
         if type(deaths) is not int or not 0 <= deaths <= n:
             raise ValueError(f"invalid counter death count: {key}/{asc}")
         for side in ("baseline", "blueprint"):
-            exposed = cell.get(f"{side}_counter_exposed_runs")
-            if exposed is not None and (type(exposed) is not int or not 0 <= exposed <= n):
-                raise ValueError(f"invalid counter exposure count: {key}/{asc}/{side}")
+            field = f"{side}_counter_exposed_runs"
+            if field in cell:
+                exposed = cell[field]
+                if type(exposed) is not int or not 0 <= exposed <= n:
+                    raise ValueError(f"invalid counter exposure count: {key}/{asc}/{side}")
         if any(type(cell[field]) is not int or cell[field] < 0
                for field in ("baseline_floor_sum", "blueprint_floor_sum")):
             raise ValueError(f"invalid floor totals: {key}/{asc}")
         metric_keys = ("baseline_counter_battles", "blueprint_counter_battles")
         if any(field in cell for field in metric_keys) and not all(
-                field in cell for field in metric_keys):
+                isinstance(cell.get(field), dict) for field in metric_keys):
             raise ValueError(f"incomplete paired counter metrics: {key}/{asc}")
+        if all(field in cell for field in metric_keys) and not all(
+                f"{side}_counter_exposed_runs" in cell for side in ("baseline", "blueprint")):
+            raise ValueError(f"counter metrics missing exposure denominator: {key}/{asc}")
         t = totals[key]
         t["n"] += n
         t["base"] += b
