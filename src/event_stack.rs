@@ -89,7 +89,7 @@ impl Stack {
                 // Damage proposals carry raw incoming damage, before enemy armor.
                 // Only known settled sources and living-foe slots can be intercepted.
                 EventKind::DamageDealt =>
-                    r.target.as_deref().is_some_and(|t|t.starts_with("foe:"))
+                    r.target.as_deref().is_some_and(canonical_foe_slot)
                     && matches!(r.source.as_str(),
                         "hero"|"fire"|"poison"|"pierce"|"troops"|"thorns"
                         |"arrows_on_discard"|"feishi"),
