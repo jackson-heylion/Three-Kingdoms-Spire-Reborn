@@ -50,7 +50,7 @@ def summarize(payload):
                          "blueprint_counter_exposed_runs")
         if any(field in cell for field in exposure_keys) and not all(
                 field in cell for field in exposure_keys):
-            raise ValueError(f"incomplete paired exposure metrics: {key}/{asc}")
+            raise ValueError(f"incomplete paired exposure metrics (missing exposure): {key}/{asc}")
         for side in ("baseline", "blueprint"):
             field = f"{side}_counter_exposed_runs"
             if field in cell:
