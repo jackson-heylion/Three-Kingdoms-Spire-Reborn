@@ -20,3 +20,15 @@ cargo test --test boss_build_duels -- --nocapture
 - “首张可出牌”机器人只是机械基线，不是多策略、人类水平或最优战术；每单元仅2种子，不能估算稳定胜率或统计显著性。生命损失按实际 `DamageReceived` 审计事件累计，非净生命变化。
 - 测试禁用人工注入战斗的 `action_history`，不宣称这些合成状态可由初始种子重建；现有完整事件源重建仍未验收。
 - 真人试玩、120回异本史料校勘、完整国际化、全部卡牌/敌军行为树和正式1.0仍未验收。
+
+## 机器可读取的逐组证据（2026-10-24）
+
+在真实 macOS 14、Ubuntu CI 中，单独执行以下命令生成可下载 JSON；未设置环境变量时仍只运行原有测试，不在源码目录写文件：
+
+```bash
+TKS_BOSS_DUEL_REPORT=/tmp/tks-boss-duels.json cargo test --test boss_build_duels -- --nocapture
+```
+
+`tks-balance-macos-14`、`tks-balance-ubuntu-latest` 构建制品增加 `tks-boss-duels.json`。报告 `schema_version=1`，含 `fixture`、`policy`、120组 `cells`，每组保存 `plan`、`hero`、`boss`、`ascension`、`seed`，以及 `baseline` / `curated` 双方的 `won`、`hp_damage`、`phase_seen`、`techniques`、`actions`。顶层保留可复算的胜场、累计承伤、阶段观测、战技次数与行动数。CI 校验每组身份唯一、60个计划×Boss×难度单元各2个种子，所有计数可由逐组记录重新求和，并逐字节比较两平台报告。
+
+**没有凭空填写胜率或预设构筑优势**：具体结果必须读取本次实际成功的 CI 制品。每单元仅2种子，属于合成战场的可复验观察，不满足构筑成熟度、显著性或Boss反制平衡验收。后续扩大种子和策略时需升级实验协议并明确区分历史口径。
