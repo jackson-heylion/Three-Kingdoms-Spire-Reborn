@@ -14,6 +14,7 @@ impl Game {
             self.hero,self.seed,self.ascension,self.mode,self.run_id.clone());
         if self.event_history.is_none() { replayed.event_history=None; }
         if self.resource_history.is_none() { replayed.resource_history=None; }
+        if self.rng_history.is_none() { replayed.rng_history=None; }
         if self.battle_resource_history.is_none() { replayed.battle_resource_history=None; }
         if self.foe_board_history.is_none() { replayed.foe_board_history=None; }
         if self.card_zone_history.is_none() { replayed.card_zone_history=None; }
@@ -41,6 +42,7 @@ impl Game {
             self.mode,self.run_id.clone());
         replay.profile_start_receipt=self.profile_start_receipt;
         if self.resource_history.is_none() { replay.resource_history=None; }
+        if self.rng_history.is_none() { replay.rng_history=None; }
         if self.battle_resource_history.is_none() { replay.battle_resource_history=None; }
         if self.foe_board_history.is_none() { replay.foe_board_history=None; }
         if self.card_zone_history.is_none() { replay.card_zone_history=None; }

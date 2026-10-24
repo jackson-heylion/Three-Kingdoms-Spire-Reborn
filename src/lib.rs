@@ -5,6 +5,7 @@ pub mod builds;
 pub mod combat;
 pub mod event_stack;
 pub mod resource_events;
+pub mod rng_events;
 pub mod combat_resource_events;
 pub mod foe_board_events;
 pub mod card_zone_events;
@@ -268,6 +269,9 @@ pub struct Game {
     pub revision: u64,
     pub seed: u64,
     pub rng_state: u64,
+    /// Action-boundary RNG snapshots; absent in old V2 saves.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rng_history: Option<Vec<rng_events::RngEvent>>,
     pub hero: Hero,
     pub hp: i32,
     pub max_hp: i32,
@@ -377,6 +381,7 @@ impl Game {
         let max_hp = hero.max_hp();
         let mut game = Self {
             version: SAVE_VERSION, revision: 0, seed, rng_state: seed.max(1),
+            rng_history: Some(vec![rng_events::RngEvent::Started { state: seed.max(1) }]),
             hero, hp: max_hp, max_hp, gold: 90, floor: 0, stage: Stage::Map,
             last_node: None, route: vec![], deck: deck.clone(), relics: vec!["军旗".into()],
             potions: 1, battle: None, action_history: Some(vec![]), event_history: Some(vec![]),
@@ -428,6 +433,9 @@ impl Game {
         }
         if self.action_history.as_ref().is_some_and(|actions|actions.len()>50_000) {
             return Err("操作日志长度超限".into());
+        }
+        if self.rng_history.as_ref().is_some_and(|events| events.len()>50_001) {
+            return Err("rng journal exceeds action limit".into());
         }
         if self.resource_history.as_ref().is_some_and(|events| events.len()>50_001) {
             return Err("resource journal exceeds action limit".into());
