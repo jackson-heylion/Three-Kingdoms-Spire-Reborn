@@ -10,6 +10,19 @@ pub struct CampaignProjection {
     pub encounters: Vec<EncounterProjection>,
 }
 
+/// The terminal result is derived solely from BattleEnded, not from Game.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BattleOutcome { Victory, Defeat }
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct OutcomeTotals {
+    pub victories: u64,
+    pub defeats: u64,
+    pub active_encounters: u64,
+    pub cards_played: u64,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EncounterProjection {
     pub encounter: u64,
@@ -30,6 +43,9 @@ pub struct EncounterProjection {
     /// True only when a terminal BattleEnded record was observed.
     #[serde(default)]
     pub closed: bool,
+    /// Old v1 checkpoints have no winner; do not infer one from closed=true.
+    #[serde(default)]
+    pub outcome: Option<BattleOutcome>,
 }
 
 impl EncounterProjection {
@@ -49,7 +65,44 @@ impl EncounterProjection {
             reactions_countered: 0,
             reactions_replaced: 0,
             closed: false,
+            outcome: None,
         }
+    }
+}
+
+impl CampaignProjection {
+    /// Reconstruct recorded terminal results without consulting Game or actions.
+    /// An old checkpoint with closed=true but no outcome is not sufficient.
+    pub fn outcome_totals(&self) -> Result<OutcomeTotals, String> {
+        let mut totals = OutcomeTotals::default();
+        for (index, encounter) in self.encounters.iter().enumerate() {
+            add(&mut totals.cards_played, encounter.cards_played)?;
+            match (encounter.closed, encounter.outcome) {
+                (true, Some(BattleOutcome::Victory)) => add(&mut totals.victories, 1)?,
+                (true, Some(BattleOutcome::Defeat)) => add(&mut totals.defeats, 1)?,
+                (false, None) if index + 1 == self.encounters.len() => {
+                    totals.active_encounters = 1;
+                },
+                (true, None) => return Err("sealed legacy checkpoint lacks battle outcome".into()),
+                _ => return Err("invalid event projection outcome sequence".into()),
+            }
+        }
+        Ok(totals)
+    }
+
+    /// Compare event-derived facts with lifetime telemetry. This is a read-only
+    /// consistency check, not a signature or proof that either source is genuine.
+    pub fn reconcile_telemetry(&self, counters: &crate::CombatCounters,
+                               active_battle: bool) -> Result<(), String> {
+        let totals = self.outcome_totals()?;
+        if counters.battles_started != self.encounters.len() as u64
+            || counters.battles_won != totals.victories
+            || counters.battles_lost != totals.defeats
+            || counters.cards_played != totals.cards_played
+            || active_battle != (totals.active_encounters == 1) {
+            return Err("event outcomes disagree with lifetime combat telemetry".into());
+        }
+        Ok(())
     }
 }
 
@@ -123,6 +176,9 @@ impl CampaignProjector {
             if counted > encounter.events {
                 return Err("invalid event projection checkpoint counters".into());
             }
+            if encounter.outcome.is_some() && !encounter.closed {
+                return Err("checkpoint outcome without battle end seal".into());
+            }
             prior_floor = encounter.floor;
         }
         let last = checkpoint.projection.encounters.last()
@@ -169,6 +225,11 @@ impl CampaignProjector {
                     ("victory", 1) | ("defeat", 0));
                 if !valid { return Err("invalid encounter end seal".into()); }
                 current.closed = true;
+                current.outcome = Some(if record.event.source == "victory" {
+                    BattleOutcome::Victory
+                } else {
+                    BattleOutcome::Defeat
+                });
             },
             _ => {}
         }
