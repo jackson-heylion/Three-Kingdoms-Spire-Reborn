@@ -303,9 +303,10 @@ impl SealedCampaignProjector {
     pub fn resume(checkpoint: ProjectionCheckpoint) -> Result<Self, String> {
         let inner = CampaignProjector::resume(checkpoint)?;
         let encounters = &inner.projection.encounters;
-        if encounters[..encounters.len().saturating_sub(1)]
-            .iter().any(|encounter| !encounter.closed) {
-            return Err("sealed checkpoint contains unfinished earlier encounter".into());
+        if encounters.iter().any(|encounter| encounter.closed && encounter.outcome.is_none())
+            || encounters[..encounters.len().saturating_sub(1)]
+                .iter().any(|encounter| !encounter.closed) {
+            return Err("sealed checkpoint lacks a terminal outcome or earlier seal".into());
         }
         Ok(Self { inner })
     }
@@ -327,8 +328,9 @@ impl SealedCampaignProjector {
     pub fn finish(self) -> Result<CampaignProjection, String> {
         let projection = self.inner.finish();
         if projection.encounters.is_empty()
-            || projection.encounters.iter().any(|encounter| !encounter.closed) {
-            return Err("event archive contains unsealed encounter".into());
+            || projection.encounters.iter().any(|encounter|
+                !encounter.closed || encounter.outcome.is_none()) {
+            return Err("event archive contains an unsealed or outcome-less encounter".into());
         }
         Ok(projection)
     }
