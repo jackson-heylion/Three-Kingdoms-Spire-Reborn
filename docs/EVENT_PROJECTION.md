@@ -49,3 +49,9 @@
 严格模式支持 JSON `ProjectionCheckpoint` 恢复：允许最后一场尚未结束，但**所有更早的战斗必须封口**；含旧式未封口历史战斗的宽松检查点不能被冒充为严格审计结果。新测试验证跨战斗截断即时拒绝、原子失败、封口后续接、未封口末场拒绝，以及旧检查点的严格恢复限制。
 
 仍只重建战斗事实统计，不包含完整 `Game` 权威状态；封口与检查点都不提供签名、防篡改、完整 RNG/牌堆恢复或可信外部锚点。复验：`cargo test --test event_projection`，最终 SHA 的 macOS/Linux CI 全部成功前不合并。
+
+## 2026-10-24：终局事件归约与战功统计只读对账
+
+`BattleEnded` 现在除了标记 `closed`，还在事件投影中保留 `outcome: victory/defeat`。新增 `CampaignProjection::outcome_totals()`，仅凭有序事件归约战斗胜负、已出牌次数及至多一场尚未结束的战斗；`reconcile_telemetry(&CombatCounters, active_battle)` 可与存档的战斗开始/胜负/出牌计数及当前战斗存在性逐项核对。计数溢出、封口与结果矛盾、非末场未封口、旧检查点缺少胜负证据时均明确报错，不能把未知胜负当作胜利。该对账是显式只读 API，不会自动修改存档或战功簿。
+
+兼容性：`ProjectionCheckpoint` 仍为 schema_version=1；旧 JSON 缺少 `outcome` 时可恢复普通统计，但封口仅表明战斗结束，无法推断胜负，故 `outcome_totals()` 拒绝给出完整结果。新检查点保留终局结果。此校验仅比对两个可被同时伪造的数据来源，不是防篡改签名，也不能由事件重建 HP、牌堆、RNG、地图或监听器。旧档与正在进行的战斗不能冒称严格封口完成。新增 `tests/event_outcome_audit.rs`，复验命令：`cargo test --test event_outcome_audit`；最终SHA须通过真实macOS/Linux CI后才可合并。
