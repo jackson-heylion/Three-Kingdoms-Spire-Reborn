@@ -5,6 +5,7 @@ pub mod builds;
 pub mod combat;
 pub mod event_stack;
 pub mod resource_events;
+pub mod combat_resource_events;
 pub mod challenges;
 pub mod content;
 pub mod items;
@@ -285,6 +286,9 @@ pub struct Game {
     /// Old V2 saves omit it; missing history is never fabricated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resource_history: Option<Vec<resource_events::ResourceEvent>>,
+    /// Per-action combat energy/block/turn transitions; absent in legacy V2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub battle_resource_history: Option<Vec<combat_resource_events::BattleResourceEvent>>,
     /// Custom-only stable difficulty switches; omitted in old V2 saves.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub modifiers: Vec<ChallengeModifier>,
@@ -364,7 +368,8 @@ impl Game {
             potions: 1, battle: None, action_history: Some(vec![]), event_history: Some(vec![]),
             resource_history: Some(vec![resource_events::ResourceEvent::Started {
                 state: resource_events::Resources { hp: max_hp, max_hp, gold: 90 },
-            }]), modifiers: vec![], doctrine: None, telemetry: CombatTelemetry::default(), rewards: vec![], market: vec![],
+            }]), battle_resource_history: Some(vec![combat_resource_events::BattleResourceEvent::Started]),
+            modifiers: vec![], doctrine: None, telemetry: CombatTelemetry::default(), rewards: vec![], market: vec![],
             log: vec![format!("{}率部出征，征途由此开始。", hero.name())],
             ascension: ascension.min(10), event_id: 0,
             potion_bag: vec!["healing".into()], shop_relic: None,
@@ -392,6 +397,7 @@ impl Game {
             self.hero,self.seed,self.ascension,self.mode,self.run_id.clone());
         if self.event_history.is_none() { replayed.event_history=None; }
         if self.resource_history.is_none() { replayed.resource_history=None; }
+        if self.battle_resource_history.is_none() { replayed.battle_resource_history=None; }
         // Profile bookkeeping is external to the deterministic action journal.
         // Preserve its persisted receipt while replaying gameplay from the seed.
         replayed.profile_start_receipt = self.profile_start_receipt;
@@ -415,6 +421,7 @@ impl Game {
             self.mode,self.run_id.clone());
         replay.profile_start_receipt=self.profile_start_receipt;
         if self.resource_history.is_none() { replay.resource_history=None; }
+        if self.battle_resource_history.is_none() { replay.battle_resource_history=None; }
         for (i,action) in actions.iter().enumerate() {
             replay.apply(action.clone()).map_err(|e|format!("replay step {}: {e}",i+1))?;
         }
@@ -433,20 +440,6 @@ impl Game {
             return Err("event replay snapshot differs from committed actions".into());
         }
         Ok(history)
-    }
-    /// Reconstruct persistent resources solely from the committed resource
-    /// journal, then compare with the current snapshot. This does not rebuild
-    /// battle energy, cards, enemies, RNG or any other Game state.
-    pub fn audit_resources(&self) -> Result<usize, String> {
-        let history = self.resource_history.as_ref()
-            .ok_or("legacy save has no authoritative resource journal")?;
-        let (state, revision) = resource_events::project(history)?;
-        if state != (resource_events::Resources {
-            hp: self.hp, max_hp: self.max_hp, gold: self.gold,
-        }) || revision != self.revision {
-            return Err("resource journal differs from current game state".into());
-        }
-        Ok(history.len())
     }
     pub fn from_json(raw: &str) -> Result<Self, String> {
         let mut g: Self = serde_json::from_str(raw).map_err(|e| format!("存档解析失败: {e}"))?;
@@ -476,6 +469,9 @@ impl Game {
         }
         if self.resource_history.as_ref().is_some_and(|events| events.len()>50_001) {
             return Err("resource journal exceeds action limit".into());
+        }
+        if self.battle_resource_history.as_ref().is_some_and(|events| events.len()>50_001) {
+            return Err("combat resource journal exceeds action limit".into());
         }
         if self.profile_start_receipt && self.run_id.is_empty() {
             return Err("可恢复战功凭证缺少唯一战役ID".into());
@@ -2510,6 +2506,14 @@ impl Game {
                 max_hp_delta: i64::from(draft.max_hp) - i64::from(self.max_hp),
                 gold_delta: i64::from(draft.gold) - i64::from(self.gold),
             });
+        }
+        if draft.battle_resource_history.is_some() {
+            let event = combat_resource_events::transition(
+                combat_resource_events::BattleResources::current(self),
+                combat_resource_events::BattleResources::current(&draft),
+                draft.revision,
+            )?;
+            draft.battle_resource_history.as_mut().expect("checked above").push(event);
         }
         if let Some(actions)=draft.action_history.as_mut() {
             actions.push(action);
