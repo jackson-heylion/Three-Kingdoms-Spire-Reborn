@@ -2,7 +2,7 @@ use three_kingdoms_spire_reborn::{
     Action, Game, RunMode,
     combat::{CombatEvent, EventKind},
     content::Hero,
-    event_stack::{RunEvent, projection::{CampaignProjection, CampaignProjector, ProjectionCheckpoint, project, project_sealed}},
+    event_stack::{RunEvent, projection::{CampaignProjection, CampaignProjector, ProjectionCheckpoint, SealedCampaignProjector, project, project_sealed}},
 };
 
 fn event(encounter: u64, floor: u8, seq: u64, kind: EventKind, amount: i32) -> RunEvent {
@@ -239,4 +239,51 @@ fn sealed_checkpoint_resumes_only_at_next_encounter() {
     resumed.push(&event(2, 2, 1, EventKind::CardPlayed, 1)).unwrap();
     assert_eq!(resumed.projection().encounters.len(), 2);
     assert!(resumed.projection().encounters[0].closed);
+}
+
+#[test]
+fn strict_stream_rejects_missing_boundary_seal_atomically_and_resumes() {
+    let first = event(1, 1, 1, EventKind::CardPlayed, 1);
+    let mut first_end = event(1, 1, 2, EventKind::BattleEnded, 1);
+    first_end.event.source = "victory".into();
+    let second = event(2, 2, 1, EventKind::EnemyTechnique, 1);
+    let mut second_end = event(2, 2, 2, EventKind::BattleEnded, 0);
+    second_end.event.source = "defeat".into();
+
+    let mut strict = SealedCampaignProjector::new();
+    strict.push(&first).unwrap();
+    let before = strict.checkpoint();
+    assert!(strict.push(&second).is_err()); // no silent truncated first battle
+    assert_eq!(strict.checkpoint(), before);
+    assert!(strict.clone().finish().is_err()); // unfinished final battle
+
+    strict.push(&first_end).unwrap();
+    let serialized = serde_json::to_string(&strict.checkpoint()).unwrap();
+    let checkpoint: ProjectionCheckpoint = serde_json::from_str(&serialized).unwrap();
+    let mut resumed = SealedCampaignProjector::resume(checkpoint).unwrap();
+    resumed.push(&second).unwrap();
+    assert!(resumed.clone().finish().is_err());
+    resumed.push(&second_end).unwrap();
+    assert_eq!(resumed.finish().unwrap(),
+        project_sealed(&[first, first_end, second, second_end]).unwrap());
+}
+
+#[test]
+fn strict_resume_rejects_legacy_checkpoint_with_unsealed_past_battle() {
+    let mut legacy = CampaignProjector::new();
+    legacy.push(&event(1, 1, 1, EventKind::CardPlayed, 1)).unwrap();
+    legacy.push(&event(2, 2, 1, EventKind::EnemyTechnique, 1)).unwrap();
+    let checkpoint = legacy.checkpoint();
+    assert!(CampaignProjector::resume(checkpoint.clone()).is_ok());
+    assert!(SealedCampaignProjector::resume(checkpoint).is_err());
+
+    let mut strict = SealedCampaignProjector::new();
+    strict.push(&event(1, 1, 1, EventKind::CardPlayed, 1)).unwrap();
+    let checkpoint = strict.checkpoint();
+    let mut resumed = SealedCampaignProjector::resume(checkpoint).unwrap();
+    let mut end = event(1, 1, 2, EventKind::BattleEnded, 1);
+    end.event.source = "victory".into();
+    resumed.push(&end).unwrap();
+    assert!(resumed.finish().is_ok());
+    assert!(SealedCampaignProjector::new().finish().is_err());
 }

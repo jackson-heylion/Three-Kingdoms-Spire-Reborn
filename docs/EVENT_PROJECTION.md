@@ -41,3 +41,11 @@
 **限制**：封口不等于防篡改签名。伪造者可同时重写事件和封口；当前没有独立持久化的可信事件链锚点，也没有完整的权威状态事件，仍无法从事件单独恢复`Game`。新战役进行中的战斗不应通过严格封口检查。旧存档不补造封口，不以此声称完整Event Sourcing。
 
 复验：`cargo test --test event_projection` 和 `cargo test encounter_seal_regression`；合并须等待最终SHA真实macOS/Linux CI。
+
+## 2026-10-24：严格流式封口与检查点续接
+
+新增 `SealedCampaignProjector`，保留原 `CampaignProjector` 的旧档宽松读取语义。严格模式在**下一场第一条事件进入时**即拒绝上一场缺失 `BattleEnded`，而非等整个档案归约完才发现；拒绝不推进游标、不修改统计。末场未封口或空档案在 `finish()` 时拒绝。`project_sealed()` 改为复用同一严格流式实现，避免批量与增量的边界规则分叉。
+
+严格模式支持 JSON `ProjectionCheckpoint` 恢复：允许最后一场尚未结束，但**所有更早的战斗必须封口**；含旧式未封口历史战斗的宽松检查点不能被冒充为严格审计结果。新测试验证跨战斗截断即时拒绝、原子失败、封口后续接、未封口末场拒绝，以及旧检查点的严格恢复限制。
+
+仍只重建战斗事实统计，不包含完整 `Game` 权威状态；封口与检查点都不提供签名、防篡改、完整 RNG/牌堆恢复或可信外部锚点。复验：`cargo test --test event_projection`，最终 SHA 的 macOS/Linux CI 全部成功前不合并。
