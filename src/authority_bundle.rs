@@ -1,4 +1,4 @@
-//! Cross-check the four action-boundary authority journals at *every* revision.
+//! Cross-check the five action-boundary authority journals at *every* revision.
 //! This detects mutually inconsistent histories that still project to valid
 //! individual final snapshots. It does not authenticate coordinated tampering
 //! or reconstruct powers, listeners, RNG or intermediate combat events.
@@ -7,6 +7,7 @@ use crate::{
     combat_resource_events::{BattleResourceProjector, BattleResources},
     foe_board_events::{FoeBoard, FoeBoardProjector},
     card_zone_events::{CardZoneProjector, CardZones},
+    combat_effect_events::{BattleEffects, CombatEffectProjector},
     resource_events::{ResourceProjector, Resources},
 };
 
@@ -24,9 +25,13 @@ impl Game {
         let cards = self.card_zone_history.as_ref()
             .ok_or("legacy save has no card zone authority journal")?;
 
+        let effects = self.combat_effect_history.as_ref()
+            .ok_or("legacy save has no combat effect authority journal")?;
+
         let count = resources.len();
         if count == 0 || count > 50_001
             || combat.len() != count || foes.len() != count || cards.len() != count
+            || effects.len() != count
             || usize::try_from(self.revision).ok().and_then(|r| r.checked_add(1)) != Some(count)
         {
             return Err("authority journals disagree on committed revision count".into());
@@ -36,6 +41,7 @@ impl Game {
         let mut combat_projector = BattleResourceProjector::default();
         let mut foe_projector = FoeBoardProjector::default();
         let mut card_projector = CardZoneProjector::default();
+        let mut effect_projector = CombatEffectProjector::default();
 
         for index in 0..count {
             resource_projector.push(&resources[index])
@@ -46,23 +52,26 @@ impl Game {
                 .map_err(|e| format!("enemy boundary {index}: {e}"))?;
             card_projector.push(&cards[index])
                 .map_err(|e| format!("card boundary {index}: {e}"))?;
+            effect_projector.push(&effects[index])
+                .map_err(|e| format!("effect boundary {index}: {e}"))?;
 
             let (_, resource_revision) = resource_projector.state()?;
             let (battle, combat_revision) = combat_projector.state()?;
             let (board, foe_revision) = foe_projector.state()?;
             let (zones, card_revision) = card_projector.state()?;
-            if [resource_revision, combat_revision, foe_revision, card_revision]
+            let (effects, effect_revision) = effect_projector.state()?;
+            if [resource_revision, combat_revision, foe_revision, card_revision, effect_revision]
                 .iter().any(|revision| *revision != index as u64)
             {
                 return Err(format!("authority revision mismatch at boundary {index}"));
             }
-            match (battle, board.as_ref(), zones.battle.as_ref()) {
-                (None, None, None) => {}
-                (Some(b), Some(f), Some(c))
-                    if b.floor == f.floor && b.floor == c.floor
-                        && b.turn == f.turn && b.turn == c.turn => {}
+            match (battle, board.as_ref(), zones.battle.as_ref(), effects.as_ref()) {
+                (None, None, None, None) => {}
+                (Some(b), Some(f), Some(c), Some(e))
+                    if b.floor == f.floor && b.floor == c.floor && b.floor == e.floor
+                        && b.turn == f.turn && b.turn == c.turn && b.turn == e.turn => {}
                 _ => return Err(format!(
-                    "enemy, card and combat lifecycle disagree at boundary {index}"
+                    "enemy, card, effect and combat lifecycle disagree at boundary {index}"
                 )),
             }
         }
@@ -71,10 +80,12 @@ impl Game {
         let (battle, _) = combat_projector.state()?;
         let (board, _) = foe_projector.state()?;
         let (zones, _) = card_projector.state()?;
+        let (effects, _) = effect_projector.state()?;
         if resources != (Resources { hp: self.hp, max_hp: self.max_hp, gold: self.gold })
             || battle != BattleResources::current(self)
             || board != FoeBoard::current(self)
             || zones != CardZones::current(self)
+            || effects != BattleEffects::current(self)
         {
             return Err("authority journals disagree with the current game snapshot".into());
         }
