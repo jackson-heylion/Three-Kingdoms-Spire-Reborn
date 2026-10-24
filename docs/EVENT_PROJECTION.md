@@ -55,3 +55,11 @@
 `BattleEnded` 现在除了标记 `closed`，还在事件投影中保留 `outcome: victory/defeat`。新增 `CampaignProjection::outcome_totals()`，仅凭有序事件归约战斗胜负、已出牌次数及至多一场尚未结束的战斗；`reconcile_telemetry(&CombatCounters, active_battle)` 可与存档的战斗开始/胜负/出牌计数及当前战斗存在性逐项核对。计数溢出、封口与结果矛盾、非末场未封口、旧检查点缺少胜负证据时均明确报错，不能把未知胜负当作胜利。该对账是显式只读 API，不会自动修改存档或战功簿。
 
 兼容性：`ProjectionCheckpoint` 仍为 schema_version=1；旧 JSON 缺少 `outcome` 时可恢复普通统计，但封口仅表明战斗结束，无法推断胜负，故 `outcome_totals()` 拒绝给出完整结果。新检查点保留终局结果。此校验仅比对两个可被同时伪造的数据来源，不是防篡改签名，也不能由事件重建 HP、牌堆、RNG、地图或监听器。旧档与正在进行的战斗不能冒称严格封口完成。新增 `tests/event_outcome_audit.rs`，复验命令：`cargo test --test event_outcome_audit`；最终SHA须通过真实macOS/Linux CI后才可合并。
+
+## 2026-10-24：敌方攻击伤血溯源与统计对账
+
+事件流的 `DamageReceived` 既记录敌军攻击，也记录吕布血价、持久战粮尽等非敌方伤血；而 `CombatCounters.hero_hp_damage` 只累计 `enemy_attack()` 结算伤血。此前 `reconcile_telemetry()` 没有检查这个重要计数，不能直接拿全部 `hero_hp_damage` 对账。
+
+本轮为 `EncounterProjection` 新增 `foe_attack_hp_damage: Option<u64>`，仅对 `foe:0..3` 的已结算 `DamageReceived` 累加，保留原有全部来源的 `hero_hp_damage`。只读对账新增敌方攻击伤血核验，异常明确拒绝；累计使用 checked addition。旧版检查点缺少此字段时保留 `None`，即使恢复后继续收到事件也不能倒推历史，故旧检查点的伤血对账明确失败，避免把未知历史冒充已验证。恢复时拒绝敌方攻击伤血超过全部伤血的矛盾统计。
+
+新增 `tests/event_damage_telemetry_audit.rs`：合成来源混合、错账拒绝、旧检查点保守恢复、伪造计数拒绝、真实战斗敌方攻击与V2往返。此增量仍不恢复HP当前值、牌堆、RNG或其他权威状态，不提供可信来源签名，也不代表P1完成。复验：`cargo test --test event_damage_telemetry_audit` 及最终HEAD双平台CI。

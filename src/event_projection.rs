@@ -34,6 +34,10 @@ pub struct EncounterProjection {
     pub foe_hp_damage: u64,
     /// Settled damage to hero HP after block and troop interception.
     pub hero_hp_damage: u64,
+    /// Only HP loss from actual foe attacks; excludes blood price and attrition.
+    /// None means a legacy checkpoint did not track this split.
+    #[serde(default)]
+    pub foe_attack_hp_damage: Option<u64>,
     pub cards_played: u64,
     pub foes_defeated: u64,
     pub foes_summoned: u64,
@@ -58,6 +62,7 @@ impl EncounterProjection {
             events: 0,
             foe_hp_damage: 0,
             hero_hp_damage: 0,
+            foe_attack_hp_damage: Some(0),
             cards_played: 0,
             foes_defeated: 0,
             foes_summoned: 0,
@@ -95,10 +100,20 @@ impl CampaignProjection {
     pub fn reconcile_telemetry(&self, counters: &crate::CombatCounters,
                                active_battle: bool) -> Result<(), String> {
         let totals = self.outcome_totals()?;
+        // CombatCounters.hero_hp_damage tracks enemy attacks only. Other
+        // DamageReceived events (blood price, supply exhaustion) still count
+        // toward the broader event-derived hero_hp_damage statistic.
+        let foe_damage = self.encounters.iter().try_fold(0u64, |total, encounter| {
+            let damage = encounter.foe_attack_hp_damage.ok_or_else(||
+                "legacy checkpoint lacks foe attack damage provenance".to_string())?;
+            total.checked_add(damage).ok_or_else(||
+                "event projection counter overflow".to_string())
+        })?;
         if counters.battles_started != self.encounters.len() as u64
             || counters.battles_won != totals.victories
             || counters.battles_lost != totals.defeats
             || counters.cards_played != totals.cards_played
+            || counters.hero_hp_damage != foe_damage
             || active_battle != (totals.active_encounters == 1) {
             return Err("event outcomes disagree with lifetime combat telemetry".into());
         }
@@ -179,6 +194,9 @@ impl CampaignProjector {
             if encounter.outcome.is_some() && !encounter.closed {
                 return Err("checkpoint outcome without battle end seal".into());
             }
+            if encounter.foe_attack_hp_damage.is_some_and(|n| n > encounter.hero_hp_damage) {
+                return Err("checkpoint foe attack damage exceeds total hero damage".into());
+            }
             prior_floor = encounter.floor;
         }
         let last = checkpoint.projection.encounters.last()
@@ -211,8 +229,18 @@ impl CampaignProjector {
         match record.event.kind {
             EventKind::DamageDealt =>
                 add(&mut current.foe_hp_damage, settled_damage(record)?)?,
-            EventKind::DamageReceived =>
-                add(&mut current.hero_hp_damage, settled_damage(record)?)?,
+            EventKind::DamageReceived => {
+                let damage = settled_damage(record)?;
+                add(&mut current.hero_hp_damage, damage)?;
+                // Only the four canonical foe slots represent attacks counted
+                // by CombatCounters.hero_hp_damage. Never infer this from a
+                // generic DamageReceived event or an untrusted prefix alone.
+                if matches!(record.event.source.as_str(),
+                    "foe:0" | "foe:1" | "foe:2" | "foe:3")
+                    && let Some(counter) = &mut current.foe_attack_hp_damage {
+                        add(counter, damage)?;
+                    }
+            },
             EventKind::CardPlayed => add(&mut current.cards_played, 1)?,
             EventKind::FoeDefeated => add(&mut current.foes_defeated, 1)?,
             EventKind::FoeSummoned => add(&mut current.foes_summoned, 1)?,
