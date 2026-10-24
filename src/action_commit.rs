@@ -5,7 +5,7 @@
 mod authority_bundle;
 
 use crate::{
-    Action, Game, card_zone_events, combat_effect_events, combat_resource_events, foe_board_events, resource_events,
+    Action, Game, card_zone_events, combat_effect_events, combat_resource_events, foe_board_events, resource_events, rng_events,
 };
 
 impl Game {
@@ -26,6 +26,12 @@ impl Game {
                 hp_delta: i64::from(draft.hp) - i64::from(self.hp),
                 max_hp_delta: i64::from(draft.max_hp) - i64::from(self.max_hp),
                 gold_delta: i64::from(draft.gold) - i64::from(self.gold),
+            });
+        }
+        if let Some(history) = draft.rng_history.as_mut() {
+            history.push(rng_events::RngEvent::Committed {
+                revision: draft.revision,
+                state: draft.rng_state,
             });
         }
         let combat_event = if draft.battle_resource_history.is_some() {
