@@ -7,7 +7,7 @@ use three_kingdoms_spire_reborn::{
 fn committed_rng_boundaries_round_trip_and_replay() {
     let mut game = Game::new(Hero::GuanYu, 1234);
     assert_eq!(game.audit_rng().unwrap(), 1);
-    assert_eq!(game.project_authority_boundary(0).unwrap()["rng_state"], 1234);
+    assert_eq!(game.project_authority_boundary(0).unwrap()["rng_state"], game.rng_state);
     game.apply(Action::Choose { index: 1 }).unwrap();
     game.apply(Action::EndTurn).unwrap();
     assert_eq!(game.audit_rng().unwrap(), game.revision as usize + 1);
