@@ -2507,13 +2507,17 @@ impl Game {
                 gold_delta: i64::from(draft.gold) - i64::from(self.gold),
             });
         }
-        if draft.battle_resource_history.is_some() {
-            let event = combat_resource_events::transition(
+        let combat_event = if draft.battle_resource_history.is_some() {
+            Some(combat_resource_events::transition(
                 combat_resource_events::BattleResources::current(self),
                 combat_resource_events::BattleResources::current(&draft),
                 draft.revision,
-            )?;
-            draft.battle_resource_history.as_mut().expect("checked above").push(event);
+            )?)
+        } else {
+            None
+        };
+        if let (Some(history), Some(event)) = (draft.battle_resource_history.as_mut(), combat_event) {
+            history.push(event);
         }
         if let Some(actions)=draft.action_history.as_mut() {
             actions.push(action);
