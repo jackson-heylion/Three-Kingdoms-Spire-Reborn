@@ -7,7 +7,12 @@ use crate::{
 impl Game {
     /// Rejected actions leave live state, RNG, revision and all journals intact.
     pub fn apply(&mut self, action: Action) -> Result<Vec<String>, String> {
+        // Do not clone the growing card journal on every action: that would
+        // make a long campaign quadratic in its recorded card snapshots.
+        // Restore the live journal before any fallible game operation.
+        let card_history = self.card_zone_history.take();
         let mut draft = self.clone();
+        self.card_zone_history = card_history;
         let messages = draft.apply_unchecked(action.clone())?;
         if let Some(history) = draft.resource_history.as_mut() {
             history.push(resource_events::ResourceEvent::Changed {
@@ -41,7 +46,7 @@ impl Game {
         if let (Some(history), Some(event)) = (draft.foe_board_history.as_mut(), foe_event) {
             history.push(event);
         }
-        let card_event = if draft.card_zone_history.is_some() {
+        let card_event = if self.card_zone_history.is_some() {
             Some(card_zone_events::transition(
                 &card_zone_events::CardZones::current(self),
                 &card_zone_events::CardZones::current(&draft),
@@ -50,13 +55,19 @@ impl Game {
         } else {
             None
         };
-        if let (Some(history), Some(event)) = (draft.card_zone_history.as_mut(), card_event) {
-            history.push(event);
-        }
         if let Some(actions) = draft.action_history.as_mut() {
             actions.push(action);
         }
         draft.validate()?;
+        if let Some(event) = card_event {
+            if self.card_zone_history.as_ref().is_some_and(|history| history.len() >= 50_001) {
+                return Err("card zone journal exceeds action limit".into());
+            }
+            // No fallible work after moving the journal into the validated draft.
+            let mut history = self.card_zone_history.take().expect("checked card journal");
+            history.push(event);
+            draft.card_zone_history = Some(history);
+        }
         *self = draft;
         Ok(messages)
     }
