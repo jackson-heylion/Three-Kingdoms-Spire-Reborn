@@ -36,36 +36,88 @@ fn advance(value: i32, delta: i64) -> Result<i32, String> {
         .map_err(|_| "resource event outside i32 range".into())
 }
 
+/// Portable checkpoint of the committed resource projection. It is not a
+/// cryptographic signature and does not authenticate omitted history.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceCheckpoint {
+    pub version: u32,
+    pub state: Resources,
+    pub revision: u64,
+}
+
+pub const RESOURCE_CHECKPOINT_VERSION: u32 = 1;
+
+/// Incremental, atomic reducer for authoritative persistent resource events.
+/// A failed push leaves both the committed state and revision unchanged.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ResourceProjector {
+    state: Option<Resources>,
+    revision: u64,
+}
+
+impl ResourceProjector {
+    pub fn push(&mut self, event: &ResourceEvent) -> Result<(), String> {
+        match event {
+            ResourceEvent::Started { state } => {
+                if self.state.is_some() {
+                    return Err("duplicate resource journal start".into());
+                }
+                if !state.valid() {
+                    return Err("invalid initial resource state".into());
+                }
+                self.state = Some(*state);
+            }
+            ResourceEvent::Changed {
+                revision: next, hp_delta, max_hp_delta, gold_delta,
+            } => {
+                let current = self.state.ok_or("resource journal missing initial authority state")?;
+                if self.revision.checked_add(1) != Some(*next) {
+                    return Err("gap or duplicate resource journal revision".into());
+                }
+                let candidate = Resources {
+                    hp: advance(current.hp, *hp_delta)?,
+                    max_hp: advance(current.max_hp, *max_hp_delta)?,
+                    gold: advance(current.gold, *gold_delta)?,
+                };
+                if !candidate.valid() {
+                    return Err("invalid resource state after event".into());
+                }
+                self.state = Some(candidate);
+                self.revision = *next;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn state(&self) -> Result<(Resources, u64), String> {
+        Ok((self.state.ok_or("resource journal missing initial authority state")?, self.revision))
+    }
+
+    pub fn checkpoint(&self) -> Result<ResourceCheckpoint, String> {
+        let (state, revision) = self.state()?;
+        Ok(ResourceCheckpoint { version: RESOURCE_CHECKPOINT_VERSION, state, revision })
+    }
+
+    /// Resume at the exact next revision. The caller must trust the checkpoint
+    /// provenance; a valid checkpoint cannot prove the discarded prefix.
+    pub fn resume(checkpoint: ResourceCheckpoint) -> Result<Self, String> {
+        if checkpoint.version != RESOURCE_CHECKPOINT_VERSION {
+            return Err("unsupported resource checkpoint version".into());
+        }
+        if !checkpoint.state.valid() {
+            return Err("invalid resource checkpoint state".into());
+        }
+        Ok(Self { state: Some(checkpoint.state), revision: checkpoint.revision })
+    }
+}
+
 /// Reconstruct HP, maximum HP and gold without Game, seed or action history.
-/// A self-consistent forged journal is not authenticated by this reducer.
+/// Batch and streaming reduction share identical continuity and state rules.
 pub fn project(events: &[ResourceEvent]) -> Result<(Resources, u64), String> {
-    let Some(ResourceEvent::Started { state }) = events.first() else {
-        return Err("resource journal missing initial authority state".into());
-    };
-    if !state.valid() {
-        return Err("invalid initial resource state".into());
+    let mut projector = ResourceProjector::default();
+    for event in events {
+        projector.push(event)?;
     }
-    let mut state = *state;
-    let mut revision = 0u64;
-    for event in events.iter().skip(1) {
-        let ResourceEvent::Changed {
-            revision: next, hp_delta, max_hp_delta, gold_delta,
-        } = event else {
-            return Err("duplicate resource journal start".into());
-        };
-        if revision.checked_add(1) != Some(*next) {
-            return Err("gap or duplicate resource journal revision".into());
-        }
-        let candidate = Resources {
-            hp: advance(state.hp, *hp_delta)?,
-            max_hp: advance(state.max_hp, *max_hp_delta)?,
-            gold: advance(state.gold, *gold_delta)?,
-        };
-        if !candidate.valid() {
-            return Err("invalid resource state after event".into());
-        }
-        state = candidate;
-        revision = *next;
-    }
-    Ok((state, revision))
+    projector.state()
 }
