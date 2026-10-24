@@ -1,5 +1,9 @@
 //! The single atomic commit boundary for every successful game action.
 //! Journals are appended only on a validated draft, never on the live state.
+// Keep the explicit cross-journal audit separate from the atomic write path.
+#[path = "authority_bundle.rs"]
+mod authority_bundle;
+
 use crate::{
     Action, Game, card_zone_events, combat_resource_events, foe_board_events, resource_events,
 };
