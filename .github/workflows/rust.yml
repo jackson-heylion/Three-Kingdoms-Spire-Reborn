@@ -112,6 +112,47 @@ jobs:
           print('32 unique seeds, 96 paired plan outcomes, baseline equivalence and counts verified')
           PY
 
+      - name: Sun discard policy sensitivity on identical Zuoci seeds
+        shell: bash
+        run: |
+          TKS_DISCARD_POLICY_REPORT="$RUNNER_TEMP/tks-discard-policy.json" cargo test --test boss_build_duels sun_zuoci_discard_policy_sensitivity -- --ignored --nocapture
+          python3 - <<'PY'
+          import json, os, pathlib
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'tks-discard-policy.json'
+          report = json.loads(path.read_text())
+          assert report['schema_version'] == 1
+          assert report['fixture'] == 'single_floor_one_boss_120hp'
+          assert report['focus'] == 'sun_discard_zuoci_policy_sensitivity'
+          assert report['paired_conditions'] == 32
+          cells = report['cells']
+          assert len(cells) == 32
+          assert {(c['ascension'], c['seed']) for c in cells} == {
+              (asc, 26_300_000 + asc * 100 + i) for asc in (0, 10) for i in range(16)
+          }
+          assert all(c['plan'] == 'sun_discard' for c in cells)
+          for c in cells:
+              for policy in ('first_playable', 'discard_aware'):
+                  side = c[policy]
+                  outcome = side['outcome']
+                  assert type(outcome['won']) is bool and type(outcome['phase_seen']) is bool
+                  assert all(type(outcome[k]) is int and outcome[k] >= 0
+                             for k in ('hp_damage', 'techniques', 'actions'))
+                  assert outcome['actions'] > 0
+                  assert all(type(side[k]) is int and side[k] >= 0
+                             for k in ('discard_actions', 'arrows_triggers'))
+              assert c['first_playable']['discard_actions'] == 0
+          aware_discards = sum(c['discard_aware']['discard_actions'] for c in cells)
+          assert aware_discards > 0, 'new policy never exercised discard mechanic'
+          for policy in ('first_playable', 'discard_aware'):
+              wins = sum(c[policy]['outcome']['won'] for c in cells)
+              discards = sum(c[policy]['discard_actions'] for c in cells)
+              arrows = sum(c[policy]['arrows_triggers'] for c in cells)
+              damage = sum(c[policy]['outcome']['hp_damage'] for c in cells)
+              print(f'SUN_DISCARD_POLICY policy={policy} wins={wins}/32 '
+                    f'discards={discards} arrows_triggers={arrows} gross_hp_damage={damage}')
+          print('32 same-deck same-seed policy pairs validated; no win-rate threshold imposed')
+          PY
+
       - name: Build evidence analyzer regressions
         run: python3 -m unittest discover -s tests -p 'test_analyze_*.py' -v
       - name: Gherkin BDD acceptance
@@ -731,6 +772,7 @@ jobs:
             ${{ runner.temp }}/tks-boss-duels.json
             ${{ runner.temp }}/tks-boss-duel-analysis.json
             ${{ runner.temp }}/tks-sun-zuoci.json
+            ${{ runner.temp }}/tks-discard-policy.json
           retention-days: 30
 
 
@@ -780,5 +822,9 @@ jobs:
           focus_mac=base/'tks-balance-macos-14'/'tks-sun-zuoci.json'
           assert focus_linux.exists() and focus_mac.exists(), 'Missing focused Sun/Zuoci report'
           assert focus_linux.read_bytes()==focus_mac.read_bytes(), 'OS-specific Sun/Zuoci focus divergence'
+          policy_linux=base/'tks-balance-ubuntu-latest'/'tks-discard-policy.json'
+          policy_mac=base/'tks-balance-macos-14'/'tks-discard-policy.json'
+          assert policy_linux.exists() and policy_mac.exists(), 'Missing discard policy report'
+          assert policy_linux.read_bytes()==policy_mac.read_bytes(), 'OS-specific discard policy divergence'
           print('Balance, build, natural drafting and Boss duel reports match across OS')
           PY

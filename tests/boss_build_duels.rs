@@ -14,6 +14,8 @@ struct Duel {
     phase_seen: bool,
     techniques: usize,
     actions: usize,
+    discard_actions: usize,
+    arrows_triggers: usize,
 }
 
 fn duel_report(outcome: &Duel) -> serde_json::Value {
@@ -67,10 +69,27 @@ fn encounter(plan: &BuildPlan, boss: &str, ascension: u8, seed: u64, curated: bo
 
 /// Reuse the first-playable policy semantics of tks-sim, with a hard cap on
 /// zero-cost loops. This is a deterministic bot, not a human strategy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DuelPolicy { FirstPlayable, DiscardAware }
+
 fn next_action(game: &Game) -> Action {
+    next_action_with_policy(game, DuelPolicy::FirstPlayable)
+}
+
+fn next_action_with_policy(game: &Game, policy: DuelPolicy) -> Action {
     let battle = game.battle.as_ref().expect("combat");
     if battle.played_this_turn >= 36 {
         return Action::EndTurn;
+    }
+    if policy == DuelPolicy::DiscardAware && battle.discard_tokens > 0 {
+        // Discard the card whose effect is explicitly stronger on discard;
+        // remove unplayable curses before spending energy on normal cards.
+        if let Some(index) = battle.hand.iter().position(|card|
+            card.id == "feishi" || card_spec(&card.id)
+                .is_some_and(|spec| matches!(spec.effect, Effect::Unplayable)))
+        {
+            return Action::Discard { index: index + 1 };
+        }
     }
     let target = battle.foes.iter().position(|foe| foe.hp > 0)
         .map_or(1, |index| index + 1);
@@ -85,17 +104,29 @@ fn next_action(game: &Game) -> Action {
             return Action::Play { index: index + 1, target };
         }
     }
+    if policy == DuelPolicy::DiscardAware
+        && battle.discard_tokens > 0 && !battle.hand.is_empty()
+    {
+        return Action::Discard { index: battle.hand.len() };
+    }
     Action::EndTurn
 }
 
-fn duel(mut game: Game, boss: &str) -> Duel {
+fn duel(game: Game, boss: &str) -> Duel {
+    duel_with_policy(game, boss, DuelPolicy::FirstPlayable)
+}
+
+fn duel_with_policy(mut game: Game, boss: &str, policy: DuelPolicy) -> Duel {
     let mut hp_damage = 0_u64;
     let mut phase_seen = false;
     let mut techniques = 0_usize;
+    let mut discard_actions = 0_usize;
+    let mut arrows_triggers = 0_usize;
     for step in 0..800 {
         assert_eq!(game.stage, Stage::Combat, "duel ended before evaluation");
         let history_len = game.event_history.as_ref().expect("full audit stream").len();
-        let action = next_action(&game);
+        let action = next_action_with_policy(&game, policy);
+        if matches!(action, Action::Discard { .. }) { discard_actions += 1; }
         game.apply(action).unwrap_or_else(|error| panic!(
             "{boss} turn {:?} action {step}: {error}",
             game.battle.as_ref().map(|battle| battle.turn),
@@ -110,6 +141,11 @@ fn duel(mut game: Game, boss: &str) -> Duel {
             if event.event.kind == EventKind::EnemyTechnique && event.event.source == boss {
                 techniques += 1;
             }
+            if event.event.kind == EventKind::PowerTriggered
+                && event.event.source == "arrows_on_discard"
+            {
+                arrows_triggers += 1;
+            }
         }
         phase_seen |= game.battle.as_ref().is_some_and(|battle|
             battle.foes.iter().any(|foe| foe.id == boss && foe.phase > 0));
@@ -123,6 +159,8 @@ fn duel(mut game: Game, boss: &str) -> Duel {
                 phase_seen,
                 techniques,
                 actions: step + 1,
+                discard_actions,
+                arrows_triggers,
             };
         }
         if step % 31 == 0 {
@@ -258,4 +296,80 @@ fn sun_zuoci_independent_seed_pairs() {
     eprintln!(
         "SUN_ZUOCI_FOCUS fixtures=32 pairs=96 baseline_wins={baseline_wins} curated_wins={curated_wins}"
     );
+}
+
+#[test]
+fn discard_policy_chooses_legal_discard_without_wasting_zero_cost_setup() {
+    let plan = PLANS.iter().find(|p| p.id == "sun_discard").expect("Sun plan");
+    let mut game = encounter(plan, "zuoci", 0, 26_300_000, true);
+    {
+        let b = game.battle.as_mut().expect("combat");
+        b.hand = vec![Card::new("feishi"), Card::new("strike")];
+        b.discard_tokens = 0;
+    }
+    assert!(matches!(next_action(&game), Action::Play { index: 1, .. }));
+    assert!(matches!(next_action_with_policy(&game, DuelPolicy::DiscardAware),
+        Action::Play { index: 1, .. }));
+    game.battle.as_mut().unwrap().discard_tokens = 1;
+    assert!(matches!(next_action_with_policy(&game, DuelPolicy::DiscardAware),
+        Action::Discard { index: 1 }));
+    {
+        let b = game.battle.as_mut().unwrap();
+        b.hand = vec![Card::new("jiecang"), Card::new("strike")];
+        b.energy = 0;
+    }
+    assert!(matches!(next_action_with_policy(&game, DuelPolicy::DiscardAware),
+        Action::Play { index: 1, .. }));
+    game.battle.as_mut().unwrap().hand.remove(0);
+    assert!(matches!(next_action_with_policy(&game, DuelPolicy::DiscardAware),
+        Action::Discard { index: 1 }));
+    game.battle.as_mut().unwrap().discard_tokens = 0;
+    assert!(matches!(next_action_with_policy(&game, DuelPolicy::DiscardAware),
+        Action::EndTurn));
+}
+
+/// Same injected Sun discard deck, identical seed and Boss. Only policy differs.
+/// This is a policy sensitivity experiment, not a new balance claim.
+#[test]
+#[ignore = "explicit CI policy sensitivity: 32 paired Sun/Zuoci fights"]
+fn sun_zuoci_discard_policy_sensitivity() {
+    let plan = PLANS.iter().find(|p| p.id == "sun_discard").expect("Sun plan");
+    let mut cells = Vec::new();
+    for ascension in [0_u8, 10] {
+        for trial in 0..16_u64 {
+            let seed = 26_300_000 + u64::from(ascension) * 100 + trial;
+            let first = duel(encounter(plan, "zuoci", ascension, seed, true), "zuoci");
+            let aware = duel_with_policy(
+                encounter(plan, "zuoci", ascension, seed, true),
+                "zuoci", DuelPolicy::DiscardAware,
+            );
+            assert_eq!(first.discard_actions, 0, "first_playable unexpectedly discarded");
+            cells.push(serde_json::json!({
+                "ascension": ascension, "seed": seed, "plan": plan.id,
+                "first_playable": {
+                    "outcome": duel_report(&first),
+                    "discard_actions": first.discard_actions,
+                    "arrows_triggers": first.arrows_triggers,
+                },
+                "discard_aware": {
+                    "outcome": duel_report(&aware),
+                    "discard_actions": aware.discard_actions,
+                    "arrows_triggers": aware.arrows_triggers,
+                }
+            }));
+        }
+    }
+    assert_eq!(cells.len(), 32);
+    let path = std::env::var("TKS_DISCARD_POLICY_REPORT")
+        .expect("set TKS_DISCARD_POLICY_REPORT for explicitly ignored test");
+    let report = serde_json::json!({
+        "schema_version": 1,
+        "fixture": "single_floor_one_boss_120hp",
+        "focus": "sun_discard_zuoci_policy_sensitivity",
+        "paired_conditions": 32,
+        "cells": cells,
+    });
+    let mut bytes = serde_json::to_vec_pretty(&report).expect("serialize policy report");
+    bytes.push(b'\n');
+    std::fs::write(path, bytes).expect("write policy report");
 }
