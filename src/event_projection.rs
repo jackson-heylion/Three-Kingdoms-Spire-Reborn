@@ -198,8 +198,8 @@ pub fn project(events: &[RunEvent]) -> Result<CampaignProjection, String> {
 }
 
 
-//// Strict, restartable journal consumer. Unlike the legacy projector, it
-//// refuses to cross a battle boundary without a terminal BattleEnded event.
+// Strict, restartable journal consumer. Unlike the legacy projector, it
+// refuses to cross a battle boundary without a terminal BattleEnded event.
 /// A checkpoint may end mid-battle; all earlier encounters must be sealed.
 #[derive(Clone, Debug, Default)]
 pub struct SealedCampaignProjector {
