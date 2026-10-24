@@ -63,3 +63,9 @@
 本轮为 `EncounterProjection` 新增 `foe_attack_hp_damage: Option<u64>`，仅对 `foe:0..3` 的已结算 `DamageReceived` 累加，保留原有全部来源的 `hero_hp_damage`。只读对账新增敌方攻击伤血核验，异常明确拒绝；累计使用 checked addition。旧版检查点缺少此字段时保留 `None`，即使恢复后继续收到事件也不能倒推历史，故旧检查点的伤血对账明确失败，避免把未知历史冒充已验证。恢复时拒绝敌方攻击伤血超过全部伤血的矛盾统计。
 
 新增 `tests/event_damage_telemetry_audit.rs`：合成来源混合、错账拒绝、旧检查点保守恢复、伪造计数拒绝、真实战斗敌方攻击与V2往返。此增量仍不恢复HP当前值、牌堆、RNG或其他权威状态，不提供可信来源签名，也不代表P1完成。复验：`cargo test --test event_damage_telemetry_audit` 及最终HEAD双平台CI。
+
+## 2026-10-25：严格检查点的终局结果约束
+
+旧统计检查点可能已标记 closed=true，却缺少 outcome 胜负结果。宽松归约器继续允许读取此类旧数据；严格的 SealedCampaignProjector::resume 与 finish 现在要求所有已封口战斗具备明确胜负结果。进行中的最后一场允许续接，但不能作为完整档案验收。新增 Rust 集成回归测试，防止未知终局被误认为严格完整。
+
+这仅是事件统计检查点的验证补强，不是可信事件签名、完整 Game 重建或 P1 验收。须以最终 SHA 的 macOS/Linux CI 为准。
