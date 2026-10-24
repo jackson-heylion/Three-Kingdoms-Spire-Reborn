@@ -197,14 +197,62 @@ pub fn project(events: &[RunEvent]) -> Result<CampaignProjection, String> {
     Ok(projector.finish())
 }
 
+
+//// Strict, restartable journal consumer. Unlike the legacy projector, it
+//// refuses to cross a battle boundary without a terminal BattleEnded event.
+/// A checkpoint may end mid-battle; all earlier encounters must be sealed.
+#[derive(Clone, Debug, Default)]
+pub struct SealedCampaignProjector {
+    inner: CampaignProjector,
+}
+
+impl SealedCampaignProjector {
+    pub fn new() -> Self { Self::default() }
+
+    /// Resume a strict stream. Legacy checkpoints containing unfinished
+    /// earlier encounters cannot be promoted into strict audit evidence.
+    pub fn resume(checkpoint: ProjectionCheckpoint) -> Result<Self, String> {
+        let inner = CampaignProjector::resume(checkpoint)?;
+        let encounters = &inner.projection.encounters;
+        if encounters[..encounters.len().saturating_sub(1)]
+            .iter().any(|encounter| !encounter.closed) {
+            return Err("sealed checkpoint contains unfinished earlier encounter".into());
+        }
+        Ok(Self { inner })
+    }
+
+    pub fn projection(&self) -> &CampaignProjection { self.inner.projection() }
+    pub fn checkpoint(&self) -> ProjectionCheckpoint { self.inner.checkpoint() }
+
+    /// Reject a missing end seal as soon as the next encounter arrives.
+    /// A rejected event does not change the cursor or any accumulated totals.
+    pub fn push(&mut self, record: &RunEvent) -> Result<(), String> {
+        if self.inner.projection.encounters.last().is_some_and(|last|
+            last.encounter != record.encounter && !last.closed) {
+            return Err("unsealed encounter before next encounter".into());
+        }
+        self.inner.push(record)
+    }
+
+    /// A strict stream is complete only when nonempty and fully sealed.
+    pub fn finish(self) -> Result<CampaignProjection, String> {
+        let projection = self.inner.finish();
+        if projection.encounters.is_empty()
+            || projection.encounters.iter().any(|encounter| !encounter.closed) {
+            return Err("event archive contains unsealed encounter".into());
+        }
+        Ok(projection)
+    }
+}
+
 /// Require an explicit terminal event for every encounter. Unlike the legacy
 /// `project` entry point, this rejects missing tails, including a truncated
 /// last encounter. It does not authenticate a forged, self-consistent journal.
 /// Old V2 archives without BattleEnded remain supported by `project` only.
 pub fn project_sealed(events: &[RunEvent]) -> Result<CampaignProjection, String> {
-    let projection = project(events)?;
-    if projection.encounters.is_empty() || projection.encounters.iter().any(|e| !e.closed) {
-        return Err("event archive contains unsealed encounter".into());
+    let mut projector = SealedCampaignProjector::new();
+    for record in events {
+        projector.push(record)?;
     }
-    Ok(projection)
+    projector.finish()
 }
