@@ -7,6 +7,8 @@ pub mod event_stack;
 pub mod resource_events;
 pub mod combat_resource_events;
 pub mod foe_board_events;
+pub mod card_zone_events;
+mod action_commit;
 pub mod challenges;
 pub mod content;
 pub mod items;
@@ -293,6 +295,9 @@ pub struct Game {
     /// Full committed enemy board at each action boundary; absent in legacy V2.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub foe_board_history: Option<Vec<foe_board_events::FoeBoardEvent>>,
+    /// Ordered card zones at successful action boundaries; absent in old V2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card_zone_history: Option<Vec<card_zone_events::CardZoneEvent>>, 
     /// Custom-only stable difficulty switches; omitted in old V2 saves.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub modifiers: Vec<ChallengeModifier>,
@@ -368,12 +373,13 @@ impl Game {
         let mut game = Self {
             version: SAVE_VERSION, revision: 0, seed, rng_state: seed.max(1),
             hero, hp: max_hp, max_hp, gold: 90, floor: 0, stage: Stage::Map,
-            last_node: None, route: vec![], deck, relics: vec!["军旗".into()],
+            last_node: None, route: vec![], deck: deck.clone(), relics: vec!["军旗".into()],
             potions: 1, battle: None, action_history: Some(vec![]), event_history: Some(vec![]),
             resource_history: Some(vec![resource_events::ResourceEvent::Started {
                 state: resource_events::Resources { hp: max_hp, max_hp, gold: 90 },
             }]), battle_resource_history: Some(vec![combat_resource_events::BattleResourceEvent::Started]),
             foe_board_history: Some(vec![foe_board_events::FoeBoardEvent::Started]),
+            card_zone_history: Some(vec![card_zone_events::CardZoneEvent::Started { deck }]),
             modifiers: vec![], doctrine: None, telemetry: CombatTelemetry::default(), rewards: vec![], market: vec![],
             log: vec![format!("{}率部出征，征途由此开始。", hero.name())],
             ascension: ascension.min(10), event_id: 0,
@@ -404,6 +410,7 @@ impl Game {
         if self.resource_history.is_none() { replayed.resource_history=None; }
         if self.battle_resource_history.is_none() { replayed.battle_resource_history=None; }
         if self.foe_board_history.is_none() { replayed.foe_board_history=None; }
+        if self.card_zone_history.is_none() { replayed.card_zone_history=None; }
         // Profile bookkeeping is external to the deterministic action journal.
         // Preserve its persisted receipt while replaying gameplay from the seed.
         replayed.profile_start_receipt = self.profile_start_receipt;
@@ -429,6 +436,7 @@ impl Game {
         if self.resource_history.is_none() { replay.resource_history=None; }
         if self.battle_resource_history.is_none() { replay.battle_resource_history=None; }
         if self.foe_board_history.is_none() { replay.foe_board_history=None; }
+        if self.card_zone_history.is_none() { replay.card_zone_history=None; }
         for (i,action) in actions.iter().enumerate() {
             replay.apply(action.clone()).map_err(|e|format!("replay step {}: {e}",i+1))?;
         }
@@ -482,6 +490,9 @@ impl Game {
         }
         if self.foe_board_history.as_ref().is_some_and(|events| events.len()>50_001) {
             return Err("enemy board journal exceeds action limit".into());
+        }
+        if self.card_zone_history.as_ref().is_some_and(|events| events.len()>50_001) {
+            return Err("card zone journal exceeds action limit".into());
         }
         if self.profile_start_receipt && self.run_id.is_empty() {
             return Err("可恢复战功凭证缺少唯一战役ID".into());
@@ -2503,50 +2514,6 @@ impl Game {
         }
         if self.defeated() { Ok(format!("{label}。{}", self.win_battle())) }
         else { Ok(format!("使用药剂：{label}。")) }
-    }
-    /// Atomic command boundary: rejected actions never mutate the live game, RNG,
-    /// revision, deck or potion slots. Frontends can perform CAS on revision.
-    pub fn apply(&mut self, action: Action) -> Result<Vec<String>, String> {
-        let mut draft = self.clone();
-        let messages = draft.apply_unchecked(action.clone())?;
-        if let Some(history) = draft.resource_history.as_mut() {
-            history.push(resource_events::ResourceEvent::Changed {
-                revision: draft.revision,
-                hp_delta: i64::from(draft.hp) - i64::from(self.hp),
-                max_hp_delta: i64::from(draft.max_hp) - i64::from(self.max_hp),
-                gold_delta: i64::from(draft.gold) - i64::from(self.gold),
-            });
-        }
-        let combat_event = if draft.battle_resource_history.is_some() {
-            Some(combat_resource_events::transition(
-                combat_resource_events::BattleResources::current(self),
-                combat_resource_events::BattleResources::current(&draft),
-                draft.revision,
-            )?)
-        } else {
-            None
-        };
-        if let (Some(history), Some(event)) = (draft.battle_resource_history.as_mut(), combat_event) {
-            history.push(event);
-        }
-        let foe_event = if draft.foe_board_history.is_some() {
-            Some(foe_board_events::transition(
-                foe_board_events::FoeBoard::current(self),
-                foe_board_events::FoeBoard::current(&draft),
-                draft.revision,
-            )?)
-        } else {
-            None
-        };
-        if let (Some(history), Some(event)) = (draft.foe_board_history.as_mut(), foe_event) {
-            history.push(event);
-        }
-        if let Some(actions)=draft.action_history.as_mut() {
-            actions.push(action);
-        }
-        draft.validate()?;
-        *self = draft;
-        Ok(messages)
     }
     fn apply_unchecked(&mut self, action: Action) -> Result<Vec<String>, String> {
         let msg = match action {
