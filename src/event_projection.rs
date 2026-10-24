@@ -1,7 +1,7 @@
 //! Read-only projection from the complete settled combat-event archive.
 //! No seed, action log, RNG or Game snapshot is consulted. These counters do
 //! not reconstruct decks, HP, intent, listeners or any other authoritative state.
-use super::{verify_record, RunEvent};
+use super::{verify_record_coordinate, RunEvent};
 use crate::combat::EventKind;
 use serde::{Deserialize, Serialize};
 
@@ -62,22 +62,34 @@ fn settled_damage(record: &RunEvent) -> Result<u64, String> {
     })
 }
 
-/// Rebuild only explicitly journalled, settled combat facts from events.
-/// The archive must start at encounter 1 / sequence 1 and contain no gaps.
-/// Empty input yields an empty projection, not evidence of a complete campaign.
-/// No comparison to a Game snapshot is made; a forged but well-formed archive
-/// cannot be authenticated by this projection alone.
-pub fn project(events: &[RunEvent]) -> Result<CampaignProjection, String> {
-    verify_record(events)?;
-    let mut output = CampaignProjection::default();
-    for record in events {
-        if output.encounters.last()
-            .is_none_or(|last| last.encounter != record.encounter)
-        {
-            output.encounters.push(EncounterProjection::new(record));
-        }
-        let current = output.encounters.last_mut()
-            .ok_or_else(|| "missing encounter projection".to_string())?;
+/// Incremental, read-only reducer for complete, ordered event archives.
+/// The first event must be encounter 1 / sequence 1. A rejected event never
+/// advances the cursor or changes the projection; callers may retry it.
+/// The reducer retains only encounter summaries, not raw event payloads.
+#[derive(Clone, Debug, Default)]
+pub struct CampaignProjector {
+    projection: CampaignProjection,
+    last: Option<(u64, u8, u64)>,
+}
+
+impl CampaignProjector {
+    pub fn new() -> Self { Self::default() }
+
+    pub fn projection(&self) -> &CampaignProjection { &self.projection }
+
+    pub fn push(&mut self, record: &RunEvent) -> Result<(), String> {
+        verify_record_coordinate(self.last, record)?;
+        let new_encounter = self.last.is_none_or(|(encounter, _, _)|
+            encounter != record.encounter);
+        // Stage the entire encounter update before committing. Even a failed
+        // damage conversion or checked addition leaves this reducer unchanged.
+        let mut current = if new_encounter {
+            EncounterProjection::new(record)
+        } else {
+            self.projection.encounters.last()
+                .ok_or_else(|| "missing encounter projection".to_string())?
+                .clone()
+        };
         current.last_seq = record.event.seq;
         add(&mut current.events, 1)?;
         match record.event.kind {
@@ -93,6 +105,27 @@ pub fn project(events: &[RunEvent]) -> Result<CampaignProjection, String> {
             EventKind::EventReplaced => add(&mut current.reactions_replaced, 1)?,
             _ => {}
         }
+        if new_encounter {
+            self.projection.encounters.push(current);
+        } else if let Some(last) = self.projection.encounters.last_mut() {
+            *last = current;
+        }
+        self.last = Some((record.encounter, record.floor, record.event.seq));
+        Ok(())
     }
-    Ok(output)
+
+    pub fn finish(self) -> CampaignProjection { self.projection }
+}
+
+/// Rebuild only explicitly journalled, settled combat facts from events.
+/// The archive must start at encounter 1 / sequence 1 and contain no gaps.
+/// Empty input yields an empty projection, not evidence of a complete campaign.
+/// No comparison to a Game snapshot is made; a forged but well-formed archive
+/// cannot be authenticated by this projection alone.
+pub fn project(events: &[RunEvent]) -> Result<CampaignProjection, String> {
+    let mut projector = CampaignProjector::new();
+    for record in events {
+        projector.push(record)?;
+    }
+    Ok(projector.finish())
 }
