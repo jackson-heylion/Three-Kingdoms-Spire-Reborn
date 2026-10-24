@@ -2,7 +2,7 @@ use three_kingdoms_spire_reborn::{
     Action, Game, RunMode,
     combat::{CombatEvent, EventKind},
     content::Hero,
-    event_stack::{RunEvent, projection::{CampaignProjection, CampaignProjector, project}},
+    event_stack::{RunEvent, projection::{CampaignProjection, CampaignProjector, ProjectionCheckpoint, project}},
 };
 
 fn event(encounter: u64, floor: u8, seq: u64, kind: EventKind, amount: i32) -> RunEvent {
@@ -138,4 +138,59 @@ fn live_archive_streams_identically_without_action_log() {
         reducer.push(record).unwrap();
     }
     assert_eq!(reducer.finish(), project(archive).unwrap());
+}
+
+#[test]
+fn serialized_checkpoint_resumes_at_next_event_across_encounters() {
+    let archive = [
+        event(1, 1, 1, EventKind::CardPlayed, 1),
+        event(1, 1, 2, EventKind::DamageDealt, 8),
+        event(2, 3, 1, EventKind::EnemyTechnique, 1),
+        event(2, 3, 2, EventKind::FoeSummoned, 1),
+        event(3, 3, 1, EventKind::EventCountered, 0),
+    ];
+    let mut partial = CampaignProjector::new();
+    for record in &archive[..3] {
+        partial.push(record).unwrap();
+    }
+    let json = serde_json::to_string(&partial.checkpoint()).unwrap();
+    let checkpoint: ProjectionCheckpoint = serde_json::from_str(&json).unwrap();
+    let mut resumed = CampaignProjector::resume(checkpoint).unwrap();
+    assert_eq!(resumed.projection(), &project(&archive[..3]).unwrap());
+    // Replayed old events and skipped coordinates must not advance the cursor.
+    assert!(resumed.push(&archive[2]).is_err());
+    assert!(resumed.push(&archive[4]).is_err());
+    for record in &archive[3..] {
+        resumed.push(record).unwrap();
+    }
+    assert_eq!(resumed.finish(), project(&archive).unwrap());
+}
+
+#[test]
+fn rejects_malformed_or_incompatible_projection_checkpoints() {
+    let mut reducer = CampaignProjector::new();
+    reducer.push(&event(1, 1, 1, EventKind::CardPlayed, 1)).unwrap();
+    reducer.push(&event(1, 1, 2, EventKind::DamageDealt, 3)).unwrap();
+    let valid = reducer.checkpoint();
+    let mut wrong_version = valid.clone();
+    wrong_version.schema_version = 2;
+    let mut skipped_encounter = valid.clone();
+    skipped_encounter.projection.encounters[0].encounter = 2;
+    let mut wrong_event_count = valid.clone();
+    wrong_event_count.projection.encounters[0].events = 1;
+    let mut impossible_kind_count = valid.clone();
+    impossible_kind_count.projection.encounters[0].cards_played = 3;
+    let mut invalid_floor = valid.clone();
+    invalid_floor.projection.encounters[0].floor = 0;
+    for invalid in [
+        wrong_version, skipped_encounter, wrong_event_count,
+        impossible_kind_count, invalid_floor,
+    ] {
+        assert!(CampaignProjector::resume(invalid).is_err());
+    }
+    // Failed resume attempts cannot mutate the source reducer.
+    assert_eq!(reducer.checkpoint(), valid);
+    let mut empty = CampaignProjector::resume(CampaignProjector::new().checkpoint()).unwrap();
+    empty.push(&event(1, 1, 1, EventKind::CardPlayed, 1)).unwrap();
+    assert_eq!(empty.projection().encounters[0].events, 1);
 }
