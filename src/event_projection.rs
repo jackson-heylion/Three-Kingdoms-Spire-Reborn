@@ -27,6 +27,9 @@ pub struct EncounterProjection {
     pub enemy_techniques: u64,
     pub reactions_countered: u64,
     pub reactions_replaced: u64,
+    /// True only when a terminal BattleEnded record was observed.
+    #[serde(default)]
+    pub closed: bool,
 }
 
 impl EncounterProjection {
@@ -45,6 +48,7 @@ impl EncounterProjection {
             enemy_techniques: 0,
             reactions_countered: 0,
             reactions_replaced: 0,
+            closed: false,
         }
     }
 }
@@ -131,6 +135,10 @@ impl CampaignProjector {
 
     pub fn push(&mut self, record: &RunEvent) -> Result<(), String> {
         verify_record_coordinate(self.last, record)?;
+        if self.projection.encounters.last().is_some_and(|last|
+            last.encounter == record.encounter && last.closed) {
+            return Err("events after encounter end seal".into());
+        }
         let new_encounter = self.last.is_none_or(|(encounter, _, _)|
             encounter != record.encounter);
         // Stage the entire encounter update before committing. Even a failed
@@ -155,6 +163,13 @@ impl CampaignProjector {
             EventKind::EnemyTechnique => add(&mut current.enemy_techniques, 1)?,
             EventKind::EventCountered => add(&mut current.reactions_countered, 1)?,
             EventKind::EventReplaced => add(&mut current.reactions_replaced, 1)?,
+            EventKind::BattleEnded => {
+                let valid = record.event.target.is_none() && matches!(
+                    (record.event.source.as_str(), record.event.amount),
+                    ("victory", 1) | ("defeat", 0));
+                if !valid { return Err("invalid encounter end seal".into()); }
+                current.closed = true;
+            },
             _ => {}
         }
         if new_encounter {
@@ -180,4 +195,16 @@ pub fn project(events: &[RunEvent]) -> Result<CampaignProjection, String> {
         projector.push(record)?;
     }
     Ok(projector.finish())
+}
+
+/// Require an explicit terminal event for every encounter. Unlike the legacy
+/// `project` entry point, this rejects missing tails, including a truncated
+/// last encounter. It does not authenticate a forged, self-consistent journal.
+/// Old V2 archives without BattleEnded remain supported by `project` only.
+pub fn project_sealed(events: &[RunEvent]) -> Result<CampaignProjection, String> {
+    let projection = project(events)?;
+    if projection.encounters.is_empty() || projection.encounters.iter().any(|e| !e.closed) {
+        return Err("event archive contains unsealed encounter".into());
+    }
+    Ok(projection)
 }
