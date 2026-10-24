@@ -129,7 +129,7 @@ fn rejected_incremental_events_leave_cursor_and_counters_unchanged() {
 
 #[test]
 fn live_archive_streams_identically_without_action_log() {
-    let mut game = Game::new_with_mode(Hero::SunShangXiang, 20261024, 0, RunMode::Standard);
+    let mut game = Game::new_with_mode(Hero::SunShangxiang, 20261024, 0, RunMode::Standard);
     game.apply(Action::Choose { index: 1 }).unwrap();
     let saved = Game::from_json(&game.to_json().unwrap()).unwrap();
     let archive = saved.event_history.as_ref().unwrap();
