@@ -94,6 +94,8 @@ pub enum EventKind {
     EnemyTechnique,
     EventCountered,
     EventReplaced,
+    /// Terminal encounter seal: source victory/defeat, amount 1/0, no target.
+    BattleEnded,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

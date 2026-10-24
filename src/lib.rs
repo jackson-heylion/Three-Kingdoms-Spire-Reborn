@@ -1320,6 +1320,10 @@ impl Game {
         }
     }
     fn win_battle(&mut self) -> String {
+        // Emit a final boundary while the battle journal still exists.
+        // Legacy archives without this marker remain readable, but cannot be
+        // certified as sealed by the event-only projection.
+        self.combat_event(EventKind::BattleEnded, "victory", 1, None);
         let node = self.last_node.unwrap_or(Node::Battle);
         self.record_metric(|c| c.battles_won = c.battles_won.saturating_add(1));
         self.capture_turn_metrics(false);
@@ -2058,6 +2062,7 @@ impl Game {
             if self.hp == 0 {
                 self.record_metric(|c| c.battles_lost = c.battles_lost.saturating_add(1));
                 self.capture_turn_metrics(true);
+                self.combat_event(EventKind::BattleEnded, "defeat", 0, None);
                 self.stage = Stage::Lost;
                 self.battle = None;
                 return Ok(format!("{}。将星陨落，征途结束。", messages.join("；")));
@@ -2086,6 +2091,7 @@ impl Game {
             if self.hp==0 {
                 self.record_metric(|c| c.battles_lost = c.battles_lost.saturating_add(1));
                 self.capture_turn_metrics(true);
+                self.combat_event(EventKind::BattleEnded, "defeat", 0, None);
                 self.stage=Stage::Lost;
                 self.battle=None;
                 return Ok(format!("{}。军粮枯竭，征途结束。",messages.join("；")));
@@ -5280,5 +5286,29 @@ mod nested_toxic_reversal_interception {
             vec![EventKind::StatusApplied, EventKind::EventCountered]);
         assert_eq!(events[1].source, "bonus_stop");
         assert_eq!(events[1].amount, 1);
+    }
+}
+
+#[cfg(test)]
+mod encounter_seal_regression {
+    use super::*;
+    use crate::event_stack::projection::project_sealed;
+
+    #[test]
+    fn real_battle_victory_emits_a_terminal_seal_before_battle_disappears() {
+        let mut game = Game::new(Hero::GuanYu, 20261024);
+        game.floor = 1;
+        game.start_battle(Node::Battle);
+        assert!(game.battle.is_some());
+        let _ = game.win_battle();
+        assert!(game.battle.is_none());
+        let archive = game.event_history.as_deref().unwrap();
+        let last = &archive.last().unwrap().event;
+        assert_eq!(last.kind, EventKind::BattleEnded);
+        assert_eq!((last.source.as_str(), last.amount, last.target.as_deref()),
+            ("victory", 1, None));
+        assert!(project_sealed(archive).unwrap().encounters[0].closed);
+        let restored = Game::from_json(&game.to_json().unwrap()).unwrap();
+        assert_eq!(restored.event_history, game.event_history);
     }
 }

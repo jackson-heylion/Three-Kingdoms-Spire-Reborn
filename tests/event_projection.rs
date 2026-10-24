@@ -2,7 +2,7 @@ use three_kingdoms_spire_reborn::{
     Action, Game, RunMode,
     combat::{CombatEvent, EventKind},
     content::Hero,
-    event_stack::{RunEvent, projection::{CampaignProjection, CampaignProjector, ProjectionCheckpoint, project}},
+    event_stack::{RunEvent, projection::{CampaignProjection, CampaignProjector, ProjectionCheckpoint, project, project_sealed}},
 };
 
 fn event(encounter: u64, floor: u8, seq: u64, kind: EventKind, amount: i32) -> RunEvent {
@@ -194,4 +194,49 @@ fn rejects_malformed_or_incompatible_projection_checkpoints() {
     let mut empty = CampaignProjector::resume(CampaignProjector::new().checkpoint()).unwrap();
     empty.push(&event(1, 1, 1, EventKind::CardPlayed, 1)).unwrap();
     assert_eq!(empty.projection().encounters[0].events, 1);
+}
+
+#[test]
+fn terminal_seals_detect_missing_tails_and_post_end_events() {
+    let mut victory = event(1, 1, 2, EventKind::BattleEnded, 1);
+    victory.event.source = "victory".into();
+    let mut defeat = event(2, 2, 2, EventKind::BattleEnded, 0);
+    defeat.event.source = "defeat".into();
+    let first = event(1, 1, 1, EventKind::CardPlayed, 1);
+    let second = event(2, 2, 1, EventKind::EnemyTechnique, 1);
+    let sealed = [first.clone(), victory.clone(), second.clone(), defeat.clone()];
+    let projection = project_sealed(&sealed).unwrap();
+    assert_eq!(projection.encounters.len(), 2);
+    assert!(projection.encounters.iter().all(|e| e.closed));
+    assert!(project_sealed(&sealed[..3]).is_err()); // missing last tail
+    assert!(project_sealed(&[first.clone(), second.clone(), defeat.clone()]).is_err());
+    assert!(project(&[first.clone(), second, defeat]).is_ok()); // legacy-compatible
+    assert!(project_sealed(&[]).is_err());
+    assert!(project(&[first.clone(), victory.clone(),
+        event(1, 1, 3, EventKind::CardPlayed, 1)]).is_err());
+    let mut bad = victory.clone();
+    bad.event.amount = 0;
+    assert!(project(&[first.clone(), bad]).is_err());
+    let mut bad = victory;
+    bad.event.target = Some("hero".into());
+    assert!(project(&[first, bad]).is_err());
+}
+
+#[test]
+fn sealed_checkpoint_resumes_only_at_next_encounter() {
+    let first = event(1, 1, 1, EventKind::CardPlayed, 1);
+    let mut end = event(1, 1, 2, EventKind::BattleEnded, 1);
+    end.event.source = "victory".into();
+    let mut projector = CampaignProjector::new();
+    projector.push(&first).unwrap();
+    projector.push(&end).unwrap();
+    let serialized = serde_json::to_string(&projector.checkpoint()).unwrap();
+    let checkpoint: ProjectionCheckpoint = serde_json::from_str(&serialized).unwrap();
+    let mut resumed = CampaignProjector::resume(checkpoint).unwrap();
+    let before = resumed.checkpoint();
+    assert!(resumed.push(&event(1, 1, 3, EventKind::CardPlayed, 1)).is_err());
+    assert_eq!(resumed.checkpoint(), before);
+    resumed.push(&event(2, 2, 1, EventKind::CardPlayed, 1)).unwrap();
+    assert_eq!(resumed.projection().encounters.len(), 2);
+    assert!(resumed.projection().encounters[0].closed);
 }

@@ -31,3 +31,13 @@
 这只是**统计投影的进度检查点**，并非 `Game` 的 Event Sourcing 存档，也不能证明事件来源真实、投影统计未遭篡改。由于现有事件没有显式的战斗结束封口标记，归约器不能识别某场最后几条事件被截断后直接接入下一场的情况；本轮只验证同一场内跳号。可信恢复仍须保留原始事件日志，未来应补充事件链完整性校验、权威状态事件和跨版本迁移。当前 schema 版本不兼容时明确拒绝，绝不静默假定可迁移。
 
 复验：`cargo test --test event_projection`；以最终提交的 macOS/Linux CI 为合并前提。
+
+## 2026-10-24：战斗终止封口（Encounter End Seal）
+
+新战役在胜利和战败结算前写入终止事件 `BattleEnded`，其中胜利为 `source=victory, amount=1`，失败为 `source=defeat, amount=0`，且无目标。封口仍保留在完整 `event_history`，不会因战斗对象销毁而丢失。投影增加 `closed` 字段；封口后同一战斗若继续出现事件，或封口内容非法，归约器原子拒绝。
+
+`project_sealed(&[RunEvent])` 要求**每场**都有合法终止封口，能发现整场末尾被截断或直接跳到下一场的缺口；普通 `project` 仍兼容旧V2存档和进行中的战斗，不能拿普通投影冒充完整性验收。检查点 `closed` 采用serde默认false以兼容旧JSON。新增合成档案缺尾/伪封口/封口后追加/检查点续接测试，以及真实游戏胜利后封口、存档往返单测。
+
+**限制**：封口不等于防篡改签名。伪造者可同时重写事件和封口；当前没有独立持久化的可信事件链锚点，也没有完整的权威状态事件，仍无法从事件单独恢复`Game`。新战役进行中的战斗不应通过严格封口检查。旧存档不补造封口，不以此声称完整Event Sourcing。
+
+复验：`cargo test --test event_projection` 和 `cargo test encounter_seal_regression`；合并须等待最终SHA真实macOS/Linux CI。
