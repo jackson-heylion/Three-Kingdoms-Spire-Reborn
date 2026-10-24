@@ -15,8 +15,10 @@ impl Game {
         // make a long campaign quadratic in its recorded card snapshots.
         // Restore the live journal before any fallible game operation.
         let card_history = self.card_zone_history.take();
+        let effect_history = self.combat_effect_history.take();
         let mut draft = self.clone();
         self.card_zone_history = card_history;
+        self.combat_effect_history = effect_history;
         let messages = draft.apply_unchecked(action.clone())?;
         if let Some(history) = draft.resource_history.as_mut() {
             history.push(resource_events::ResourceEvent::Changed {
@@ -50,7 +52,7 @@ impl Game {
         if let (Some(history), Some(event)) = (draft.foe_board_history.as_mut(), foe_event) {
             history.push(event);
         }
-        let effect_event = if draft.combat_effect_history.is_some() {
+        let effect_event = if self.combat_effect_history.is_some() {
             Some(combat_effect_events::transition(
                 combat_effect_events::BattleEffects::current(self),
                 combat_effect_events::BattleEffects::current(&draft),
@@ -59,9 +61,6 @@ impl Game {
         } else {
             None
         };
-        if let (Some(history), Some(event)) = (draft.combat_effect_history.as_mut(), effect_event) {
-            history.push(event);
-        }
         let card_event = if self.card_zone_history.is_some() {
             Some(card_zone_events::transition(
                 &card_zone_events::CardZones::current(self),
@@ -75,14 +74,26 @@ impl Game {
             actions.push(action);
         }
         draft.validate()?;
+        if card_event.is_some()
+            && self.card_zone_history.as_ref().is_some_and(|history| history.len() >= 50_001)
+        {
+            return Err("card zone journal exceeds action limit".into());
+        }
+        if effect_event.is_some()
+            && self.combat_effect_history.as_ref().is_some_and(|history| history.len() >= 50_001)
+        {
+            return Err("combat effect journal exceeds action limit".into());
+        }
+        // Both large histories move only after all fallible validation succeeds.
         if let Some(event) = card_event {
-            if self.card_zone_history.as_ref().is_some_and(|history| history.len() >= 50_001) {
-                return Err("card zone journal exceeds action limit".into());
-            }
-            // No fallible work after moving the journal into the validated draft.
             let mut history = self.card_zone_history.take().expect("checked card journal");
             history.push(event);
             draft.card_zone_history = Some(history);
+        }
+        if let Some(event) = effect_event {
+            let mut history = self.combat_effect_history.take().expect("checked effect journal");
+            history.push(event);
+            draft.combat_effect_history = Some(history);
         }
         *self = draft;
         Ok(messages)
