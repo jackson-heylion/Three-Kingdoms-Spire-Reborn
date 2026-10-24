@@ -8,7 +8,9 @@ pub mod resource_events;
 pub mod combat_resource_events;
 pub mod foe_board_events;
 pub mod card_zone_events;
+pub mod combat_effect_events;
 mod action_commit;
+mod replay;
 pub mod challenges;
 pub mod content;
 pub mod items;
@@ -297,7 +299,10 @@ pub struct Game {
     pub foe_board_history: Option<Vec<foe_board_events::FoeBoardEvent>>,
     /// Ordered card zones at successful action boundaries; absent in old V2.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub card_zone_history: Option<Vec<card_zone_events::CardZoneEvent>>, 
+    pub card_zone_history: Option<Vec<card_zone_events::CardZoneEvent>>,
+    /// Action-boundary power stacks and dynamic listeners; absent in old V2 saves.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub combat_effect_history: Option<Vec<combat_effect_events::CombatEffectEvent>>, 
     /// Custom-only stable difficulty switches; omitted in old V2 saves.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub modifiers: Vec<ChallengeModifier>,
@@ -380,6 +385,7 @@ impl Game {
             }]), battle_resource_history: Some(vec![combat_resource_events::BattleResourceEvent::Started]),
             foe_board_history: Some(vec![foe_board_events::FoeBoardEvent::Started]),
             card_zone_history: Some(vec![card_zone_events::CardZoneEvent::Started { deck }]),
+            combat_effect_history: Some(vec![combat_effect_events::CombatEffectEvent::Started]),
             modifiers: vec![], doctrine: None, telemetry: CombatTelemetry::default(), rewards: vec![], market: vec![],
             log: vec![format!("{}率部出征，征途由此开始。", hero.name())],
             ascension: ascension.min(10), event_id: 0,
@@ -396,65 +402,6 @@ impl Game {
     }
     pub fn to_json(&self) -> Result<String, String> {
         serde_json::to_string_pretty(self).map_err(|e| e.to_string())
-    }
-    /// Rebuild the campaign exclusively from its seed and committed actions,
-    /// including reward RNG, combat event sequence, map topology and narrative.
-    /// No side effects; the caller's live game is never modified.
-    pub fn verify_action_replay(&self) -> Result<usize,String> {
-        let actions=self.action_history.as_ref().ok_or(
-            "该旧版存档没有起始操作日志，不能验证此前未记录的动作")?;
-        if actions.len()>50_000 { return Err("操作历史超过单次回放保护上限".into()); }
-        let mut replayed=Game::new_with_identity(
-            self.hero,self.seed,self.ascension,self.mode,self.run_id.clone());
-        if self.event_history.is_none() { replayed.event_history=None; }
-        if self.resource_history.is_none() { replayed.resource_history=None; }
-        if self.battle_resource_history.is_none() { replayed.battle_resource_history=None; }
-        if self.foe_board_history.is_none() { replayed.foe_board_history=None; }
-        if self.card_zone_history.is_none() { replayed.card_zone_history=None; }
-        // Profile bookkeeping is external to the deterministic action journal.
-        // Preserve its persisted receipt while replaying gameplay from the seed.
-        replayed.profile_start_receipt = self.profile_start_receipt;
-        for (index,action) in actions.iter().enumerate() {
-            replayed.apply(action.clone()).map_err(|e|
-                format!("重放第{}步失败：{e}",index+1))?;
-        }
-        if replayed.to_json()?!=self.to_json()? {
-            return Err("重放的实际状态与当前快照不一致：可能存在修改或版本规则变更".into());
-        }
-        Ok(actions.len())
-    }
-    /// Replay successful actions and reconstruct even events from ended battles.
-    /// Legacy snapshots must match the replayed gameplay state before claiming
-    /// the result as a faithful full event history.
-    pub fn reconstruct_event_history(&self) -> Result<Vec<event_stack::RunEvent>, String> {
-        let actions=self.action_history.as_ref().ok_or(
-            "legacy save has no complete action journal")?;
-        if actions.len()>50_000 {return Err("action replay limit exceeded".into());}
-        let mut replay=Game::new_with_identity(self.hero,self.seed,self.ascension,
-            self.mode,self.run_id.clone());
-        replay.profile_start_receipt=self.profile_start_receipt;
-        if self.resource_history.is_none() { replay.resource_history=None; }
-        if self.battle_resource_history.is_none() { replay.battle_resource_history=None; }
-        if self.foe_board_history.is_none() { replay.foe_board_history=None; }
-        if self.card_zone_history.is_none() { replay.card_zone_history=None; }
-        for (i,action) in actions.iter().enumerate() {
-            replay.apply(action.clone()).map_err(|e|format!("replay step {}: {e}",i+1))?;
-        }
-        let history=replay.event_history.clone().unwrap_or_default();
-        event_stack::verify_record(&history)?;
-        if let Some(expected)=&self.event_history {
-            if &history!=expected {return Err("persisted event archive differs from replay".into());}
-        } else {
-            // A legacy snapshot cannot claim it persisted events it never recorded.
-            replay.event_history=None;
-        }
-        // The event stream alone does not prove the live snapshot was untouched:
-        // HP, gold, resource counters or an active listener could be modified
-        // without altering any archived CombatEvent. Verify *all* game state.
-        if replay.to_json()?!=self.to_json()? {
-            return Err("event replay snapshot differs from committed actions".into());
-        }
-        Ok(history)
     }
     pub fn from_json(raw: &str) -> Result<Self, String> {
         let mut g: Self = serde_json::from_str(raw).map_err(|e| format!("存档解析失败: {e}"))?;
@@ -493,6 +440,9 @@ impl Game {
         }
         if self.card_zone_history.as_ref().is_some_and(|events| events.len()>50_001) {
             return Err("card zone journal exceeds action limit".into());
+        }
+        if self.combat_effect_history.as_ref().is_some_and(|events| events.len()>50_001) {
+            return Err("combat effect journal exceeds action limit".into());
         }
         if self.profile_start_receipt && self.run_id.is_empty() {
             return Err("可恢复战功凭证缺少唯一战役ID".into());
