@@ -3,6 +3,10 @@
 use crate::combat::{CombatEvent, EventKind};
 use serde::{Deserialize, Serialize};
 
+// Read-only, event-only projection. This does not rebuild authoritative Game state.
+#[path = "event_projection.rs"]
+pub mod projection;
+
 // The public custom slot limit must not crowd out the four defensive cards.
 const CUSTOM_LISTENER_LIMIT: usize = 16;
 const BUILTIN_LISTENER_LIMIT: usize = 4;
