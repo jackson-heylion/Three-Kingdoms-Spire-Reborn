@@ -121,3 +121,20 @@ pub fn project(events: &[ResourceEvent]) -> Result<(Resources, u64), String> {
     }
     projector.state()
 }
+
+impl crate::Game {
+    /// Reconstruct persistent resources solely from the committed resource
+    /// journal, then compare with the current snapshot. This does not rebuild
+    /// battle energy, cards, enemies, RNG or any other Game state.
+    pub fn audit_resources(&self) -> Result<usize, String> {
+        let history = self.resource_history.as_ref()
+            .ok_or("legacy save has no authoritative resource journal")?;
+        let (state, revision) = project(history)?;
+        if state != (Resources {
+            hp: self.hp, max_hp: self.max_hp, gold: self.gold,
+        }) || revision != self.revision {
+            return Err("resource journal differs from current game state".into());
+        }
+        Ok(history.len())
+    }
+}
