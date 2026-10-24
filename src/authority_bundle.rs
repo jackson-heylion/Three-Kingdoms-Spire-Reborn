@@ -1,7 +1,8 @@
 //! Cross-check the five action-boundary authority journals at *every* revision.
 //! This detects mutually inconsistent histories that still project to valid
 //! individual final snapshots. It does not authenticate coordinated tampering
-//! or reconstruct powers, listeners, RNG or intermediate combat events.
+//! or reconstruct RNG or intermediate combat events; powers and listeners
+//! are projected only at successful action boundaries.
 use crate::{
     Game,
     combat_resource_events::{BattleResourceProjector, BattleResources},
