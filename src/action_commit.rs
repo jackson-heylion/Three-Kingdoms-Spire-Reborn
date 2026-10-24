@@ -5,7 +5,7 @@
 mod authority_bundle;
 
 use crate::{
-    Action, Game, card_zone_events, combat_resource_events, foe_board_events, resource_events,
+    Action, Game, card_zone_events, combat_effect_events, combat_resource_events, foe_board_events, resource_events,
 };
 
 impl Game {
@@ -48,6 +48,18 @@ impl Game {
             None
         };
         if let (Some(history), Some(event)) = (draft.foe_board_history.as_mut(), foe_event) {
+            history.push(event);
+        }
+        let effect_event = if draft.combat_effect_history.is_some() {
+            Some(combat_effect_events::transition(
+                combat_effect_events::BattleEffects::current(self),
+                combat_effect_events::BattleEffects::current(&draft),
+                draft.revision,
+            )?)
+        } else {
+            None
+        };
+        if let (Some(history), Some(event)) = (draft.combat_effect_history.as_mut(), effect_event) {
             history.push(event);
         }
         let card_event = if self.card_zone_history.is_some() {
