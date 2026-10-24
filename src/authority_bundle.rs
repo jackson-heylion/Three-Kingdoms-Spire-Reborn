@@ -92,4 +92,52 @@ impl Game {
         }
         Ok(count)
     }
+
+    /// Independently project one committed boundary from all five journals.
+    /// This is a partial authority view, not a reconstructed Game or RNG state.
+    /// First audit the entire stream so a valid prefix cannot hide a corrupt tail.
+    pub fn project_authority_boundary(&self, revision: u64) -> Result<serde_json::Value, String> {
+        if revision > self.revision {
+            return Err("requested authority revision is beyond current game".into());
+        }
+        self.audit_authority_bundle()?;
+        let index = usize::try_from(revision).map_err(|_| "authority revision too large")?;
+        let resources = self.resource_history.as_ref()
+            .ok_or("missing persistent resource journal")?;
+        let combat = self.battle_resource_history.as_ref()
+            .ok_or("missing combat resource journal")?;
+        let foes = self.foe_board_history.as_ref()
+            .ok_or("missing enemy board journal")?;
+        let cards = self.card_zone_history.as_ref()
+            .ok_or("missing card zone journal")?;
+        let effects = self.combat_effect_history.as_ref()
+            .ok_or("missing combat effect journal")?;
+
+        let mut resource_projector = ResourceProjector::default();
+        let mut combat_projector = BattleResourceProjector::default();
+        let mut foe_projector = FoeBoardProjector::default();
+        let mut card_projector = CardZoneProjector::default();
+        let mut effect_projector = CombatEffectProjector::default();
+        for i in 0..=index {
+            resource_projector.push(&resources[i])?;
+            combat_projector.push(&combat[i])?;
+            foe_projector.push(&foes[i])?;
+            card_projector.push(&cards[i])?;
+            effect_projector.push(&effects[i])?;
+        }
+        let (resource_state, _) = resource_projector.state()?;
+        let (combat_state, _) = combat_projector.state()?;
+        let (foe_state, _) = foe_projector.state()?;
+        let (card_state, _) = card_projector.state()?;
+        let (effect_state, _) = effect_projector.state()?;
+        Ok(serde_json::json!({
+            "revision": revision,
+            "resources": resource_state,
+            "combat": combat_state,
+            "foes": foe_state,
+            "cards": { "deck": card_state.deck, "battle": card_state.battle },
+            "effects": effect_state
+        }))
+    }
+
 }

@@ -76,3 +76,46 @@ fn refuses_missing_or_truncated_authority_without_fabricating_history() {
     let legacy = Game::from_json(&json.to_string()).unwrap();
     assert!(legacy.audit_authority_bundle().unwrap_err().contains("legacy"));
 }
+
+#[test]
+fn projects_committed_boundaries_without_actions_or_rng_replay() {
+    let mut game = Game::new(Hero::GuanYu, 1234);
+    let initial = game.project_authority_boundary(0).unwrap();
+    assert_eq!(initial["revision"], 0);
+    assert_eq!(initial["resources"]["hp"], game.hp);
+    assert!(initial["combat"].is_null());
+    assert_eq!(initial["cards"]["deck"].as_array().unwrap().len(), game.deck.len());
+
+    game.apply(Action::Choose { index: 1 }).unwrap();
+    let entered = game.project_authority_boundary(1).unwrap();
+    assert_eq!(entered["combat"]["turn"], 1);
+    assert_eq!(entered["foes"]["foes"].as_array().unwrap().len(),
+        game.battle.as_ref().unwrap().foes.len());
+    assert!(entered["effects"].is_object());
+
+    game.apply(Action::EndTurn).unwrap();
+    let latest = game.project_authority_boundary(game.revision).unwrap();
+    assert_eq!(latest["resources"]["hp"], game.hp);
+    assert_eq!(latest["combat"]["turn"], game.battle.as_ref().unwrap().turn);
+    assert_eq!(latest["cards"]["battle"]["hand"].as_array().unwrap().len(),
+        game.battle.as_ref().unwrap().hand.len());
+
+    let mut without_replay = Game::from_json(&game.to_json().unwrap()).unwrap();
+    without_replay.action_history = None;
+    without_replay.event_history = None;
+    assert_eq!(without_replay.project_authority_boundary(1).unwrap(), entered);
+    assert_eq!(without_replay.project_authority_boundary(game.revision).unwrap(), latest);
+}
+
+#[test]
+fn boundary_projection_refuses_out_of_range_and_corrupt_future() {
+    let game = active_game();
+    assert!(game.project_authority_boundary(u64::MAX).unwrap_err().contains("beyond"));
+    let mut truncated = game.clone();
+    truncated.combat_effect_history.as_mut().unwrap().pop();
+    // Even revision zero must not be reported as certified if the tail is missing.
+    assert!(truncated.project_authority_boundary(0).unwrap_err().contains("revision count"));
+    let mut legacy = game.clone();
+    legacy.foe_board_history = None;
+    assert!(legacy.project_authority_boundary(0).unwrap_err().contains("legacy"));
+}
