@@ -35,7 +35,7 @@ fn rejects_gaps_duplicates_invalid_states_and_overflow() {
     assert_eq!(project(&[start.clone(), changed.clone()]).unwrap(),
         (Resources { hp: 50, max_hp: 75, gold: 50 }, 1));
     assert!(project(&[]).is_err());
-    assert!(project(&[changed.clone()]).is_err());
+    assert!(project(std::slice::from_ref(&changed)).is_err());
     assert!(project(&[start.clone(), start.clone()]).is_err());
     assert!(project(&[start.clone(), changed.clone(), changed.clone()]).is_err());
     assert!(project(&[start.clone(), ResourceEvent::Changed {
