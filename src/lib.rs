@@ -381,7 +381,7 @@ impl Game {
         let max_hp = hero.max_hp();
         let mut game = Self {
             version: SAVE_VERSION, revision: 0, seed, rng_state: seed.max(1),
-            rng_history: Some(vec![rng_events::RngEvent::Started { state: seed.max(1) }]),
+            rng_history: Some(vec![]),
             hero, hp: max_hp, max_hp, gold: 90, floor: 0, stage: Stage::Map,
             last_node: None, route: vec![], deck: deck.clone(), relics: vec!["军旗".into()],
             potions: 1, battle: None, action_history: Some(vec![]), event_history: Some(vec![]),
@@ -403,6 +403,10 @@ impl Game {
             easter_unlocked: Vec::new(),
         };
         game.refresh_route();
+        // Map generation consumes RNG before revision zero is committed.
+        game.rng_history = Some(vec![rng_events::RngEvent::Started {
+            state: game.rng_state,
+        }]);
         game
     }
     pub fn to_json(&self) -> Result<String, String> {
