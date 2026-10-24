@@ -62,6 +62,14 @@ fn settled_damage(record: &RunEvent) -> Result<u64, String> {
     })
 }
 
+/// Versioned progress checkpoint for resuming event-only audit projections.
+/// It contains no authoritative game state or proof that the events are genuine.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectionCheckpoint {
+    pub schema_version: u8,
+    pub projection: CampaignProjection,
+}
+
 /// Incremental, read-only reducer for complete, ordered event archives.
 /// The first event must be encounter 1 / sequence 1. A rejected event never
 /// advances the cursor or changes the projection; callers may retry it.
@@ -74,6 +82,50 @@ pub struct CampaignProjector {
 
 impl CampaignProjector {
     pub fn new() -> Self { Self::default() }
+    /// Export only the committed prefix. A checkpoint is not a substitute
+    /// for the original journal or an authenticated Game save.
+    pub fn checkpoint(&self) -> ProjectionCheckpoint {
+        ProjectionCheckpoint {
+            schema_version: 1,
+            projection: self.projection.clone(),
+        }
+    }
+
+    /// Resume at the exact next event coordinate after a serialized checkpoint.
+    /// Reject structurally impossible or version-incompatible checkpoints.
+    /// This validates shape, not event provenance or the reported totals.
+    pub fn resume(checkpoint: ProjectionCheckpoint) -> Result<Self, String> {
+        if checkpoint.schema_version != 1 {
+            return Err("unsupported event projection checkpoint version".into());
+        }
+        let mut prior_floor = 0;
+        for (index, encounter) in checkpoint.projection.encounters.iter().enumerate() {
+            if encounter.encounter != index as u64 + 1
+                || encounter.floor == 0 || encounter.floor > crate::MAX_FLOOR
+                || encounter.floor < prior_floor
+                || encounter.first_seq != 1 || encounter.last_seq == 0
+                || encounter.events != encounter.last_seq
+            {
+                return Err("invalid event projection checkpoint coordinates".into());
+            }
+            // These categories represent disjoint EventKind variants. Their
+            // combined occurrence count cannot exceed all archived events.
+            let counted = [
+                encounter.cards_played, encounter.foes_defeated,
+                encounter.foes_summoned, encounter.enemy_techniques,
+                encounter.reactions_countered, encounter.reactions_replaced,
+            ].into_iter().try_fold(0u64, |total, count| total.checked_add(count))
+                .ok_or_else(|| "event projection checkpoint counter overflow".to_string())?;
+            if counted > encounter.events {
+                return Err("invalid event projection checkpoint counters".into());
+            }
+            prior_floor = encounter.floor;
+        }
+        let last = checkpoint.projection.encounters.last()
+            .map(|e| (e.encounter, e.floor, e.last_seq));
+        Ok(Self { projection: checkpoint.projection, last })
+    }
+
 
     pub fn projection(&self) -> &CampaignProjection { &self.projection }
 
