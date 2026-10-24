@@ -2,7 +2,7 @@ use three_kingdoms_spire_reborn::{
     Action, Game, RunMode,
     combat::{CombatEvent, EventKind},
     content::Hero,
-    event_stack::{RunEvent, projection::{CampaignProjection, project}},
+    event_stack::{RunEvent, projection::{CampaignProjection, CampaignProjector, project}},
 };
 
 fn event(encounter: u64, floor: u8, seq: u64, kind: EventKind, amount: i32) -> RunEvent {
@@ -78,4 +78,64 @@ fn live_game_archive_projects_identically_after_v2_roundtrip() {
     without_actions.action_history = None;
     assert_eq!(project(without_actions.event_history.as_deref().unwrap()).unwrap(), before);
     assert!(project(&[]).unwrap().encounters.is_empty());
+}
+
+#[test]
+fn incremental_projection_matches_batch_across_battle_boundaries() {
+    let archive = [
+        event(1, 1, 1, EventKind::CardPlayed, 1),
+        event(1, 1, 2, EventKind::DamageDealt, 11),
+        event(1, 1, 3, EventKind::DamageReceived, 2),
+        event(2, 3, 1, EventKind::EnemyTechnique, 1),
+        event(2, 3, 2, EventKind::FoeSummoned, 1),
+        event(3, 3, 1, EventKind::EventCountered, 0),
+    ];
+    let mut incremental = CampaignProjector::new();
+    assert_eq!(incremental.projection(), &project(&[]).unwrap());
+    for record in &archive[..3] {
+        incremental.push(record).unwrap();
+    }
+    assert_eq!(incremental.projection(), &project(&archive[..3]).unwrap());
+    for record in &archive[3..] {
+        incremental.push(record).unwrap();
+    }
+    assert_eq!(incremental.finish(), project(&archive).unwrap());
+}
+
+#[test]
+fn rejected_incremental_events_leave_cursor_and_counters_unchanged() {
+    let first = event(1, 1, 1, EventKind::CardPlayed, 1);
+    let second = event(1, 1, 2, EventKind::DamageDealt, 7);
+    let mut reducer = CampaignProjector::new();
+    assert!(reducer.push(&event(2, 1, 1, EventKind::CardPlayed, 1)).is_err());
+    assert!(reducer.projection().encounters.is_empty());
+    reducer.push(&first).unwrap();
+    let expected = reducer.projection().clone();
+    for invalid in [
+        event(1, 1, 1, EventKind::DamageDealt, 1), // duplicate
+        event(1, 1, 3, EventKind::DamageDealt, 1), // gap
+        event(1, 2, 2, EventKind::DamageDealt, 1), // floor mismatch
+        event(3, 2, 1, EventKind::DamageDealt, 1), // skipped encounter
+        event(1, 1, 2, EventKind::DamageDealt, -1), // negative settled damage
+        event(1, 1, 2, EventKind::DamageReceived, -1),
+    ] {
+        assert!(reducer.push(&invalid).is_err());
+        assert_eq!(reducer.projection(), &expected);
+    }
+    // A failed event does not consume sequence 2.
+    reducer.push(&second).unwrap();
+    assert_eq!(reducer.finish(), project(&[first, second]).unwrap());
+}
+
+#[test]
+fn live_archive_streams_identically_without_action_log() {
+    let mut game = Game::new_with_mode(Hero::SunShangxiang, 20261024, 0, RunMode::Standard);
+    game.apply(Action::Choose { index: 1 }).unwrap();
+    let saved = Game::from_json(&game.to_json().unwrap()).unwrap();
+    let archive = saved.event_history.as_ref().unwrap();
+    let mut reducer = CampaignProjector::new();
+    for record in archive {
+        reducer.push(record).unwrap();
+    }
+    assert_eq!(reducer.finish(), project(archive).unwrap());
 }
