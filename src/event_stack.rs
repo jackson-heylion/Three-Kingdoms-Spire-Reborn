@@ -75,7 +75,10 @@ impl Stack {
         self.listeners.len()<=CUSTOM_LISTENER_LIMIT+BUILTIN_LISTENER_LIMIT
             && self.listeners.iter().filter(|rule| !builtin_id(&rule.id)).count()<=CUSTOM_LISTENER_LIMIT
             && self.listeners.iter().enumerate().all(|(i,r)|
-            !r.id.is_empty() && r.id.len()<=64 && !r.source.is_empty()
+            !r.id.is_empty() && r.id.len()<=64
+            // IDs reach CLI/TUI audit output; reject terminal escapes and line breaks.
+            && !r.id.chars().any(char::is_control)
+            && !r.source.is_empty()
             && r.source.len()<=64 && r.charges>0 && r.charges<=16
             && valid_builtin_contract(r)
             && r.target.as_deref().is_some_and(|t| t=="hero" || canonical_foe_slot(t))
