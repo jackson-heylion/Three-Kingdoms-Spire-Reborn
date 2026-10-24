@@ -180,19 +180,37 @@ impl Stack {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RunEvent { pub encounter:u64, pub floor:u8, pub event:CombatEvent }
-pub fn verify_record(events:&[RunEvent]) -> Result<(),String> {
-    for (i,e) in events.iter().enumerate() {
-        if e.encounter==0 || e.floor==0 || e.floor>crate::MAX_FLOOR || e.event.seq==0
-            {return Err("invalid event coordinate".into());}
-        if let Some(p)=i.checked_sub(1).and_then(|j|events.get(j)) {
-            if e.encounter==p.encounter {
-                if e.floor!=p.floor || p.event.seq.checked_add(1)!=Some(e.event.seq)
-                    {return Err("gap in battle event stream".into());}
-            } else if p.encounter.checked_add(1)!=Some(e.encounter)
-                || e.event.seq!=1 || e.floor<p.floor
-                {return Err("gap between battles".into());}
-        } else if e.encounter!=1 || e.event.seq!=1
-            {return Err("archive missing campaign start".into());}
+/// Shared coordinate check for both batch archive validation and streaming
+/// projection. Keep the two consumers on the same continuity contract.
+pub(crate) fn verify_record_coordinate(
+    previous: Option<(u64, u8, u64)>, current: &RunEvent,
+) -> Result<(), String> {
+    if current.encounter == 0 || current.floor == 0
+        || current.floor > crate::MAX_FLOOR || current.event.seq == 0
+    {
+        return Err("invalid event coordinate".into());
+    }
+    if let Some((encounter, floor, seq)) = previous {
+        if current.encounter == encounter {
+            if current.floor != floor || seq.checked_add(1) != Some(current.event.seq) {
+                return Err("gap in battle event stream".into());
+            }
+        } else if encounter.checked_add(1) != Some(current.encounter)
+            || current.event.seq != 1 || current.floor < floor
+        {
+            return Err("gap between battles".into());
+        }
+    } else if current.encounter != 1 || current.event.seq != 1 {
+        return Err("archive missing campaign start".into());
+    }
+    Ok(())
+}
+
+pub fn verify_record(events: &[RunEvent]) -> Result<(), String> {
+    let mut previous = None;
+    for event in events {
+        verify_record_coordinate(previous, event)?;
+        previous = Some((event.encounter, event.floor, event.event.seq));
     }
     Ok(())
 }
