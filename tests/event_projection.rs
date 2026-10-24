@@ -157,9 +157,10 @@ fn serialized_checkpoint_resumes_at_next_event_across_encounters() {
     let checkpoint: ProjectionCheckpoint = serde_json::from_str(&json).unwrap();
     let mut resumed = CampaignProjector::resume(checkpoint).unwrap();
     assert_eq!(resumed.projection(), &project(&archive[..3]).unwrap());
-    // Replayed old events and skipped coordinates must not advance the cursor.
+    // Replayed old events and skipped sequence numbers inside an encounter
+    // must not advance the cursor.
     assert!(resumed.push(&archive[2]).is_err());
-    assert!(resumed.push(&archive[4]).is_err());
+    assert!(resumed.push(&event(2, 3, 3, EventKind::FoeSummoned, 1)).is_err());
     for record in &archive[3..] {
         resumed.push(record).unwrap();
     }
