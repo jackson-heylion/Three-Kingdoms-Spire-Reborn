@@ -287,3 +287,25 @@ fn strict_resume_rejects_legacy_checkpoint_with_unsealed_past_battle() {
     assert!(resumed.finish().is_ok());
     assert!(SealedCampaignProjector::new().finish().is_err());
 }
+
+#[test]
+fn strict_checkpoint_requires_terminal_outcome_even_for_sealed_legacy_data() {
+    let first = event(1, 1, 1, EventKind::CardPlayed, 1);
+    let mut end = event(1, 1, 2, EventKind::BattleEnded, 1);
+    end.event.source = "victory".into();
+    let mut projector = CampaignProjector::new();
+    projector.push(&first).unwrap();
+    projector.push(&end).unwrap();
+    let valid = projector.checkpoint();
+    assert!(SealedCampaignProjector::resume(valid.clone()).unwrap().finish().is_ok());
+    let mut legacy = valid;
+    legacy.projection.encounters[0].outcome = None;
+    assert!(CampaignProjector::resume(legacy.clone()).is_ok());
+    assert!(SealedCampaignProjector::resume(legacy).is_err());
+    let mut active = CampaignProjector::new();
+    active.push(&first).unwrap();
+    let mut resumed = SealedCampaignProjector::resume(active.checkpoint()).unwrap();
+    assert!(resumed.clone().finish().is_err());
+    resumed.push(&end).unwrap();
+    assert!(resumed.finish().is_ok());
+}
