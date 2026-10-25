@@ -28,12 +28,12 @@ fn validate_edges(trace: &[EventParentRecord]) -> Result<(), String> {
             encounter: entry.event.encounter,
             seq: entry.event.event.seq,
         };
-        if let Some(parent) = entry.parent {
-            if parent.encounter != id.encounter || parent.seq >= id.seq
-                || !seen.contains(&parent)
-            {
-                return Err("invalid synchronous event parent coordinate".into());
-            }
+        if let Some(parent) = entry.parent
+            && (parent.encounter != id.encounter
+                || parent.seq >= id.seq
+                || !seen.contains(&parent))
+        {
+            return Err("invalid synchronous event parent coordinate".into());
         }
         if !seen.insert(id) {
             return Err("duplicate synchronous event coordinate".into());
