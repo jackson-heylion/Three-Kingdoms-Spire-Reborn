@@ -62,11 +62,8 @@ def main() -> None:
         # digest anchored before its actions/seed were rewritten.
         execute(tks, "--plain", "--save-dir", str(save_dir),
                 input_text="new guanyu 778\nchoose 1\nquit\n")
-        assert "digest mismatch" in execute(
-            attest, str(save), "--verify", str(anchor), success=False
-        ) or "different campaign" in execute(
-            attest, str(save), "--verify", str(anchor), success=False
-        )
+        rejected = execute(attest, str(save), "--verify", str(anchor), success=False)
+        assert "digest mismatch" in rejected or "different campaign" in rejected, rejected
         print("PASS real CLI checkpoint export/verify, historical anchor, tamper and rewritten campaign")
 
 
