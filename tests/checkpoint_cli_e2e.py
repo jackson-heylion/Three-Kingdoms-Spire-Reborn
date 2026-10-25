@@ -50,6 +50,12 @@ def main() -> None:
         assert "verified revision=1" in execute(attest, str(save), "--verify", str(anchor))
         assert "verified revision=0" in execute(attest, str(save), "--verify", str(earlier))
         assert save.read_bytes() == initial, "read-only audit changed live save"
+        trace = json.loads(execute(attest, str(save), "--rng-trace"))
+        assert len(trace) == 1 and trace[0]["revision"] == 1
+        assert trace[0]["action"]["type"] == "choose"
+        assert trace[0]["draws"] > 0, "first combat must consume RNG draws"
+        assert trace[0]["state_after"] == json.loads(initial)["rng_state"]
+        assert save.read_bytes() == initial, "RNG trace must be read-only"
 
         edited = json.loads(initial)
         edited["gold"] += 1
