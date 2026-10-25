@@ -19,6 +19,7 @@ fn remaining_four_bosses_have_seed_paired_three_policy_encounters() {
     let mut baseline_only_wins = 0_usize;
     let mut curated_only_wins = 0_usize;
     let mut technique_events = 0_usize;
+    let mut techniques_by_boss = [0_usize; 4];
     let mut phase_observations = 0_usize;
 
     for (plan_index, plan) in PLANS.iter().enumerate() {
@@ -30,33 +31,34 @@ fn remaining_four_bosses_have_seed_paired_three_policy_encounters() {
                     let seed = 26_400_000_u64 + plan_index as u64 * 1_000
                         + boss_index as u64 * 100 + u64::from(ascension) + trial;
                     for (policy_id, policy) in POLICIES {
-                    let baseline = duel_with_policy(
-                        encounter(plan, boss, ascension, seed, false), boss, policy,
-                    );
-                    let curated = duel_with_policy(
-                        encounter(plan, boss, ascension, seed, true), boss, policy,
-                    );
-                    baseline_wins += usize::from(baseline.survived);
-                    curated_wins += usize::from(curated.survived);
-                    baseline_only_wins += usize::from(baseline.survived && !curated.survived);
-                    curated_only_wins += usize::from(curated.survived && !baseline.survived);
-                    technique_events += baseline.techniques + curated.techniques;
-                    phase_observations += usize::from(baseline.phase_seen)
-                        + usize::from(curated.phase_seen);
-                    assert!(baseline.actions > 0 && curated.actions > 0);
-                    cells.push(serde_json::json!({
-                        "plan": plan.id,
-                        "hero": format!("{:?}", plan.hero),
-                        "boss": boss,
-                        "ascension": ascension,
-                        "seed": seed,
-                        "trial": trial,
-                        "policy": policy_id,
-                        "baseline": duel_report(&baseline),
-                        "curated": duel_report(&curated),
-                        "baseline_discards": baseline.discard_actions,
-                        "curated_discards": curated.discard_actions,
-                    }));
+                        let baseline = duel_with_policy(
+                            encounter(plan, boss, ascension, seed, false), boss, policy,
+                        );
+                        let curated = duel_with_policy(
+                            encounter(plan, boss, ascension, seed, true), boss, policy,
+                        );
+                        baseline_wins += usize::from(baseline.survived);
+                        curated_wins += usize::from(curated.survived);
+                        baseline_only_wins += usize::from(baseline.survived && !curated.survived);
+                        curated_only_wins += usize::from(curated.survived && !baseline.survived);
+                        technique_events += baseline.techniques + curated.techniques;
+                        techniques_by_boss[boss_index] += baseline.techniques + curated.techniques;
+                        phase_observations += usize::from(baseline.phase_seen)
+                            + usize::from(curated.phase_seen);
+                        assert!(baseline.actions > 0 && curated.actions > 0);
+                        cells.push(serde_json::json!({
+                            "plan": plan.id,
+                            "hero": format!("{:?}", plan.hero),
+                            "boss": boss,
+                            "ascension": ascension,
+                            "seed": seed,
+                            "trial": trial,
+                            "policy": policy_id,
+                            "baseline": duel_report(&baseline),
+                            "curated": duel_report(&curated),
+                            "baseline_discards": baseline.discard_actions,
+                            "curated_discards": curated.discard_actions,
+                        }));
                     }
                 }
             }
@@ -64,7 +66,8 @@ fn remaining_four_bosses_have_seed_paired_three_policy_encounters() {
     }
     let pairs = 15 * BOSSES.len() * DIFFICULTIES.len() * POLICIES.len() * 2;
     assert_eq!(cells.len(), pairs);
-    assert!(technique_events > 0, "no boss-specific technique was exercised");
+    assert!(techniques_by_boss.iter().all(|count| *count > 0),
+        "at least one boss never exercised a named technique");
     let report = serde_json::json!({
         "schema_version": 1,
         "fixture": "single_floor_one_boss_120hp",
@@ -79,6 +82,7 @@ fn remaining_four_bosses_have_seed_paired_three_policy_encounters() {
         "baseline_only_wins": baseline_only_wins,
         "curated_only_wins": curated_only_wins,
         "technique_events": technique_events,
+        "technique_events_by_boss": techniques_by_boss,
         "phase_observations": phase_observations,
         "cells": cells,
     });
