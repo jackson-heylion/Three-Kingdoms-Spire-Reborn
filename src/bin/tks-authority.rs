@@ -23,7 +23,7 @@ fn run() -> Result<(), String> {
         "foe_count": view.foes.as_ref().map_or(0, |foes| foes.foes.len()),
         "journal_domains": [
             "resources", "rng", "combat_resources",
-            "foe_board", "card_zones", "combat_effects", "campaign"
+            "foe_board", "card_zones", "combat_effects", "campaign", "telemetry"
         ],
         "whole_game_reconstructed": false,
         "cryptographically_authenticated": false

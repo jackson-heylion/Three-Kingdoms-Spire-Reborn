@@ -5,7 +5,7 @@
 mod authority_bundle;
 
 use crate::{
-    Action, Game, campaign_authority, card_zone_events, combat_effect_events, combat_resource_events, foe_board_events, resource_events, rng_events,
+    Action, Game, campaign_authority, card_zone_events, combat_effect_events, combat_resource_events, foe_board_events, resource_events, rng_events, telemetry_authority,
 };
 
 impl Game {
@@ -22,10 +22,12 @@ impl Game {
         let card_history = self.card_zone_history.take();
         let effect_history = self.combat_effect_history.take();
         let campaign_history = self.campaign_history.take();
+        let telemetry_history = self.telemetry_history.take();
         let mut draft = self.clone();
         self.card_zone_history = card_history;
         self.combat_effect_history = effect_history;
         self.campaign_history = campaign_history;
+        self.telemetry_history = telemetry_history;
         let messages = draft.apply_unchecked(action.clone())?;
         if let Some(history) = draft.resource_history.as_mut() {
             history.push(resource_events::ResourceEvent::Changed {
@@ -89,6 +91,9 @@ impl Game {
                 &campaign_authority::CampaignState::current(&draft), draft.revision,
             )?)
         } else { None };
+        let telemetry_event = if self.telemetry_history.is_some() {
+            Some(telemetry_authority::transition(&self.telemetry, &draft.telemetry, draft.revision)?)
+        } else { None };
         if let Some(actions) = draft.action_history.as_mut() {
             actions.push(action);
         }
@@ -108,6 +113,11 @@ impl Game {
         {
             return Err("campaign journal exceeds action limit".into());
         }
+        if telemetry_event.is_some()
+            && self.telemetry_history.as_ref().is_some_and(|history| history.len() >= 50_001)
+        {
+            return Err("telemetry journal exceeds action limit".into());
+        }
         // Large histories move only after all fallible validation succeeds.
         if let Some(event) = card_event {
             let mut history = self.card_zone_history.take().expect("checked card journal");
@@ -123,6 +133,11 @@ impl Game {
             let mut history = self.campaign_history.take().expect("checked campaign journal");
             history.push(event);
             draft.campaign_history = Some(history);
+        }
+        if let Some(event) = telemetry_event {
+            let mut history = self.telemetry_history.take().expect("checked telemetry journal");
+            history.push(event);
+            draft.telemetry_history = Some(history);
         }
         *self = draft;
         Ok(messages)

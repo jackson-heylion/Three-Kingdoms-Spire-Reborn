@@ -13,6 +13,8 @@ use crate::{
     foe_board_events::{self, FoeBoard},
     resource_events::{self, Resources},
     rng_events,
+    telemetry_authority::{self, TelemetryProjector},
+    CombatTelemetry,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -25,6 +27,7 @@ pub struct AuthorityView {
     pub cards: CardZones,
     pub effects: Option<BattleEffects>,
     pub campaign: CampaignState,
+    pub telemetry: CombatTelemetry,
 }
 
 impl AuthorityView {
@@ -35,6 +38,9 @@ impl AuthorityView {
         let effects = self.effects.as_ref().map(|s| (s.floor, s.turn));
         if combat != foes || combat != cards || combat != effects {
             return Err("cross-journal combat floor/turn mismatch".into());
+        }
+        if self.combat.is_some() && self.telemetry.totals.battles_started == 0 {
+            return Err("cross-journal active battle without telemetry start".into());
         }
         if (self.campaign.stage == crate::Stage::Combat) != self.combat.is_some()
             || self.combat.as_ref().is_some_and(|battle| battle.floor != self.campaign.floor)
@@ -56,6 +62,7 @@ impl AuthorityView {
             || self.cards != CardZones::current(game)
             || self.effects != BattleEffects::current(game)
             || self.campaign != CampaignState::current(game)
+            || self.telemetry != game.telemetry
         {
             return Err("composite authority differs from Game snapshot".into());
         }
@@ -72,6 +79,7 @@ pub struct AuthorityStep<'a> {
     pub cards: &'a card_zone_events::CardZoneEvent,
     pub effects: &'a combat_effect_events::CombatEffectEvent,
     pub campaign: &'a campaign_authority::CampaignEvent,
+    pub telemetry: &'a telemetry_authority::TelemetryEvent,
 }
 
 /// Incremental six-stream reducer. Failed steps cannot partially advance any
@@ -85,6 +93,7 @@ pub struct CompositeAuthorityProjector {
     cards: card_zone_events::CardZoneProjector,
     effects: combat_effect_events::CombatEffectProjector,
     campaign: campaign_authority::CampaignProjector,
+    telemetry: TelemetryProjector,
 }
 
 impl CompositeAuthorityProjector {
@@ -98,11 +107,12 @@ impl CompositeAuthorityProjector {
         let (cards, r4) = self.cards.state()?;
         let (effects, r5) = self.effects.state()?;
         let (campaign, r6) = self.campaign.state()?;
-        if [r1, r2, r3, r4, r5, r6].iter().any(|r| *r != r0) {
+        let (telemetry, r7) = self.telemetry.state()?;
+        if [r1, r2, r3, r4, r5, r6, r7].iter().any(|r| *r != r0) {
             return Err("cross-journal committed revision mismatch".into());
         }
         let view = AuthorityView {
-            revision: r0, resources, rng_state, combat, foes, cards, effects, campaign,
+            revision: r0, resources, rng_state, combat, foes, cards, effects, campaign, telemetry,
         };
         view.check_combat_coordinates()?;
         Ok(view)
@@ -117,6 +127,7 @@ impl CompositeAuthorityProjector {
         next.cards.push(step.cards)?;
         next.effects.push(step.effects)?;
         next.campaign.push(step.campaign)?;
+        next.telemetry.push(step.telemetry)?;
         next.view()?; // Includes cross-stream revision and floor/turn agreement.
         *self = next;
         Ok(())
@@ -141,9 +152,11 @@ pub fn project(game: &Game) -> Result<AuthorityView, String> {
         .ok_or("legacy save has no combat effect authority journal")?;
     let campaign = game.campaign_history.as_ref()
         .ok_or("legacy save has no campaign authority journal")?;
+    let telemetry = game.telemetry_history.as_ref()
+        .ok_or("legacy save has no telemetry authority journal")?;
 
     let length = resources.len();
-    if [rng.len(), combat.len(), foes.len(), cards.len(), effects.len(), campaign.len()]
+    if [rng.len(), combat.len(), foes.len(), cards.len(), effects.len(), campaign.len(), telemetry.len()]
         .iter().any(|n| *n != length)
     {
         return Err("authority journals disagree on committed revision count".into());
@@ -154,7 +167,7 @@ pub fn project(game: &Game) -> Result<AuthorityView, String> {
             resources: &resources[index], rng: &rng[index],
             combat: &combat[index], foes: &foes[index],
             cards: &cards[index], effects: &effects[index],
-            campaign: &campaign[index],
+            campaign: &campaign[index], telemetry: &telemetry[index],
         }).map_err(|error| format!("authority boundary {index}: {error}"))?;
     }
     projector.view()

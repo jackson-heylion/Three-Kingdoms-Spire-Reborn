@@ -14,6 +14,11 @@ pub mod foe_board_events;
 pub mod card_zone_events;
 pub mod combat_effect_events;
 pub mod campaign_authority;
+pub mod telemetry;
+pub mod telemetry_authority;
+pub use telemetry::{CombatCounters, CombatTelemetry, TurnTelemetry, MAX_RECENT_TURN_METRICS};
+#[cfg(test)]
+mod boss_reward_regression_tests;
 mod game_setup;
 mod action_commit;
 mod replay;
@@ -203,71 +208,6 @@ impl Battle {
     }
 }
 
-/// Lifetime-of-run counters. Fields are monotonic and old V2 saves default to zero.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct CombatCounters {
-    pub battles_started: u64,
-    pub battles_won: u64,
-    pub battles_lost: u64,
-    pub turns_completed: u64,
-    pub cards_played: u64,
-    pub hero_hp_damage: u64,
-    pub troop_attacks: u64,
-    pub troop_damage: u64,
-    pub troop_absorbed: u64,
-    pub command_procs: u64,
-    pub command_energy: u64,
-    pub command_block: u64,
-    pub sun_discards: u64,
-    pub sun_discard_block: u64,
-    pub sun_combo_procs: u64,
-    pub sun_combo_block: u64,
-    pub sun_combo_draws: u64,
-}
-
-impl CombatCounters {
-    pub fn accumulate(&mut self, other: &Self) {
-        self.battles_started = self.battles_started.saturating_add(other.battles_started);
-        self.battles_won = self.battles_won.saturating_add(other.battles_won);
-        self.battles_lost = self.battles_lost.saturating_add(other.battles_lost);
-        self.turns_completed = self.turns_completed.saturating_add(other.turns_completed);
-        self.cards_played = self.cards_played.saturating_add(other.cards_played);
-        self.hero_hp_damage = self.hero_hp_damage.saturating_add(other.hero_hp_damage);
-        self.troop_attacks = self.troop_attacks.saturating_add(other.troop_attacks);
-        self.troop_damage = self.troop_damage.saturating_add(other.troop_damage);
-        self.troop_absorbed = self.troop_absorbed.saturating_add(other.troop_absorbed);
-        self.command_procs = self.command_procs.saturating_add(other.command_procs);
-        self.command_energy = self.command_energy.saturating_add(other.command_energy);
-        self.command_block = self.command_block.saturating_add(other.command_block);
-        self.sun_discards = self.sun_discards.saturating_add(other.sun_discards);
-        self.sun_discard_block = self.sun_discard_block.saturating_add(other.sun_discard_block);
-        self.sun_combo_procs = self.sun_combo_procs.saturating_add(other.sun_combo_procs);
-        self.sun_combo_block = self.sun_combo_block.saturating_add(other.sun_combo_block);
-        self.sun_combo_draws = self.sun_combo_draws.saturating_add(other.sun_combo_draws);
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TurnTelemetry {
-    pub floor: u8,
-    pub turn: u32,
-    pub completed: bool,
-    pub hero_hp_after: i32,
-    pub troop_hp_after: i32,
-    pub counters: CombatCounters,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct CombatTelemetry {
-    pub totals: CombatCounters,
-    pub current_turn: CombatCounters,
-    /// Bounded diagnostic trace, not a full event-sourcing replay.
-    pub recent_turns: Vec<TurnTelemetry>,
-}
-pub const MAX_RECENT_TURN_METRICS: usize = 24;
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Game {
     pub version: u32,
@@ -324,6 +264,9 @@ pub struct Game {
     /// Noncombat campaign authority; absent from pre-upgrade V2 saves.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub campaign_history: Option<Vec<campaign_authority::CampaignEvent>>,
+    /// Run-wide telemetry journal, absent in legacy V2 saves.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub telemetry_history: Option<Vec<telemetry_authority::TelemetryEvent>>,
     /// Custom-only stable difficulty switches; omitted in old V2 saves.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub modifiers: Vec<ChallengeModifier>,
@@ -429,6 +372,9 @@ impl Game {
         }
         if self.campaign_history.as_ref().is_some_and(|events| events.len()>50_001) {
             return Err("campaign journal exceeds action limit".into());
+        }
+        if self.telemetry_history.as_ref().is_some_and(|events| events.len()>50_001) {
+            return Err("telemetry journal exceeds action limit".into());
         }
         if self.profile_start_receipt && self.run_id.is_empty() {
             return Err("可恢复战功凭证缺少唯一战役ID".into());
@@ -3096,25 +3042,6 @@ mod tests {
         let before = g.to_json().unwrap();
         assert!(g.apply(Action::UsePotionAt { slot: 1, target: 1 }).is_err());
         assert_eq!(g.to_json().unwrap(), before);
-    }
-
-    #[test]
-    fn boss_reward_flows_into_ancient_choice_without_losing_save() {
-        let mut g = Game::new(Hero::GuanYu, 444);
-        g.floor = 7;
-        g.last_node = Some(Node::Boss);
-        g.stage = Stage::Combat;
-        g.battle = None;
-        let _ = g.win_battle();
-        assert_eq!(g.stage, Stage::Reward);
-        g.apply(Action::Choose { index: 0 }).unwrap();
-        assert_eq!(g.stage, Stage::Ancient);
-        assert_eq!(g.boon_choices.len(), 3);
-        let snap = g.to_json().unwrap();
-        let mut restored = Game::from_json(&snap).unwrap();
-        restored.apply(Action::Choose { index: 1 }).unwrap();
-        assert_eq!(restored.stage, Stage::Map);
-        assert_eq!(restored.boons.len(), 1);
     }
 
     #[test]
