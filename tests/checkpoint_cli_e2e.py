@@ -65,6 +65,17 @@ def main() -> None:
         assert len(timeline) == 1 and timeline[0]["revision"] == 1
         steps = timeline[0]["steps"]
         events = json.loads(initial)["event_history"]
+        for call in calls:
+            assert "dispatch_parent" in call, "RNG call must expose explicit observer parent"
+            parent = call["dispatch_parent"]
+            if parent is not None:
+                before = call["event_cursor_before"]
+                assert before is not None
+                assert any(
+                    event["encounter"] == parent["encounter"]
+                    and event["event"]["seq"] == parent["seq"]
+                    for event in events[:before]
+                ), "RNG parent must be an already emitted real event"
         event_cursor = 0
         rng_calls = 0
         for step in steps:
