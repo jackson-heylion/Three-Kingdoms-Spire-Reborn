@@ -30,6 +30,7 @@ pub struct CampaignState {
     pub event_id: u8,
     pub victories: u32,
     pub variants: Option<[u8; 3]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub doctrine: Option<archetypes::Doctrine>,
     pub modifiers: Vec<challenges::ChallengeModifier>,
 }
