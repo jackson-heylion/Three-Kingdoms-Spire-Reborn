@@ -1,8 +1,8 @@
 //! Offline RNG draw attribution from the xorshift64* state transition.
 //!
-//! This counts consumed RNG transitions per committed action without changing
-//! the save schema or gameplay RNG. It does NOT identify the individual call
-//! sites, bound arguments, or supply a trusted event-sourcing log.
+//! This counts consumed RNG transitions and captures their ordering relative
+//! to emitted combat events, without changing the save schema or gameplay RNG.
+//! It does not establish parent-child causality or trusted event sourcing.
 use crate::{Action, Game, rng_events::RngEvent};
 
 /// Diagnostic upper bound, not a gameplay restriction. A legitimate action
@@ -18,6 +18,9 @@ pub struct RngCall {
     pub value: usize,
     pub state_before: u64,
     pub state_after: u64,
+    /// Number of archived combat events already emitted when random() ran.
+    /// None for old saves without an event archive; NOT a parent-event ID.
+    pub event_cursor_before: Option<usize>,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -27,6 +30,9 @@ pub struct RngDrawAttribution {
     pub state_before: u64,
     pub state_after: u64,
     pub draws: u32,
+    /// Exclusive event archive slice emitted by this action; absent on old saves.
+    pub event_start: Option<usize>,
+    pub event_end: Option<usize>,
     /// Every random() invocation, including zero-consumption bounds.
     pub calls: Vec<RngCall>,
 }
@@ -85,11 +91,23 @@ impl Game {
         let mut attributed = Vec::with_capacity(actions.len());
         for (index, action) in actions.iter().enumerate() {
             let before = replay.rng_state;
+            let event_start = replay.event_history.as_ref().map(Vec::len);
             replay.rng_trace = Some(Vec::new());
             replay.apply(action.clone()).map_err(|error|
                 format!("RNG attribution replay action {} failed: {error}", index + 1))?;
             let calls = replay.rng_trace.take()
                 .ok_or("RNG call-site instrumentation was lost during action replay")?;
+            let event_end = replay.event_history.as_ref().map(Vec::len);
+            if event_start.is_some() != event_end.is_some() {
+                return Err("event archive availability changed during RNG replay".into());
+            }
+            if let (Some(start), Some(end)) = (event_start, event_end) {
+                let archive = replay.event_history.as_ref().unwrap();
+                let source = self.event_history.as_ref().unwrap();
+                if end < start || source.get(start..end) != archive.get(start..end) {
+                    return Err(format!("event archive diverged at RNG revision {}", index + 1));
+                }
+            }
             let committed = replay.rng_history.as_ref()
                 .and_then(|events| events.get(index + 1));
             if committed != journal.get(index + 1) {
@@ -112,7 +130,18 @@ impl Game {
             }
             let mut cursor = before;
             let mut consumed = 0_u32;
+            let mut previous_event_cursor = event_start;
             for call in &calls {
+                if let (Some(start), Some(end), Some(position), Some(previous)) =
+                    (event_start, event_end, call.event_cursor_before, previous_event_cursor)
+                {
+                    if position < start || position < previous || position > end {
+                        return Err(format!("RNG/event interleaving cursor diverged at revision {}", index + 1));
+                    }
+                } else if call.event_cursor_before != event_start {
+                    return Err(format!("RNG/event archive availability diverged at revision {}", index + 1));
+                }
+                previous_event_cursor = call.event_cursor_before;
                 if call.state_before != cursor || call.call_site.is_empty() {
                     return Err(format!("RNG call-site trace diverged at revision {}", index + 1));
                 }
@@ -136,6 +165,8 @@ impl Game {
                 state_before: before,
                 state_after: replay.rng_state,
                 draws,
+                event_start,
+                event_end,
                 calls,
             });
         }

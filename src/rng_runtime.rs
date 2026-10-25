@@ -19,6 +19,9 @@ impl Game {
             self.rng_state = x;
             (x.wrapping_mul(0x2545F4914F6CDD1D) % upper as u64) as usize
         };
+        // An append-only event cursor locates this call between emitted combat
+        // events. It does not identify which event caused the draw.
+        let event_cursor_before = self.event_history.as_ref().map(Vec::len);
         if let Some(calls) = self.rng_trace.as_mut() {
             // Preserve the diagnostic failure signal without unbounded memory.
             // The normal gameplay RNG is never capped or rejected.
@@ -30,6 +33,7 @@ impl Game {
                     value,
                     state_before: before,
                     state_after: self.rng_state,
+                    event_cursor_before,
                 });
             }
         }
