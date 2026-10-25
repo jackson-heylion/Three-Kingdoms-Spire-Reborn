@@ -9,7 +9,7 @@ use crate::{Action, Game, rng_events::RngEvent};
 /// exceeding this budget is reported as *unattributed*, never rejected by apply.
 pub const MAX_ATTRIBUTED_DRAWS_PER_ACTION: u32 = 8192;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize)]
 pub struct RngDrawAttribution {
     pub revision: u64,
     pub action: Action,
