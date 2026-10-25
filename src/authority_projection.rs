@@ -39,8 +39,17 @@ impl AuthorityView {
         if combat != foes || combat != cards || combat != effects {
             return Err("cross-journal combat floor/turn mismatch".into());
         }
-        if self.combat.is_some() && self.telemetry.totals.battles_started == 0 {
-            return Err("cross-journal active battle without telemetry start".into());
+        // A started encounter is either still active or has exactly one
+        // recorded outcome. A separately well-formed telemetry stream may
+        // otherwise invent battles while all combat/campaign journals agree.
+        let completed = self.telemetry.totals.battles_won
+            .checked_add(self.telemetry.totals.battles_lost)
+            .ok_or("combat telemetry outcome counter overflow")?;
+        let expected_started = completed
+            .checked_add(u64::from(self.combat.is_some()))
+            .ok_or("combat telemetry encounter counter overflow")?;
+        if self.telemetry.totals.battles_started != expected_started {
+            return Err("cross-journal battle lifecycle and telemetry mismatch".into());
         }
         if (self.campaign.stage == crate::Stage::Combat) != self.combat.is_some()
             || self.combat.as_ref().is_some_and(|battle| battle.floor != self.campaign.floor)
