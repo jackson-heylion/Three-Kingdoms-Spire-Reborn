@@ -34,6 +34,7 @@ impl Game {
                     state_before: before,
                     state_after: self.rng_state,
                     event_cursor_before,
+                    dispatch_parent: self.dispatch_parent,
                 });
             }
         }
@@ -76,4 +77,41 @@ mod tests {
         assert_ne!(after_draw, original, "real draws must still advance the saved RNG");
         assert!(!after_draw.contains("rng_trace"), "diagnostic calls must not persist");
     }
+    #[test]
+    fn shuffle_inside_power_observer_carries_exact_event_parent() {
+        use crate::{
+            Action,
+            combat::{EventKind, PowerId, PowerStack},
+            event_parent::EventCoordinate,
+        };
+        let mut game = Game::new(Hero::ZhugeLiang, 20261025);
+        game.apply(Action::Choose { index: 1 }).unwrap();
+        let battle = game.battle.as_mut().unwrap();
+        battle.draw.clear();
+        battle.discard = vec![
+            Card::new("strike"), Card::new("defend"), Card::new("strike"),
+        ];
+        battle.powers.push(PowerStack { id: PowerId::ThoughtSpring, stacks: 1 });
+        let parent = EventCoordinate {
+            encounter: game.telemetry.totals.battles_started,
+            seq: game.battle.as_ref().unwrap().event_seq + 1,
+        };
+        game.rng_trace = Some(Vec::new());
+        game.combat_event(EventKind::CardResolved, "defend", 0, None);
+        // ThoughtSpring draws a card, shuffling the discard pile. The
+        // random calls happen *inside* the CardResolved observer, not merely
+        // after the nearest event in a flat chronological log.
+        let mut calls = game.rng_trace.take().unwrap();
+        assert!(calls.iter().any(|call|
+            call.upper > 1 && call.dispatch_parent == Some(parent)));
+        assert!(calls.iter().filter(|call| call.dispatch_parent == Some(parent))
+            .all(|call| call.event_cursor_before.is_some_and(|cursor| cursor > 0)));
+        game.rng_trace = Some(Vec::new());
+        game.random(7);
+        calls = game.rng_trace.take().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].dispatch_parent, None,
+            "a later root draw must not inherit the previous observer");
+    }
+
 }
