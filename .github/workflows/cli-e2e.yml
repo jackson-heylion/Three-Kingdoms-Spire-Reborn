@@ -20,8 +20,10 @@ jobs:
         with:
           toolchain: "1.99.1"
       - name: Build real terminal binary
-        run: cargo build --bin tks --bin tks-attest
+        run: cargo build --bin tks --bin tks-authority --bin tks-attest
       - name: Five-hero cross-process CLI journeys
         run: python3 tests/cli_journey_e2e.py target/debug/tks
+      - name: Six-journal real-process authority and tamper checks
+        run: python3 tests/authority_cli_e2e.py target/debug/tks target/debug/tks-authority
       - name: Trusted revision checkpoint CLI E2E
         run: python3 tests/checkpoint_cli_e2e.py target/debug/tks target/debug/tks-attest
