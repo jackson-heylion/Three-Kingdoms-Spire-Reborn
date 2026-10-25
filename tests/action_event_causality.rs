@@ -81,3 +81,29 @@ fn causal_trace_never_fabricates_old_archives_or_truncated_actions() {
     no_actions.action_history = None;
     assert!(no_actions.reconstruct_action_event_trace().is_err());
 }
+
+#[test]
+fn dynamic_listener_lifecycle_is_replayable_without_inventing_combat_events() {
+    use three_kingdoms_spire_reborn::event_stack::{Listener, Response};
+
+    let mut game = Game::new_with_identity(
+        Hero::GuanYu, 811, 0, RunMode::Custom, "listener-causality".into(),
+    );
+    game.apply(Action::Choose { index: 1 }).unwrap();
+    game.apply(Action::RegisterReaction {
+        listener: Listener::once("causal-ward", "weak", Response::Reduce(1)),
+    }).unwrap();
+    assert_eq!(game.battle.as_ref().unwrap().reactions.listeners.len(), 1);
+    game.apply(Action::UnregisterReaction { id: "causal-ward".into() }).unwrap();
+    assert!(game.battle.as_ref().unwrap().reactions.listeners.is_empty());
+    game.apply(Action::EndTurn).unwrap();
+
+    let restored = Game::from_json(&game.to_json().unwrap()).unwrap();
+    let trace = restored.reconstruct_action_event_trace().unwrap();
+    assert_eq!(trace.len(), 4);
+    assert!(trace[1].events.is_empty(), "register must not forge a settled combat event");
+    assert!(trace[2].events.is_empty(), "unregister must not forge a settled combat event");
+    assert_eq!(trace[1].stage_after, Stage::Combat);
+    assert_eq!(trace[2].rng_before, trace[2].rng_after);
+    assert_eq!(trace[3].rng_after, restored.rng_state);
+}
