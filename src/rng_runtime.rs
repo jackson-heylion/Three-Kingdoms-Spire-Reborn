@@ -34,7 +34,9 @@ impl Game {
                     state_before: before,
                     state_after: self.rng_state,
                     event_cursor_before,
-                    dispatch_parent: self.dispatch_parent,
+                    // Old V2 saves can still audit RNG draws, but cannot
+                    // authenticate event parents without a persisted archive.
+                    dispatch_parent: self.event_history.as_ref().and(self.dispatch_parent),
                 });
             }
         }
