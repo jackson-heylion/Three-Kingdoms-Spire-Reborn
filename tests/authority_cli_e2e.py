@@ -177,7 +177,7 @@ def main() -> None:
     directory = root / "intermediate-runtime-window"
     journey = invoke(
         [tks, "--plain", "--save-dir", str(directory)],
-        stdin="custom guanyu 777 0\\nchoose 1\\nend\\nquit\\n".replace("\\\\n", "\\n"),
+        stdin="custom guanyu 777 0\nchoose 1\nend\nquit\n",
     )
     assert journey.returncode == 0, journey.stderr[-1500:]
     save = directory / "save.json"
