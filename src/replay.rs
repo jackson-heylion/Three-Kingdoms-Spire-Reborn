@@ -1,5 +1,9 @@
 //! Deterministic action replay and event archive reconstruction.
 //! Kept separate from the large rules engine to reduce its change surface.
+#[path = "revision_checkpoint.rs"]
+mod revision_checkpoint;
+pub use revision_checkpoint::RevisionCheckpoint;
+
 use crate::{Action, Game, Stage, event_stack};
 
 /// One committed action's observable effects, reconstructed by executing the
