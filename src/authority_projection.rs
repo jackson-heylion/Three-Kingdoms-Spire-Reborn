@@ -116,23 +116,23 @@ impl CompositeAuthorityProjector {
 /// This function reads only persisted event journals, never the Game snapshot.
 pub fn project(game: &Game) -> Result<AuthorityView, String> {
     let resources = game.resource_history.as_ref()
-        .ok_or("missing resource authority journal")?;
+        .ok_or("legacy save has no persistent resource authority journal")?;
     let rng = game.rng_history.as_ref()
-        .ok_or("missing RNG authority journal")?;
+        .ok_or("legacy save has no RNG authority journal")?;
     let combat = game.battle_resource_history.as_ref()
-        .ok_or("missing combat resource authority journal")?;
+        .ok_or("legacy save has no combat resource authority journal")?;
     let foes = game.foe_board_history.as_ref()
-        .ok_or("missing enemy board authority journal")?;
+        .ok_or("legacy save has no enemy board authority journal")?;
     let cards = game.card_zone_history.as_ref()
-        .ok_or("missing card zone authority journal")?;
+        .ok_or("legacy save has no card zone authority journal")?;
     let effects = game.combat_effect_history.as_ref()
-        .ok_or("missing combat effect authority journal")?;
+        .ok_or("legacy save has no combat effect authority journal")?;
 
     let length = resources.len();
     if [rng.len(), combat.len(), foes.len(), cards.len(), effects.len()]
         .iter().any(|n| *n != length)
     {
-        return Err("cross-journal record count mismatch".into());
+        return Err("authority journals disagree on committed revision count".into());
     }
     let mut projector = CompositeAuthorityProjector::new();
     for index in 0..length {
@@ -140,7 +140,7 @@ pub fn project(game: &Game) -> Result<AuthorityView, String> {
             resources: &resources[index], rng: &rng[index],
             combat: &combat[index], foes: &foes[index],
             cards: &cards[index], effects: &effects[index],
-        })?;
+        }).map_err(|error| format!("authority boundary {index}: {error}"))?;
     }
     projector.view()
 }
