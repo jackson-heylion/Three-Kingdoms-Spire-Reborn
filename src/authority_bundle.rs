@@ -1,10 +1,10 @@
-//! Compatibility entry points for the seven-source authority audit.
+//! Compatibility entry points for the nine-source authority audit.
 //! The shared atomic projector now owns lockstep reduction, so this module
 //! cannot drift from the standalone CLI or per-revision authority checks.
 use crate::{Game, event_stack::authority::{AuthorityStep, CompositeAuthorityProjector}};
 
 impl Game {
-    /// Reduce all seven action-boundary journals, including every intermediate
+    /// Reduce all nine action-boundary journals, including every intermediate
     /// revision, then compare the result with the current Game snapshot.
     /// Legacy saves lacking any journal remain playable but are not certified.
     pub fn audit_authority_bundle(&self) -> Result<usize, String> {
@@ -40,6 +40,8 @@ impl Game {
             .ok_or("missing card zone journal")?;
         let effects = self.combat_effect_history.as_ref()
             .ok_or("missing combat effect journal")?;
+        let runtime = self.battle_runtime_history.as_ref()
+            .ok_or("missing battle runtime journal")?;
         let campaign = self.campaign_history.as_ref()
             .ok_or("missing campaign journal")?;
         let telemetry = self.telemetry_history.as_ref()
@@ -50,7 +52,7 @@ impl Game {
             projector.push(AuthorityStep {
                 resources: &resources[i], rng: &rng[i],
                 combat: &combat[i], foes: &foes[i],
-                cards: &cards[i], effects: &effects[i], campaign: &campaign[i],
+                cards: &cards[i], effects: &effects[i], runtime: &runtime[i], campaign: &campaign[i],
                 telemetry: &telemetry[i],
             })?;
         }
@@ -63,6 +65,7 @@ impl Game {
             "foes": view.foes,
             "cards": { "deck": view.cards.deck, "battle": view.cards.battle },
             "effects": view.effects,
+            "runtime": view.runtime,
             "campaign": view.campaign,
             "telemetry": view.telemetry
         }))

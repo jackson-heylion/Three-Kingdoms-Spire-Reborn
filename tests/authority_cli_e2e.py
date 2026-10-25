@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cross-platform real-process E2E for the eight-source authority projector."""
+"""Cross-platform real-process E2E for the nine-source authority projector."""
 from __future__ import annotations
 
 import json
@@ -43,13 +43,21 @@ def main() -> None:
                 assert report["active_combat"] and report["floor"] == 1
                 assert report["stage"] == "combat"
                 assert report["turn"] == 1 and report["foe_count"] >= 1
-                assert len(report["journal_domains"]) == 8
+                assert len(report["journal_domains"]) == 9
+                assert report["active_battle_reconstructed"] is True
                 assert report["event_archive_reconciled"] is True
                 assert report["event_boundaries_reconciled"] is True
                 assert report["checked_revisions"] == 2
                 assert report["archived_encounters"] == 1
                 assert not report["whole_game_reconstructed"]
                 assert not report["cryptographically_authenticated"]
+
+                tampered = json.loads(json.dumps(payload))
+                tampered["battle"]["fury"] += 1
+                forged = directory / "forged-battle-runtime.json"
+                forged.write_text(json.dumps(tampered), encoding="utf-8")
+                rejected = invoke([authority, str(forged)])
+                assert rejected.returncode != 0, "untracked combat fury passed audit"
 
                 tampered = json.loads(json.dumps(payload))
                 tampered["gold"] += 1
@@ -156,7 +164,7 @@ def main() -> None:
                 assert "complete combat event archive" in rejected.stderr
 
                 assert json.loads(save.read_text(encoding="utf-8")) == payload
-                print(f"PASS {hero} ascension={ascension}: eight streams/archive/restart/identity and telemetry tamper")
+                print(f"PASS {hero} ascension={ascension}: nine streams/archive/restart/identity and telemetry tamper")
     print("PASS 10 cross-platform real-process composite authority scenarios")
 
 

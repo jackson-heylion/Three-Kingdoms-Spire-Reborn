@@ -1,4 +1,4 @@
-//! Eight committed event journals form a coherent partial authority view.
+//! Nine committed event journals form a coherent partial authority view.
 //! No action replay, RNG stepping or snapshot is needed for the projection.
 use three_kingdoms_spire_reborn::{
     Action, Game, RunMode,
@@ -132,7 +132,7 @@ fn independently_valid_telemetry_cannot_invent_battles_or_outcomes() {
 }
 
 #[test]
-fn revision_zero_has_eight_valid_idle_projections() {
+fn revision_zero_has_nine_valid_idle_projections() {
     let game = Game::new(Hero::LuBu, 99);
     let view = game.audit_composite_authority().unwrap();
     assert_eq!(view.revision, 0);
@@ -149,6 +149,7 @@ fn step(game: &Game, index: usize) -> authority::AuthorityStep<'_> {
         foes: &game.foe_board_history.as_ref().unwrap()[index],
         cards: &game.card_zone_history.as_ref().unwrap()[index],
         effects: &game.combat_effect_history.as_ref().unwrap()[index],
+        runtime: &game.battle_runtime_history.as_ref().unwrap()[index],
         campaign: &game.campaign_history.as_ref().unwrap()[index],
         telemetry: &game.telemetry_history.as_ref().unwrap()[index],
     }

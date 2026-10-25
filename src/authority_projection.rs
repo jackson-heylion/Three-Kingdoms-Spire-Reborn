@@ -9,6 +9,7 @@ use crate::{
     campaign_authority::{self, CampaignState},
     card_zone_events::{self, CardZones},
     combat_effect_events::{self, BattleEffects},
+    battle_runtime_events::{self, BattleRuntime},
     combat_resource_events::{self, BattleResources},
     foe_board_events::{self, FoeBoard},
     resource_events::{self, Resources},
@@ -26,6 +27,7 @@ pub struct AuthorityView {
     pub foes: Option<FoeBoard>,
     pub cards: CardZones,
     pub effects: Option<BattleEffects>,
+    pub runtime: Option<BattleRuntime>,
     pub campaign: CampaignState,
     pub telemetry: CombatTelemetry,
 }
@@ -36,7 +38,8 @@ impl AuthorityView {
         let foes = self.foes.as_ref().map(|s| (s.floor, s.turn));
         let cards = self.cards.battle.as_ref().map(|s| (s.floor, s.turn));
         let effects = self.effects.as_ref().map(|s| (s.floor, s.turn));
-        if combat != foes || combat != cards || combat != effects {
+        let runtime = self.runtime.as_ref().map(|s| (s.floor, s.turn));
+        if combat != foes || combat != cards || combat != effects || combat != runtime {
             return Err("cross-journal combat floor/turn mismatch".into());
         }
         // A started encounter is either still active or has exactly one
@@ -59,6 +62,40 @@ impl AuthorityView {
         Ok(())
     }
 
+    /// Rebuild the entire active Battle from nine independently reduced journals.
+    /// This never executes an Action, samples RNG, or reads the live Game battle.
+    /// It does not reconstruct noncombat Game fields or authenticate the save.
+    pub fn rebuild_battle(&self) -> Result<Option<crate::Battle>, String> {
+        let (resources, foes, cards, effects, runtime) = match (
+            self.combat.as_ref(), self.foes.as_ref(), self.cards.battle.as_ref(),
+            self.effects.as_ref(), self.runtime.as_ref(),
+        ) {
+            (None, None, None, None, None) => return Ok(None),
+            (Some(resources), Some(foes), Some(cards), Some(effects), Some(runtime)) =>
+                (resources, foes, cards, effects, runtime),
+            _ => return Err("incomplete cross-journal battle reconstruction".into()),
+        };
+        self.check_combat_coordinates()?;
+        Ok(Some(crate::Battle {
+            foes: foes.foes.clone(),
+            draw: cards.draw.clone(), hand: cards.hand.clone(),
+            discard: cards.discard.clone(), exhausted: cards.exhausted.clone(),
+            energy: resources.energy, block: resources.block,
+            strength: runtime.strength, weak: runtime.weak,
+            vulnerable: runtime.vulnerable, momentum: runtime.momentum,
+            scheme: runtime.scheme, combo: runtime.combo, command: runtime.command,
+            fury: runtime.fury, thorns: runtime.thorns,
+            played: runtime.played, played_this_turn: runtime.played_this_turn,
+            last_turn_cards: runtime.last_turn_cards,
+            next_turn_energy_penalty: runtime.next_turn_energy_penalty,
+            troops_hp: runtime.troops_hp, troops_attack: runtime.troops_attack,
+            discard_tokens: runtime.discard_tokens, thought_used: runtime.thought_used,
+            powers: effects.powers.clone(), reactions: effects.reactions.clone(),
+            events: runtime.events.clone(), event_seq: runtime.event_seq,
+            turn: resources.turn,
+        }))
+    }
+
     /// Separate final snapshot comparison; does not authenticate either side.
     pub fn verify_snapshot(&self, game: &Game) -> Result<(), String> {
         if self.revision != game.revision
@@ -70,6 +107,7 @@ impl AuthorityView {
             || self.foes != FoeBoard::current(game)
             || self.cards != CardZones::current(game)
             || self.effects != BattleEffects::current(game)
+            || self.runtime != BattleRuntime::current(game)
             || self.campaign != CampaignState::current(game)
             || self.telemetry != game.telemetry
         {
@@ -87,6 +125,7 @@ pub struct AuthorityStep<'a> {
     pub foes: &'a foe_board_events::FoeBoardEvent,
     pub cards: &'a card_zone_events::CardZoneEvent,
     pub effects: &'a combat_effect_events::CombatEffectEvent,
+    pub runtime: &'a battle_runtime_events::BattleRuntimeEvent,
     pub campaign: &'a campaign_authority::CampaignEvent,
     pub telemetry: &'a telemetry_authority::TelemetryEvent,
 }
@@ -101,6 +140,7 @@ pub struct CompositeAuthorityProjector {
     foes: foe_board_events::FoeBoardProjector,
     cards: card_zone_events::CardZoneProjector,
     effects: combat_effect_events::CombatEffectProjector,
+    runtime: battle_runtime_events::BattleRuntimeProjector,
     campaign: campaign_authority::CampaignProjector,
     telemetry: TelemetryProjector,
 }
@@ -115,13 +155,14 @@ impl CompositeAuthorityProjector {
         let (foes, r3) = self.foes.state()?;
         let (cards, r4) = self.cards.state()?;
         let (effects, r5) = self.effects.state()?;
+        let (runtime, r8) = self.runtime.state()?;
         let (campaign, r6) = self.campaign.state()?;
         let (telemetry, r7) = self.telemetry.state()?;
-        if [r1, r2, r3, r4, r5, r6, r7].iter().any(|r| *r != r0) {
+        if [r1, r2, r3, r4, r5, r6, r7, r8].iter().any(|r| *r != r0) {
             return Err("cross-journal committed revision mismatch".into());
         }
         let view = AuthorityView {
-            revision: r0, resources, rng_state, combat, foes, cards, effects, campaign, telemetry,
+            revision: r0, resources, rng_state, combat, foes, cards, effects, runtime, campaign, telemetry,
         };
         view.check_combat_coordinates()?;
         Ok(view)
@@ -135,6 +176,7 @@ impl CompositeAuthorityProjector {
         next.foes.push(step.foes)?;
         next.cards.push(step.cards)?;
         next.effects.push(step.effects)?;
+        next.runtime.push(step.runtime)?;
         next.campaign.push(step.campaign)?;
         next.telemetry.push(step.telemetry)?;
         next.view()?; // Includes cross-stream revision and floor/turn agreement.
@@ -159,13 +201,15 @@ pub fn project(game: &Game) -> Result<AuthorityView, String> {
         .ok_or("legacy save has no card zone authority journal")?;
     let effects = game.combat_effect_history.as_ref()
         .ok_or("legacy save has no combat effect authority journal")?;
+    let runtime = game.battle_runtime_history.as_ref()
+        .ok_or("legacy save has no battle runtime authority journal")?;
     let campaign = game.campaign_history.as_ref()
         .ok_or("legacy save has no campaign authority journal")?;
     let telemetry = game.telemetry_history.as_ref()
         .ok_or("legacy save has no telemetry authority journal")?;
 
     let length = resources.len();
-    if [rng.len(), combat.len(), foes.len(), cards.len(), effects.len(), campaign.len(), telemetry.len()]
+    if [rng.len(), combat.len(), foes.len(), cards.len(), effects.len(), runtime.len(), campaign.len(), telemetry.len()]
         .iter().any(|n| *n != length)
     {
         return Err("authority journals disagree on committed revision count".into());
@@ -175,7 +219,7 @@ pub fn project(game: &Game) -> Result<AuthorityView, String> {
         projector.push(AuthorityStep {
             resources: &resources[index], rng: &rng[index],
             combat: &combat[index], foes: &foes[index],
-            cards: &cards[index], effects: &effects[index],
+            cards: &cards[index], effects: &effects[index], runtime: &runtime[index],
             campaign: &campaign[index], telemetry: &telemetry[index],
         }).map_err(|error| format!("authority boundary {index}: {error}"))?;
     }
