@@ -43,9 +43,9 @@ impl AuthorityView {
     /// snapshot. This is consistency checking, NOT a cryptographic signature.
     pub fn verify_snapshot(&self, game: &Game) -> Result<(), String> {
         if self.revision != game.revision
-            || self.resources != Resources {
+            || self.resources != (Resources {
                 hp: game.hp, max_hp: game.max_hp, gold: game.gold,
-            }
+            })
             || self.rng_state != game.rng_state
             || self.combat != BattleResources::current(game)
             || self.foes != FoeBoard::current(game)
@@ -75,7 +75,7 @@ pub fn project(game: &Game) -> Result<AuthorityView, String> {
     let effects = game.combat_effect_history.as_ref()
         .ok_or("missing combat effect authority journal")?;
 
-    let (resources, r0) = crate::resource_events::project(resources)?;
+    let (resources, r0) = resource_events::project(resources)?;
     let (rng_state, r1) = rng_events::project(rng)?;
     let (combat, r2) = combat_resource_events::project(combat)?;
     let (foes, r3) = foe_board_events::project(foes)?;
