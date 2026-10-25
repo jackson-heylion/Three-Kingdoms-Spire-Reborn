@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cross-platform real-process E2E for the seven-source authority projector."""
+"""Cross-platform real-process E2E for the eight-source authority projector."""
 from __future__ import annotations
 
 import json
@@ -43,7 +43,7 @@ def main() -> None:
                 assert report["active_combat"] and report["floor"] == 1
                 assert report["stage"] == "combat"
                 assert report["turn"] == 1 and report["foe_count"] >= 1
-                assert len(report["journal_domains"]) == 7
+                assert len(report["journal_domains"]) == 8
                 assert not report["whole_game_reconstructed"]
                 assert not report["cryptographically_authenticated"]
 
@@ -85,8 +85,20 @@ def main() -> None:
                         field, "forged run identity passed authority audit"
                     )
 
+                tampered = json.loads(json.dumps(payload))
+                tampered["telemetry"]["totals"]["battles_started"] += 1
+                forged = directory / "forged-telemetry.json"
+                forged.write_text(json.dumps(tampered), encoding="utf-8")
+                assert invoke([authority, str(forged)]).returncode != 0
+
+                tampered = json.loads(json.dumps(payload))
+                tampered["telemetry_history"].pop()
+                forged = directory / "truncated-telemetry.json"
+                forged.write_text(json.dumps(tampered), encoding="utf-8")
+                assert invoke([authority, str(forged)]).returncode != 0
+
                 assert json.loads(save.read_text(encoding="utf-8")) == payload
-                print(f"PASS {hero} ascension={ascension}: seven streams/restart/identity tamper")
+                print(f"PASS {hero} ascension={ascension}: eight streams/restart/identity and telemetry tamper")
     print("PASS 10 cross-platform real-process composite authority scenarios")
 
 

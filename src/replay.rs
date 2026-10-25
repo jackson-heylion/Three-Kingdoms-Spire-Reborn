@@ -55,6 +55,7 @@ impl Game {
         if self.card_zone_history.is_none() { replayed.card_zone_history = None; }
         if self.combat_effect_history.is_none() { replayed.combat_effect_history = None; }
         if self.campaign_history.is_none() { replayed.campaign_history = None; }
+        if self.telemetry_history.is_none() { replayed.telemetry_history = None; }
         // External chronicle bookkeeping is not an action. Preserve its
         // durable receipt without claiming to reconstruct the chronicle.
         replayed.profile_start_receipt = self.profile_start_receipt;
@@ -143,6 +144,8 @@ impl Game {
         if self.foe_board_history.is_none() { replay.foe_board_history=None; }
         if self.card_zone_history.is_none() { replay.card_zone_history=None; }
         if self.combat_effect_history.is_none() { replay.combat_effect_history=None; }
+        if self.campaign_history.is_none() { replay.campaign_history=None; }
+        if self.telemetry_history.is_none() { replay.telemetry_history=None; }
         for (i,action) in actions.iter().enumerate() {
             replay.apply(action.clone()).map_err(|e|format!("replay step {}: {e}",i+1))?;
         }

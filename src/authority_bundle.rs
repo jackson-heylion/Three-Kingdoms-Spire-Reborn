@@ -42,6 +42,8 @@ impl Game {
             .ok_or("missing combat effect journal")?;
         let campaign = self.campaign_history.as_ref()
             .ok_or("missing campaign journal")?;
+        let telemetry = self.telemetry_history.as_ref()
+            .ok_or("missing telemetry journal")?;
 
         let mut projector = CompositeAuthorityProjector::new();
         for i in 0..=index {
@@ -49,6 +51,7 @@ impl Game {
                 resources: &resources[i], rng: &rng[i],
                 combat: &combat[i], foes: &foes[i],
                 cards: &cards[i], effects: &effects[i], campaign: &campaign[i],
+                telemetry: &telemetry[i],
             })?;
         }
         let view = projector.view()?;
@@ -60,7 +63,8 @@ impl Game {
             "foes": view.foes,
             "cards": { "deck": view.cards.deck, "battle": view.cards.battle },
             "effects": view.effects,
-            "campaign": view.campaign
+            "campaign": view.campaign,
+            "telemetry": view.telemetry
         }))
     }
 }
