@@ -11,7 +11,7 @@ use crate::{
     combat_resource_events::{self, BattleResources},
     foe_board_events::{self, FoeBoard},
     resource_events::{self, Resources},
-    rng_events::{self},
+    rng_events,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
