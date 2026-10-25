@@ -1,4 +1,4 @@
-//! Seven committed event journals form a coherent partial authority view.
+//! Eight committed event journals form a coherent partial authority view.
 //! No action replay, RNG stepping or snapshot is needed for the projection.
 use three_kingdoms_spire_reborn::{
     Action, Game, RunMode,
@@ -91,7 +91,7 @@ fn snapshot_tampering_is_detected_without_mutating_journal_projection() {
 }
 
 #[test]
-fn revision_zero_has_seven_valid_idle_projections() {
+fn revision_zero_has_eight_valid_idle_projections() {
     let game = Game::new(Hero::LuBu, 99);
     let view = game.audit_composite_authority().unwrap();
     assert_eq!(view.revision, 0);
@@ -109,6 +109,7 @@ fn step(game: &Game, index: usize) -> authority::AuthorityStep<'_> {
         cards: &game.card_zone_history.as_ref().unwrap()[index],
         effects: &game.combat_effect_history.as_ref().unwrap()[index],
         campaign: &game.campaign_history.as_ref().unwrap()[index],
+        telemetry: &game.telemetry_history.as_ref().unwrap()[index],
     }
 }
 
@@ -134,7 +135,7 @@ fn transient_cross_stream_conflict_cannot_hide_behind_consistent_final_state() {
         expected.cards, "independent final card-zone state must remain valid");
     assert!(authority::project(&tampered).unwrap_err().contains("cross-journal"));
 
-    // Atomicity: the failed revision leaves all six streams at revision zero.
+    // Atomicity: the failed revision leaves all eight streams at revision zero.
     let mut projector = authority::CompositeAuthorityProjector::new();
     projector.push(step(&game, 0)).unwrap();
     let before = projector.view().unwrap();
