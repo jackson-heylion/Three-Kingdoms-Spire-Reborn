@@ -3,7 +3,7 @@
 use std::{env, fs, process::ExitCode};
 use three_kingdoms_spire_reborn::{Game, event_stack::RevisionCheckpoint};
 
-const USAGE: &str = "usage: tks-attest <save.json> [revision]\n       tks-attest <save.json> --verify <trusted-checkpoint.json>\n       tks-attest <save.json> --rng-trace\n       tks-attest <save.json> --timeline";
+const USAGE: &str = "usage: tks-attest <save.json> [revision]\n       tks-attest <save.json> --verify <trusted-checkpoint.json>\n       tks-attest <save.json> --rng-trace\n       tks-attest <save.json> --timeline\n       tks-attest <save.json> --event-parents";
 
 fn run() -> Result<(), String> {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -12,6 +12,12 @@ fn run() -> Result<(), String> {
         .map_err(|error| format!("cannot read save {save_path}: {error}"))?;
     let game = Game::from_json(&raw)?;
     match args.as_slice() {
+        [_, flag] if flag == "--event-parents" => {
+            let parents = game.reconstruct_event_dispatch_parents()?;
+            println!("{}", serde_json::to_string_pretty(&parents)
+                .map_err(|error| error.to_string())?);
+            Ok(())
+        }
         [_, flag] if flag == "--timeline" => {
             let timeline = game.reconstruct_action_rng_event_timeline()?;
             println!("{}", serde_json::to_string_pretty(&timeline)

@@ -79,6 +79,20 @@ def main() -> None:
         assert event_cursor == len(events) and rng_calls == len(calls)
         assert save.read_bytes() == initial, "timeline export must be read-only"
 
+        parents = json.loads(execute(attest, str(save), "--event-parents"))
+        assert len(parents) == len(events), "every archived event needs an audited parent entry"
+        observed = set()
+        for entry, event in zip(parents, events):
+            assert entry["event"] == event
+            coordinate = (event["encounter"], event["event"]["seq"])
+            parent = entry["parent"]
+            if parent is not None:
+                parent_id = (parent["encounter"], parent["seq"])
+                assert parent_id in observed, "parent must already have been emitted"
+                assert parent_id[0] == coordinate[0] and parent_id[1] < coordinate[1]
+            observed.add(coordinate)
+        assert save.read_bytes() == initial, "parent audit must be read-only"
+
         edited = json.loads(initial)
         edited["gold"] += 1
         save.write_text(json.dumps(edited), encoding="utf-8")
