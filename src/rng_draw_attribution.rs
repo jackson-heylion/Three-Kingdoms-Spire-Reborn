@@ -9,6 +9,17 @@ use crate::{Action, Game, rng_events::RngEvent};
 /// exceeding this budget is reported as *unattributed*, never rejected by apply.
 pub const MAX_ATTRIBUTED_DRAWS_PER_ACTION: u32 = 8192;
 
+/// A single actual call to Game::random while replaying one committed action.
+/// upper<=1 returns zero without advancing RNG; such calls remain visible.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct RngCall {
+    pub call_site: String,
+    pub upper: usize,
+    pub value: usize,
+    pub state_before: u64,
+    pub state_after: u64,
+}
+
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct RngDrawAttribution {
     pub revision: u64,
@@ -16,6 +27,8 @@ pub struct RngDrawAttribution {
     pub state_before: u64,
     pub state_after: u64,
     pub draws: u32,
+    /// Every random() invocation, including zero-consumption bounds.
+    pub calls: Vec<RngCall>,
 }
 
 /// Exact transition used by Game::random when upper > 1.
@@ -72,8 +85,11 @@ impl Game {
         let mut attributed = Vec::with_capacity(actions.len());
         for (index, action) in actions.iter().enumerate() {
             let before = replay.rng_state;
+            replay.rng_trace = Some(Vec::new());
             replay.apply(action.clone()).map_err(|error|
                 format!("RNG attribution replay action {} failed: {error}", index + 1))?;
+            let calls = replay.rng_trace.take()
+                .ok_or("RNG call-site instrumentation was lost during action replay")?;
             let committed = replay.rng_history.as_ref()
                 .and_then(|events| events.get(index + 1));
             if committed != journal.get(index + 1) {
@@ -89,12 +105,38 @@ impl Game {
             }
             let draws = infer_draws(before, replay.rng_state).map_err(|error|
                 format!("RNG attribution revision {}: {error}", index + 1))?;
+            // Independently check each instrumented call against the RNG
+            // transition, bound, returned value and committed journal state.
+            if calls.len() > MAX_ATTRIBUTED_DRAWS_PER_ACTION as usize {
+                return Err(format!("RNG attribution revision {}: call-site trace exceeds diagnostic budget", index + 1));
+            }
+            let mut cursor = before;
+            let mut consumed = 0_u32;
+            for call in &calls {
+                if call.state_before != cursor || call.call_site.is_empty() {
+                    return Err(format!("RNG call-site trace diverged at revision {}", index + 1));
+                }
+                let expected = if call.upper <= 1 {
+                    0
+                } else {
+                    cursor = advance(cursor);
+                    consumed += 1;
+                    (cursor.wrapping_mul(0x2545F4914F6CDD1D) % call.upper as u64) as usize
+                };
+                if call.state_after != cursor || call.value != expected {
+                    return Err(format!("RNG call-site result diverged at revision {}", index + 1));
+                }
+            }
+            if consumed != draws || cursor != replay.rng_state {
+                return Err(format!("RNG call-site count differs from committed boundary at revision {}", index + 1));
+            }
             attributed.push(RngDrawAttribution {
                 revision: replay.revision,
                 action: action.clone(),
                 state_before: before,
                 state_after: replay.rng_state,
                 draws,
+                calls,
             });
         }
         if replay.to_json()? != self.to_json()? {
