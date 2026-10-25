@@ -4,7 +4,7 @@
 
 现有 `rng_history` 在每次成功动作后记录 xorshift64* 的状态，但只看动作前后的两个状态，无法直接判断一次行动用了多少次随机抽样，也不方便定位构筑/敌军随机行为的变化。新接口 `Game::reconstruct_rng_draw_attribution()` 逐动作执行真实规则，逐条核对原有 RNG 权威日志，再从确定性状态迁移反推出该动作消耗的 **RNG 状态转移次数**。
 
-返回 `Vec<RngDrawAttribution>`，每条包含修订号、原动作、动作前后 RNG 状态和 `draws`。终端也可直接导出 JSON：
+返回 `Vec<RngDrawAttribution>`，每条包含修订号、原动作、动作前后 RNG 状态、`draws`，以及 `calls`（每次 `Game::random` 的源码位置 `call_site`、`upper`、`value` 和调用前后 RNG 状态）。`upper<=1` 的调用也记录，但不算一次状态转移。终端可直接导出 JSON：
 
 ```sh
 cargo build --bin tks-attest
@@ -22,6 +22,8 @@ target/debug/tks-attest /path/to/save.json --rng-trace
 
 ## 信任与验收边界
 
-这是 **RNG draw-count attribution**，不是逐次调用点记录（call-site trace）。它无法说明每次抽样的 `upper` 参数、抽样返回值、调用栈、触发父事件，也不是可独立归约完整 Game 的事件源。动作日志、RNG 日志和快照均由同一存档保存，三者同时重写仍可能内部一致；若需要证明历史未被改写，应与**事先独立保存**的 `RevisionCheckpoint` 配合。
+现在同时具备 **RNG draw-count attribution** 与 **call-site trace**：在只读动作重放中临时启用 `#[track_caller]` 记录源码文件与行号，逐次核对 `upper`、返回值和 xorshift64* 状态迁移，并与持久化动作边界日志交叉校验。平常游戏不会开启记录，`rng_trace` 不写入 V2 存档，旧存档无需迁移。源码行号可能随版本改变，不是持久标识，也不能充当跨版本稳定的事件 ID。
+
+**尚未实现**调用栈、随机抽样与战斗父事件的直接关联、独立事件归约器或外部认证的逐次 RNG 事件日志。这个诊断仍依赖当前版本规则确定性重放；游戏规则变更可能使旧存档无法通过复验。动作日志、RNG 日志和快照均由同一存档保存，三者同时重写仍可能内部一致；若需要证明历史未被改写，应与**事先独立保存**的 `RevisionCheckpoint` 配合。
 
 本增量不代表完整 P1：通用事件替换、15套构筑自然成型和平衡、卡牌×遗物×敌军所有交互、120回全文异本校勘、真人 TTY 和完整国际化仍未验收，不发布正式1.0。

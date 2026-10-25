@@ -41,8 +41,17 @@ fn five_heroes_two_difficulties_attribute_each_committed_rng_draw() {
             assert_eq!(trace.iter().map(|item| item.revision).collect::<Vec<_>>(),
                 vec![1, 2, 3]);
             assert_eq!(trace[0].draws, 0, "doctrine selection consumes no RNG");
+            assert!(trace[0].calls.is_empty(), "doctrine selection never calls random()");
             assert!(trace[1].draws > 0, "first battle shuffles a nontrivial deck");
+            assert!(!trace[1].calls.is_empty(), "battle RNG must identify actual call sites");
             for (index, item) in trace.iter().enumerate() {
+                assert_eq!(item.calls.iter().filter(|call| call.upper > 1).count() as u32,
+                    item.draws, "instrumented call count must match state transitions");
+                for call in &item.calls {
+                    assert!(call.call_site.contains(".rs:"), "missing Rust call site");
+                    assert!(call.upper <= 1 && call.value == 0
+                        || call.upper > 1 && call.value < call.upper);
+                }
                 let mut expected = item.state_before;
                 for _ in 0..item.draws {
                     expected = advance(expected);
@@ -59,6 +68,7 @@ fn five_heroes_two_difficulties_attribute_each_committed_rng_draw() {
             }
             assert_eq!(trace.last().unwrap().state_after, game.rng_state);
             assert_eq!(restored.to_json().unwrap(), saved, "audit is read-only");
+            assert!(!saved.contains("rng_trace"), "transient call records must not enter V2 saves");
         }
     }
 }

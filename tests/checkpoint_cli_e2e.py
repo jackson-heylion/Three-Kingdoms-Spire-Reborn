@@ -54,6 +54,10 @@ def main() -> None:
         assert len(trace) == 1 and trace[0]["revision"] == 1
         assert trace[0]["action"]["type"] == "choose"
         assert trace[0]["draws"] > 0, "first combat must consume RNG draws"
+        calls = trace[0]["calls"]
+        assert calls and sum(call["upper"] > 1 for call in calls) == trace[0]["draws"]
+        assert all(".rs:" in call["call_site"] for call in calls)
+        assert all(call["value"] < call["upper"] for call in calls if call["upper"] > 1)
         assert trace[0]["state_after"] == json.loads(initial)["rng_state"]
         assert save.read_bytes() == initial, "RNG trace must be read-only"
 
