@@ -3,6 +3,9 @@
 #[path = "rng_draw_attribution.rs"]
 mod draw_attribution;
 pub use draw_attribution::{MAX_ATTRIBUTED_DRAWS_PER_ACTION, RngCall, RngDrawAttribution};
+#[path = "action_timeline.rs"]
+mod action_timeline;
+pub use action_timeline::{ActionRngEventTimeline, TimelineStep};
 
 use crate::Game;
 use serde::{Deserialize, Serialize};
