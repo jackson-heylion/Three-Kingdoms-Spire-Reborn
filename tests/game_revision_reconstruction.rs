@@ -81,6 +81,9 @@ fn older_v2_journal_absence_is_not_fabricated_by_reconstruction() {
     let mut game = Game::new(Hero::ZhugeLiang, 123456);
     game.action_history = Some(Vec::new());
     game.event_history = None;
+    // The synthetic legacy snapshot cannot retain a cursor-certified
+    // telemetry stream while its complete event archive is absent.
+    game.telemetry_history = None;
     game.rng_history = None;
     game.resource_history = None;
     game.battle_resource_history = None;

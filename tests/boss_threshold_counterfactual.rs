@@ -18,6 +18,9 @@ fn boss_fixture(hero: Hero, ascension: u8, boss: &str) -> Game {
     // Such a synthetic setup cannot be verified by initial-seed action replay.
     game.action_history = None;
     game.event_history = None;
+    // This fixture deliberately rewrites combat without settled events;
+    // it cannot retain a cursor-certified telemetry authority journal.
+    game.telemetry_history = None;
     game.last_node = Some(Node::Boss);
     let battle = game.battle.as_mut().expect("combat fixture");
     battle.foes.truncate(1);
