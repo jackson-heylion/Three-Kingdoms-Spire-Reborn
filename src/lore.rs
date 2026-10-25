@@ -88,8 +88,6 @@ pub const BONDS: &[Bond] = &[
     Bond { protagonist: Hero::LuBu, companion: "刘备", relation: Relation::Rival, chapter: 16, flag: "halberd_shot", note: "辕门射戟的解围不代表恩怨尽解" },
 ];
 
-/// Each beat belongs to a literary act of *this game*, not a strict timeline of historical dates.
-/// A foreshadowing flag only becomes available through the corresponding first choice.
 include!("lore_beats.rs");
 
 #[derive(Clone, Copy, Debug)]

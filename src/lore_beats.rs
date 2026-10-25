@@ -1,3 +1,5 @@
+/// Each beat belongs to a literary act of *this game*, not a strict timeline of historical dates.
+/// A foreshadowing flag only becomes available through the corresponding first choice.
 pub const BEATS: &[Beat] = &[
     Beat {id:"taoyuan",title:"桃园残誓",chapter:1,act:0,hero:Some(Hero::GuanYu),prerequisite:None,flag:"taoyuan_oath",character:"刘备、张飞",premise:"荒园旧土有三杯浊酒。今夜再起誓言，是背负责任，还是只取其名？",vow:"重整义旗",bargain:"卖掉盟誓旧物",reward_card:"oath_guard",reward_gold:12,reward_heal:8},
     Beat {id:"anxi",title:"安喜断印",chapter:2,act:0,hero:Some(Hero::GuanYu),prerequisite:Some("taoyuan_oath"),flag:"anxi_seal",character:"刘备、张飞、督邮",premise:"督邮逼县吏诬陷刘备，门前父老求告无门；张飞怒鞭督邮，刘备制止杀戮。关羽想起桃园誓词：救民与快意报复，并非一回事。",vow:"劝止杀戮，缴印离任保全百姓",bargain:"私收督邮赔银，暂保虚职",reward_card:"hold_line",reward_gold:25,reward_heal:7},
