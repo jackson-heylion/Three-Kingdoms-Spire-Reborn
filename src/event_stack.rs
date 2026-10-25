@@ -10,6 +10,10 @@ pub use crate::replay::{ActionEventTrace, RevisionCheckpoint};
 #[path = "event_projection.rs"]
 pub mod projection;
 
+// Cross-journal, action-boundary authority view; not whole-Game event sourcing.
+#[path = "authority_projection.rs"]
+pub mod authority;
+
 // The public custom slot limit must not crowd out the four defensive cards.
 const CUSTOM_LISTENER_LIMIT: usize = 16;
 const BUILTIN_LISTENER_LIMIT: usize = 4;
