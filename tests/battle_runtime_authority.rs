@@ -129,6 +129,23 @@ fn legacy_v2_without_runtime_history_can_resume_but_cannot_claim_complete_recove
     restored.verify_action_replay().unwrap();
 }
 
+#[test]
+fn cursor_free_legacy_save_without_ninth_domain_stays_uncertified_not_rejected() {
+    use three_kingdoms_spire_reborn::telemetry_authority::TelemetryEvent;
+
+    let mut legacy = campaign(Hero::CaoCao, 0);
+    legacy.battle_runtime_history = None;
+    for entry in legacy.telemetry_history.as_mut().unwrap() {
+        match entry {
+            TelemetryEvent::Started { archive_len, .. }
+            | TelemetryEvent::Changed { archive_len, .. } => *archive_len = None,
+        }
+    }
+    let restored = Game::from_json(&legacy.to_json().unwrap()).unwrap();
+    assert_eq!(restored.audit_event_archive_boundaries().unwrap(), None);
+    assert!(restored.audit_composite_authority().is_err());
+}
+
 fn step(game: &Game, index: usize) -> authority::AuthorityStep<'_> {
     authority::AuthorityStep {
         resources: &game.resource_history.as_ref().unwrap()[index],
