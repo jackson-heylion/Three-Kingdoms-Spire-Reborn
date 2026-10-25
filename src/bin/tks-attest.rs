@@ -3,7 +3,7 @@
 use std::{env, fs, process::ExitCode};
 use three_kingdoms_spire_reborn::{Game, event_stack::RevisionCheckpoint};
 
-const USAGE: &str = "usage: tks-attest <save.json> [revision]\n       tks-attest <save.json> --verify <trusted-checkpoint.json>";
+const USAGE: &str = "usage: tks-attest <save.json> [revision]\n       tks-attest <save.json> --verify <trusted-checkpoint.json>\n       tks-attest <save.json> --rng-trace";
 
 fn run() -> Result<(), String> {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -12,6 +12,12 @@ fn run() -> Result<(), String> {
         .map_err(|error| format!("cannot read save {save_path}: {error}"))?;
     let game = Game::from_json(&raw)?;
     match args.as_slice() {
+        [_, flag] if flag == "--rng-trace" => {
+            let trace = game.reconstruct_rng_draw_attribution()?;
+            println!("{}", serde_json::to_string_pretty(&trace)
+                .map_err(|error| error.to_string())?);
+            Ok(())
+        }
         [_] | [_, _] if args.get(1).is_none_or(|arg| arg != "--verify") => {
             let revision = match args.get(1) {
                 Some(raw) => raw.parse::<u64>().map_err(|_| "invalid checkpoint revision")?,
