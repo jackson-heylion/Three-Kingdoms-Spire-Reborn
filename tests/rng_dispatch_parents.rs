@@ -61,7 +61,10 @@ fn incomplete_or_rewritten_history_cannot_claim_rng_observer_causality() {
 
     let mut missing = game.clone();
     missing.event_history = None;
-    assert!(missing.reconstruct_rng_draw_attribution().is_err());
+    let legacy = missing.reconstruct_rng_draw_attribution().unwrap();
+    assert!(legacy.iter().flat_map(|step| &step.calls).all(|call|
+        call.dispatch_parent.is_none() && call.event_cursor_before.is_none()),
+        "legacy RNG counts remain available without invented event parents");
 
     let mut forged = game.clone();
     forged.event_history.as_mut().unwrap()[0].event.amount += 1;
