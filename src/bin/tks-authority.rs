@@ -19,7 +19,7 @@ fn run() -> Result<(), String> {
         "floor": view.combat.map(|combat| combat.floor),
         "turn": view.combat.map(|combat| combat.turn),
         "deck_cards": view.cards.deck.len(),
-        "foe_count": view.foes.as_ref().map(|foes| foes.foes.len()).unwrap_or(0),
+        "foe_count": view.foes.as_ref().map_or(0, |foes| foes.foes.len()),
         "journal_domains": [
             "resources", "rng", "combat_resources",
             "foe_board", "card_zones", "combat_effects"
