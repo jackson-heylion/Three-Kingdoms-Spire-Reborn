@@ -11,6 +11,11 @@ use crate::{
 impl Game {
     /// Rejected actions leave live state, RNG, revision and all journals intact.
     pub fn apply(&mut self, action: Action) -> Result<Vec<String>, String> {
+        // apply_unchecked uses a saturating revision increment. Never allow a
+        // successful action to reuse the previous revision at u64::MAX.
+        if self.revision == u64::MAX {
+            return Err("action revision overflow: refusing an unversioned commit".into());
+        }
         // Do not clone the growing card journal on every action: that would
         // make a long campaign quadratic in its recorded card snapshots.
         // Restore the live journal before any fallible game operation.
