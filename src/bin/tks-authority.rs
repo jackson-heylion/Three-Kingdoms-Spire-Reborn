@@ -16,13 +16,14 @@ fn run() -> Result<(), String> {
         "revision": view.revision,
         "rng_state": view.rng_state,
         "active_combat": view.combat.is_some(),
-        "floor": view.combat.map(|combat| combat.floor),
+        "floor": view.campaign.floor,
+        "stage": view.campaign.stage,
         "turn": view.combat.map(|combat| combat.turn),
         "deck_cards": view.cards.deck.len(),
         "foe_count": view.foes.as_ref().map_or(0, |foes| foes.foes.len()),
         "journal_domains": [
             "resources", "rng", "combat_resources",
-            "foe_board", "card_zones", "combat_effects"
+            "foe_board", "card_zones", "combat_effects", "campaign"
         ],
         "whole_game_reconstructed": false,
         "cryptographically_authenticated": false

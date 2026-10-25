@@ -54,6 +54,7 @@ impl Game {
         if self.foe_board_history.is_none() { replayed.foe_board_history = None; }
         if self.card_zone_history.is_none() { replayed.card_zone_history = None; }
         if self.combat_effect_history.is_none() { replayed.combat_effect_history = None; }
+        if self.campaign_history.is_none() { replayed.campaign_history = None; }
         // External chronicle bookkeeping is not an action. Preserve its
         // durable receipt without claiming to reconstruct the chronicle.
         replayed.profile_start_receipt = self.profile_start_receipt;

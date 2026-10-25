@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cross-platform real-process E2E for the six-source authority projector."""
+"""Cross-platform real-process E2E for the seven-source authority projector."""
 from __future__ import annotations
 
 import json
@@ -41,8 +41,9 @@ def main() -> None:
                 report = json.loads(good.stdout)
                 assert report["revision"] == payload["revision"] == 1
                 assert report["active_combat"] and report["floor"] == 1
+                assert report["stage"] == "combat"
                 assert report["turn"] == 1 and report["foe_count"] >= 1
-                assert len(report["journal_domains"]) == 6
+                assert len(report["journal_domains"]) == 7
                 assert not report["whole_game_reconstructed"]
                 assert not report["cryptographically_authenticated"]
 
@@ -63,8 +64,16 @@ def main() -> None:
                 assert rejected.returncode != 0, "cross-journal turn conflict passed"
                 assert "cross-journal" in rejected.stderr, rejected.stderr
 
+                tampered = json.loads(json.dumps(payload))
+                tampered["campaign_history"][-1]["state"]["floor"] = 2
+                forged = directory / "forged-campaign.json"
+                forged.write_text(json.dumps(tampered), encoding="utf-8")
+                rejected = invoke([authority, str(forged)])
+                assert rejected.returncode != 0, "cross-journal campaign floor forgery passed"
+                assert "cross-journal" in rejected.stderr, rejected.stderr
+
                 assert json.loads(save.read_text(encoding="utf-8")) == payload
-                print(f"PASS {hero} ascension={ascension}: six streams/restart/two tamper cases")
+                print(f"PASS {hero} ascension={ascension}: seven streams/restart/two tamper cases")
     print("PASS 10 cross-platform real-process composite authority scenarios")
 
 

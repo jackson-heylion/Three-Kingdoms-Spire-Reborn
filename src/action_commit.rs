@@ -5,7 +5,7 @@
 mod authority_bundle;
 
 use crate::{
-    Action, Game, card_zone_events, combat_effect_events, combat_resource_events, foe_board_events, resource_events, rng_events,
+    Action, Game, campaign_authority, card_zone_events, combat_effect_events, combat_resource_events, foe_board_events, resource_events, rng_events,
 };
 
 impl Game {
@@ -21,9 +21,11 @@ impl Game {
         // Restore the live journal before any fallible game operation.
         let card_history = self.card_zone_history.take();
         let effect_history = self.combat_effect_history.take();
+        let campaign_history = self.campaign_history.take();
         let mut draft = self.clone();
         self.card_zone_history = card_history;
         self.combat_effect_history = effect_history;
+        self.campaign_history = campaign_history;
         let messages = draft.apply_unchecked(action.clone())?;
         if let Some(history) = draft.resource_history.as_mut() {
             history.push(resource_events::ResourceEvent::Changed {
@@ -81,6 +83,12 @@ impl Game {
         } else {
             None
         };
+        let campaign_event = if self.campaign_history.is_some() {
+            Some(campaign_authority::transition(
+                &campaign_authority::CampaignState::current(self),
+                &campaign_authority::CampaignState::current(&draft), draft.revision,
+            )?)
+        } else { None };
         if let Some(actions) = draft.action_history.as_mut() {
             actions.push(action);
         }
@@ -95,7 +103,12 @@ impl Game {
         {
             return Err("combat effect journal exceeds action limit".into());
         }
-        // Both large histories move only after all fallible validation succeeds.
+        if campaign_event.is_some()
+            && self.campaign_history.as_ref().is_some_and(|history| history.len() >= 50_001)
+        {
+            return Err("campaign journal exceeds action limit".into());
+        }
+        // Large histories move only after all fallible validation succeeds.
         if let Some(event) = card_event {
             let mut history = self.card_zone_history.take().expect("checked card journal");
             history.push(event);
@@ -105,6 +118,11 @@ impl Game {
             let mut history = self.combat_effect_history.take().expect("checked effect journal");
             history.push(event);
             draft.combat_effect_history = Some(history);
+        }
+        if let Some(event) = campaign_event {
+            let mut history = self.campaign_history.take().expect("checked campaign journal");
+            history.push(event);
+            draft.campaign_history = Some(history);
         }
         *self = draft;
         Ok(messages)
