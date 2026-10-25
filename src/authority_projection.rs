@@ -278,7 +278,9 @@ impl Game {
             .ok_or("legacy save has no telemetry authority journal")?;
         let campaign = self.campaign_history.as_deref()
             .ok_or("legacy save has no campaign authority journal")?;
-        if telemetry.len() != campaign.len()
+        let runtime = self.battle_runtime_history.as_deref()
+            .ok_or("legacy save has no battle runtime authority journal")?;
+        if telemetry.len() != campaign.len() || telemetry.len() != runtime.len()
             || usize::try_from(self.revision).ok()
                 .and_then(|revision| revision.checked_add(1)) != Some(telemetry.len())
         {
@@ -293,13 +295,19 @@ impl Game {
 
         let mut stats = telemetry_authority::TelemetryProjector::default();
         let mut stages = campaign_authority::CampaignProjector::default();
+        let mut runtimes = battle_runtime_events::BattleRuntimeProjector::default();
         let mut events = EventProjector::new();
+        // Keep only the latest bounded window. Re-scanning the full archive
+        // at each revision would turn long campaigns into quadratic audits.
+        let mut event_window: Vec<crate::combat::CombatEvent> = Vec::new();
+        let mut window_encounter: Option<u64> = None;
         let mut offset = 0usize;
         for (index, (telemetry_event, campaign_event)) in
             telemetry.iter().zip(campaign).enumerate()
         {
             stats.push(telemetry_event)?;
             stages.push(campaign_event)?;
+            runtimes.push(&runtime[index])?;
             let cursor = stats.archive_cursor()
                 .ok_or("event archive cursor missing at committed revision")?;
             let end = usize::try_from(cursor)
@@ -310,6 +318,14 @@ impl Game {
             for record in &archive[offset..end] {
                 events.push(record).map_err(|error|
                     format!("event revision {index}: {error}"))?;
+                if window_encounter != Some(record.encounter) {
+                    event_window.clear();
+                    window_encounter = Some(record.encounter);
+                }
+                event_window.push(record.event.clone());
+                if event_window.len() > crate::combat::MAX_RECENT_EVENTS {
+                    event_window.remove(0);
+                }
             }
             offset = end;
             let (telemetry_state, _) = stats.state()?;
@@ -322,6 +338,22 @@ impl Game {
                     .ok_or_else(|| format!("event revision {index}: active encounter missing"))?;
                 if encounter.closed || encounter.floor != campaign_state.floor {
                     return Err(format!("event revision {index}: active encounter floor/seal mismatch"));
+                }
+                // A newly started encounter may have no settled events yet.
+                if window_encounter != Some(telemetry_state.totals.battles_started) {
+                    event_window.clear();
+                    window_encounter = Some(telemetry_state.totals.battles_started);
+                }
+                let (runtime_state, _) = runtimes.state()?;
+                let runtime_state = runtime_state
+                    .ok_or_else(|| format!("event revision {index}: active runtime missing"))?;
+                if runtime_state.floor != campaign_state.floor
+                    || runtime_state.events != event_window
+                    || runtime_state.event_seq != event_window.last().map_or(0, |e| e.seq)
+                {
+                    return Err(format!(
+                        "event revision {index}: battle runtime window differs from event archive"
+                    ));
                 }
             } else if events.projection().encounters.last().is_some_and(|last| !last.closed) {
                 return Err(format!("event revision {index}: unsealed inactive encounter"));
