@@ -48,7 +48,7 @@ fn ten_campaigns_attest_historical_and_current_full_game_revisions() {
 fn trusted_checkpoint_detects_valid_but_rewritten_history() {
     let original = campaign(Hero::GuanYu, 0, 1);
     let trusted = original.checkpoint_at(original.revision).unwrap();
-    let alternate = campaign(Hero::GuanYu, 0, 0);
+    let alternate = campaign(Hero::GuanYu, 0, 3); // first floor lane 3 is a valid alternative battle route
     assert_eq!(alternate.verify_action_replay().unwrap(), 3);
     assert!(alternate.verify_checkpoint(&trusted).unwrap_err().contains("digest mismatch"));
 
