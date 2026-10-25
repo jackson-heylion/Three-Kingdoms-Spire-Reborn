@@ -82,3 +82,74 @@ fn rejected_actions_preserve_campaign_journal_and_all_game_bytes() {
     assert!(game.apply(Action::Choose { index: 0 }).is_err());
     assert_eq!(game.to_json().unwrap(), before);
 }
+
+#[test]
+fn revision_zero_anchors_identity_for_all_heroes_and_run_modes() {
+    for hero in HEROES {
+        for mode in [RunMode::Standard, RunMode::Custom, RunMode::Daily] {
+            let run_id = format!("identity-{hero:?}-{mode:?}");
+            let mut game = Game::new_with_identity(hero, 20261025, 4, mode, run_id.clone());
+            let initial = game.audit_composite_authority().unwrap();
+            let identity = initial.campaign.identity.as_ref().unwrap();
+            assert_eq!(identity.hero, hero);
+            assert_eq!(identity.seed, 20261025);
+            assert_eq!(identity.ascension, 4);
+            assert_eq!(identity.mode, mode);
+            assert_eq!(identity.run_id, run_id);
+            game.apply(Action::Choose { index: 1 }).unwrap();
+            let saved = game.to_json().unwrap();
+            let restored = Game::from_json(&saved).unwrap();
+            restored.audit_composite_authority().unwrap();
+            restored.verify_action_replay().unwrap();
+
+            let mut forged = restored.clone();
+            forged.seed ^= 1;
+            assert!(forged.audit_composite_authority().is_err());
+            let mut forged = restored.clone();
+            forged.hero = if hero == Hero::GuanYu { Hero::LuBu } else { Hero::GuanYu };
+            assert!(forged.audit_composite_authority().is_err());
+            let mut forged = restored.clone();
+            forged.ascension = 5;
+            assert!(forged.audit_composite_authority().is_err());
+            let mut forged = restored.clone();
+            forged.mode = if mode == RunMode::Custom { RunMode::Daily } else { RunMode::Custom };
+            assert!(forged.audit_composite_authority().is_err());
+            let mut forged = restored.clone();
+            forged.run_id.push_str("-forged");
+            assert!(forged.audit_composite_authority().is_err());
+        }
+    }
+}
+
+#[test]
+fn identity_cannot_change_mid_campaign_and_legacy_saves_stay_playable() {
+    let mut game = Game::new_with_identity(
+        Hero::ZhugeLiang, 42, 0, RunMode::Custom, "stable-run".into());
+    game.apply(Action::Choose { index: 1 }).unwrap();
+    let mut tampered = game.clone();
+    if let CampaignEvent::Changed { state: Some(state), .. } =
+        &mut tampered.campaign_history.as_mut().unwrap()[1]
+    {
+        state.identity.as_mut().unwrap().run_id.push_str("-swapped");
+    } else {
+        panic!("expected campaign transition");
+    }
+    assert!(campaign_authority::project(tampered.campaign_history.as_ref().unwrap())
+        .unwrap_err().contains("identity changed"));
+
+    // A pre-upgrade V2 journal did not anchor identity. It remains loadable
+    // and actionable, but cannot claim the new identity certification.
+    let mut legacy = game.clone();
+    for event in legacy.campaign_history.as_mut().unwrap() {
+        match event {
+            CampaignEvent::Started { state } => state.identity = None,
+            CampaignEvent::Changed { state: Some(state), .. } => state.identity = None,
+            _ => {}
+        }
+    }
+    let raw = legacy.to_json().unwrap();
+    let mut loaded = Game::from_json(&raw).unwrap();
+    assert!(loaded.audit_composite_authority().is_err());
+    loaded.apply(Action::EndTurn).unwrap();
+    assert_eq!(Game::from_json(&loaded.to_json().unwrap()).unwrap().revision, 2);
+}

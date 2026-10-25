@@ -1,12 +1,27 @@
 //! Action-boundary authority for noncombat campaign state. No action replay.
 //! Each successful revision is recorded; unchanged revisions carry no snapshot.
 //! This covers map, route, narrative and inventory, but not full Game sourcing.
-use crate::{Game, Stage, Node, Card, MAX_FLOOR, map, archetypes, challenges};
+use crate::{Game, Stage, Node, Card, RunMode, MAX_FLOOR, map, archetypes, challenges, content::Hero};
 use serde::{Deserialize, Serialize};
+
+/// Immutable rules identity anchored at revision zero, independently of the
+/// mutable Game snapshot. An absent identity means a pre-upgrade journal and
+/// must never be reported as identity-certified.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CampaignIdentity {
+    pub hero: Hero,
+    pub seed: u64,
+    pub ascension: u8,
+    pub mode: RunMode,
+    pub run_id: String,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CampaignState {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity: Option<CampaignIdentity>,
     pub floor: u8,
     pub stage: Stage,
     pub last_node: Option<Node>,
@@ -38,6 +53,10 @@ pub struct CampaignState {
 impl CampaignState {
     pub fn current(game: &Game) -> Self {
         Self {
+            identity: Some(CampaignIdentity {
+                hero: game.hero, seed: game.seed, ascension: game.ascension,
+                mode: game.mode, run_id: game.run_id.clone(),
+            }),
             floor: game.floor, stage: game.stage, last_node: game.last_node,
             route: game.route.clone(), act_map: game.act_map.clone(),
             map_lane: game.map_lane, route_lanes: game.route_lanes.clone(),
@@ -55,6 +74,11 @@ impl CampaignState {
 
     fn valid(&self) -> bool {
         self.floor <= MAX_FLOOR
+            && self.identity.as_ref().is_none_or(|identity| {
+                identity.ascension <= 10
+                    && (identity.mode == RunMode::Custom || self.modifiers.is_empty())
+                    && self.doctrine.is_none_or(|doctrine| doctrine.hero() == identity.hero)
+            })
             && self.map_lane.is_none_or(|lane| lane < map::LANES)
             && self.route_lanes.iter().all(|lane| *lane < map::LANES)
             && (self.route_lanes.is_empty() || self.route_lanes.len() == self.route.len())
@@ -110,6 +134,9 @@ impl CampaignProjector {
                 if let Some(next) = state {
                     if !next.valid() || next.floor < previous.floor || next == previous {
                         return Err("invalid campaign journal change".into());
+                    }
+                    if next.identity != previous.identity {
+                        return Err("campaign identity changed after start".into());
                     }
                     self.state = Some(next.clone());
                 }
