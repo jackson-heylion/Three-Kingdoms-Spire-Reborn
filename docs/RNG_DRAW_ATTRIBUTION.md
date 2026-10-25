@@ -4,14 +4,21 @@
 
 现有 `rng_history` 在每次成功动作后记录 xorshift64* 的状态，但只看动作前后的两个状态，无法直接判断一次行动用了多少次随机抽样，也不方便定位构筑/敌军随机行为的变化。新接口 `Game::reconstruct_rng_draw_attribution()` 逐动作执行真实规则，逐条核对原有 RNG 权威日志，再从确定性状态迁移反推出该动作消耗的 **RNG 状态转移次数**。
 
-返回 `Vec<RngDrawAttribution>`，每条包含修订号、原动作、动作前后 RNG 状态和 `draws`。不会新增存档字段、改变随机算法或消耗一次游戏 RNG；不要求存在战斗事件日志，因此能单独定位随机消耗。旧档缺完整操作日志或 RNG 日志时明确拒绝归属，不能虚构记录。
+返回 `Vec<RngDrawAttribution>`，每条包含修订号、原动作、动作前后 RNG 状态和 `draws`。终端也可直接导出 JSON：
+
+```sh
+cargo build --bin tks-attest
+target/debug/tks-attest /path/to/save.json --rng-trace
+```
+
+不会新增存档字段、改变随机算法或消耗一次游戏 RNG；不要求存在战斗事件日志，因此能单独定位随机消耗。旧档缺完整操作日志或 RNG 日志时明确拒绝归属，不能虚构记录。
 
 ## 验证规则
 
 - 从初始完整 Game 开始重放，每个成功动作必须与持久化 `RngEvent::Committed` 的修订号和状态逐条一致，最后整个 Game 的 JSON 必须与原存档一致。
 - 对非零 xorshift 状态最多向前迭代 8192 次寻找终态；若超过预算，**审计返回“无法归属”**，不影响正常出牌、存档或战役运行。随机上界小于等于1的 `Game::random` 不推进 RNG 状态，故不计作状态转移。
 - `tests/rng_draw_attribution.rs`：五职业×飞升0/10，固定种子，选流派、进战斗、结束回合；检查抽样数、动作间状态连续、保存恢复、非法出牌原子回滚、伪造/截断日志与快照篡改。
-- `src/rng_draw_attribution.rs` 的独立单测覆盖 0/多次转移和超出审计预算。以 PR 最终 SHA 的 macOS/Linux Rust CI 成功作为机器验证证据。
+- `src/rng_draw_attribution.rs` 的独立单测覆盖 0/多次转移和超出审计预算；`tests/checkpoint_cli_e2e.py` 以真实进程验证 `--rng-trace` 输出与存档只读。以 PR 最终 SHA 的 macOS/Linux Rust CI 成功作为机器验证证据。
 
 ## 信任与验收边界
 
