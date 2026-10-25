@@ -43,3 +43,30 @@ impl Game {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::content::Hero;
+
+    #[test]
+    fn zero_bound_calls_are_visible_without_consuming_state_or_touching_save() {
+        let mut game = Game::new(Hero::GuanYu, 42);
+        let original = game.to_json().unwrap();
+        let state = game.rng_state;
+        game.rng_trace = Some(Vec::new());
+        assert_eq!(game.random(0), 0);
+        assert_eq!(game.random(1), 0);
+        assert_eq!(game.rng_state, state);
+        let sampled = game.random(7);
+        assert!(sampled < 7);
+        let calls = game.rng_trace.take().unwrap();
+        assert_eq!(calls.len(), 3);
+        assert_eq!(calls.iter().map(|call| call.upper).collect::<Vec<_>>(), vec![0, 1, 7]);
+        assert!(calls[..2].iter().all(|call| call.state_before == state
+            && call.state_after == state && call.value == 0));
+        assert!(calls.iter().all(|call| call.call_site.contains(".rs:")));
+        assert_ne!(calls[2].state_after, state);
+        assert_eq!(game.to_json().unwrap(), original, "diagnostics never persist");
+    }
+}
