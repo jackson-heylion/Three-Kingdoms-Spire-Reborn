@@ -39,7 +39,7 @@ impl Game {
         self.dispatch_parent = previous;
     }
 
-    fn attack_effect(effect: Effect) -> bool {
+    pub(crate) fn attack_effect(effect: Effect) -> bool {
         matches!(effect,
             Effect::Hit(_) | Effect::HitDraw(_,_) | Effect::HitTwice(_)
             | Effect::All(_) | Effect::HitWeak(_,_) | Effect::HitVulnerable(_,_)
