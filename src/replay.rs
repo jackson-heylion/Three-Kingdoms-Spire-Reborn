@@ -86,7 +86,7 @@ impl Game {
         let mut replay = self.reconstruct_game_at(0)?;
         let mut offset = replay.event_history.as_ref()
             .ok_or("重放初始状态缺少战斗事件档案")?.len();
-        if offset > source.len() || replay.event_history.as_ref().unwrap() != &source[..offset] {
+        if offset > source.len() || replay.event_history.as_ref().unwrap().as_slice() != &source[..offset] {
             return Err("战斗事件档案的初始前缀与重放不一致".into());
         }
         let mut trace = Vec::with_capacity(actions.len());
