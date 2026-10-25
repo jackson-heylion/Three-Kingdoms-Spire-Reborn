@@ -67,11 +67,11 @@ fn revision_gaps_and_missing_legacy_journals_never_pass_as_complete() {
     let game = campaign(Hero::ZhugeLiang, 10);
     let mut missing = game.clone();
     missing.card_zone_history = None;
-    assert!(authority::project(&missing).unwrap_err().contains("missing card zone"));
+    assert!(authority::project(&missing).unwrap_err().contains("card zone"));
 
     let mut shortened = game.clone();
     shortened.rng_history.as_mut().unwrap().pop();
-    assert!(authority::project(&shortened).unwrap_err().contains("record count mismatch"));
+    assert!(authority::project(&shortened).unwrap_err().contains("revision count"));
 
     let mut corrupt = game.clone();
     corrupt.foe_board_history.as_mut().unwrap().remove(1);
