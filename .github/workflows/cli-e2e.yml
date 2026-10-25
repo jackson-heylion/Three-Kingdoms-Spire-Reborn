@@ -20,7 +20,7 @@ jobs:
         with:
           toolchain: "1.99.1"
       - name: Build real terminal binary
-        run: cargo build --bins
+        run: cargo build --bin tks --bin tks-attest
       - name: Five-hero cross-process CLI journeys
         run: python3 tests/cli_journey_e2e.py target/debug/tks
       - name: Trusted revision checkpoint CLI E2E
