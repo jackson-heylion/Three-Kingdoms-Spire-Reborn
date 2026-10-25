@@ -3,7 +3,7 @@
 //! The normal game path keeps rng_trace=None. Offline action replay enables
 //! tracing to explain every draw, including upper<=1 calls that consume no RNG.
 //! Keeping this in its own module reduces churn in the large rules engine.
-use crate::{Card, Game, rng_events::{self, RngCall, MAX_ATTRIBUTED_DRAWS_PER_ACTION}};
+use crate::{Card, Game, rng_events::{RngCall, MAX_ATTRIBUTED_DRAWS_PER_ACTION}};
 
 impl Game {
     #[track_caller]
