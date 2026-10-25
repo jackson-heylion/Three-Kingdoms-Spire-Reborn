@@ -3,6 +3,9 @@
 use crate::combat::{CombatEvent, EventKind};
 use serde::{Deserialize, Serialize};
 
+// Public, inspectable trace type; the replay engine itself remains internal.
+pub use crate::replay::ActionEventTrace;
+
 // Read-only, event-only projection. This does not rebuild authoritative Game state.
 #[path = "event_projection.rs"]
 pub mod projection;

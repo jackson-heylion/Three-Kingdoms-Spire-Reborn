@@ -1,6 +1,20 @@
 //! Deterministic action replay and event archive reconstruction.
 //! Kept separate from the large rules engine to reduce its change surface.
-use crate::{Game, event_stack};
+use crate::{Action, Game, Stage, event_stack};
+
+/// One committed action's observable effects, reconstructed by executing the
+/// actual rules. Event order is preserved across nested reaction dispatches.
+/// RNG states are boundary snapshots, NOT a record of individual draws.
+#[derive(Clone, Debug)]
+pub struct ActionEventTrace {
+    pub revision: u64,
+    pub action: Action,
+    pub stage_before: Stage,
+    pub stage_after: Stage,
+    pub rng_before: u64,
+    pub rng_after: u64,
+    pub events: Vec<event_stack::RunEvent>,
+}
 
 impl Game {
     /// Reconstruct the complete Game at an action revision from the initial seed
@@ -56,6 +70,58 @@ impl Game {
         }
         Ok(self.action_history.as_ref().map_or(0, Vec::len))
     }
+    /// Attribute each archived combat event to the committed action that emitted
+    /// it, including nested triggers and cross-battle transitions. This is a
+    /// read-only deterministic diagnostic; it does NOT authenticate the journal,
+    /// reconstruct individual RNG draws or turn events into an event-sourced Game.
+    ///
+    /// Unlike a plain archive read, this checks every emitted event prefix against
+    /// the persisted stream, then verifies the complete final Game snapshot.
+    /// Old saves without an archived event stream cannot claim causal coverage.
+    pub fn reconstruct_action_event_trace(&self) -> Result<Vec<ActionEventTrace>, String> {
+        let source = self.event_history.as_ref()
+            .ok_or("存档缺少完整战斗事件档案，无法认证动作与事件的对应关系")?;
+        let actions = self.action_history.as_ref()
+            .ok_or("存档缺少完整操作日志，无法认证事件因果关系")?;
+        let mut replay = self.reconstruct_game_at(0)?;
+        let mut offset = replay.event_history.as_ref()
+            .ok_or("重放初始状态缺少战斗事件档案")?.len();
+        if offset > source.len() || replay.event_history.as_ref().unwrap().as_slice() != &source[..offset] {
+            return Err("战斗事件档案的初始前缀与重放不一致".into());
+        }
+        let mut trace = Vec::with_capacity(actions.len());
+        for (index, action) in actions.iter().enumerate() {
+            let before_rng = replay.rng_state;
+            let before_stage = replay.stage;
+            replay.apply(action.clone()).map_err(|error|
+                format!("动作事件因果重放第{}步失败：{error}", index + 1))?;
+            let emitted = replay.event_history.as_ref()
+                .ok_or("重放过程中丢失战斗事件档案")?;
+            let new_events = emitted.get(offset..)
+                .ok_or("重放事件档案意外缩短")?;
+            if source.get(offset..emitted.len()) != Some(new_events) {
+                return Err(format!("动作第{}步的事件序列与存档档案不一致", index + 1));
+            }
+            trace.push(ActionEventTrace {
+                revision: replay.revision,
+                action: action.clone(),
+                stage_before: before_stage,
+                stage_after: replay.stage,
+                rng_before: before_rng,
+                rng_after: replay.rng_state,
+                events: new_events.to_vec(),
+            });
+            offset = emitted.len();
+        }
+        if offset != source.len() {
+            return Err("存档事件档案包含无法归属到成功动作的尾部记录".into());
+        }
+        if replay.to_json()? != self.to_json()? {
+            return Err("动作事件因果重放的最终完整 Game 与存档不一致".into());
+        }
+        Ok(trace)
+    }
+
     /// Replay successful actions and reconstruct even events from ended battles.
     /// Legacy snapshots must match the replayed gameplay state before claiming
     /// the result as a faithful full event history.
