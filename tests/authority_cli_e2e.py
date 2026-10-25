@@ -122,6 +122,13 @@ def main() -> None:
                 for event in tampered["battle"]["events"]:
                     if event["seq"] == seq:
                         event["kind"] = "card_played"
+                # The ninth domain also holds the active event window. Forge
+                # it consistently to exercise the event-vs-telemetry check.
+                change = tampered["battle_runtime_history"][-1]["change"]
+                assert change["type"] in ("enter", "update"), change
+                for event in change["state"]["events"]:
+                    if event["seq"] == seq:
+                        event["kind"] = "card_played"
                 forged = directory / "forged-event-archive.json"
                 forged.write_text(json.dumps(tampered), encoding="utf-8")
                 rejected = invoke([authority, str(forged)])

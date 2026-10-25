@@ -1,4 +1,4 @@
-//! Atomic, lockstep projection of eight committed action-boundary journals.
+//! Atomic, lockstep projection of nine committed action-boundary journals.
 //!
 //! This joins *every revision*, not merely the final snapshots: individually
 //! legal journals with contradictory intermediate combat coordinates fail.
@@ -117,7 +117,7 @@ impl AuthorityView {
     }
 }
 
-/// One complete committed action boundary from eight independent event streams.
+/// One complete committed action boundary from nine independent event streams.
 pub struct AuthorityStep<'a> {
     pub resources: &'a resource_events::ResourceEvent,
     pub rng: &'a rng_events::RngEvent,
@@ -185,7 +185,7 @@ impl CompositeAuthorityProjector {
     }
 }
 
-/// Reduce the eight complete journals in lockstep at *every* revision. Missing
+/// Reduce the nine complete journals in lockstep at *every* revision. Missing
 /// legacy journals or mismatched journal lengths are not repaired or inferred.
 /// This function reads only persisted event journals, never the Game snapshot.
 pub fn project(game: &Game) -> Result<AuthorityView, String> {
@@ -227,7 +227,7 @@ pub fn project(game: &Game) -> Result<AuthorityView, String> {
 }
 
 impl Game {
-    /// Eight journal reductions, each revision's cross-stream consistency and
+    /// Nine journal reductions, each revision's cross-stream consistency and
     /// final snapshot agreement. Never writes or mutates the saved Game.
     pub fn audit_composite_authority(&self) -> Result<AuthorityView, String> {
         let view = project(self)?;

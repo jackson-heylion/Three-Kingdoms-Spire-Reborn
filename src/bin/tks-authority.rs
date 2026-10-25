@@ -1,4 +1,4 @@
-//! Cross-source journal and combat-archive audit, not a replacement for tks-attest
+//! Nine-domain journal and combat-archive audit, not a replacement for tks-attest
 //! or an authenticated, full-Game event-sourced restore.
 use std::{env, fs};
 use three_kingdoms_spire_reborn::Game;

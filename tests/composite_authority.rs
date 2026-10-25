@@ -6,6 +6,7 @@ use three_kingdoms_spire_reborn::{
     event_stack::authority,
     combat_resource_events::{self, BattleResourceChange, BattleResourceEvent},
     card_zone_events::{self, BattleCardsChange, CardZoneEvent},
+    battle_runtime_events::{BattleRuntimeEvent, BattleRuntimeChange},
 };
 
 const HEROES: [Hero; 5] = [
@@ -210,6 +211,17 @@ fn combat_archive_cannot_forge_card_events_while_eight_journals_remain_valid() {
             let window = forged.battle.as_mut().unwrap().events.iter_mut()
                 .find(|event| event.seq == seq).unwrap();
             window.kind = EventKind::CardPlayed;
+            // The ninth domain independently records the current event window.
+            // Keep that journal consistent with the forged snapshot, so only
+            // event-to-telemetry causality can reject the invented play.
+            let last = forged.battle_runtime_history.as_mut().unwrap().last_mut().unwrap();
+            match last {
+                BattleRuntimeEvent::Changed { change: BattleRuntimeChange::Enter { state }
+                    | BattleRuntimeChange::Update { state }, .. } => {
+                    state.events.iter_mut().find(|event| event.seq == seq).unwrap().kind = EventKind::CardPlayed;
+                }
+                _ => panic!("expected recorded active battle window"),
+            }
             forged.validate().unwrap();
             assert!(forged.audit_composite_authority().is_ok(),
                 "all eight action-boundary journals remain independently valid");
