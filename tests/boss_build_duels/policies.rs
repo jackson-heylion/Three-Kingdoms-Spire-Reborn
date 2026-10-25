@@ -71,3 +71,26 @@ pub(super) fn next_action_with_policy(game: &Game, policy: DuelPolicy) -> Action
     Action::EndTurn
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use three_kingdoms_spire_reborn::{Card, builds::PLANS};
+
+    #[test]
+    fn guard_first_really_changes_a_live_attack_decision() {
+        let mut game = super::super::encounter(&PLANS[0], "zhangjiao", 0, 26_400_000, false);
+        let battle = game.battle.as_mut().expect("live duel");
+        battle.hand = vec![Card::new("strike"), Card::new("defend")];
+        battle.energy = 2;
+        battle.foes[0].intent = Intent::Attack(10);
+        assert!(matches!(
+            next_action_with_policy(&game, DuelPolicy::FirstPlayable),
+            Action::Play { index: 1, .. }
+        ));
+        assert!(matches!(
+            next_action_with_policy(&game, DuelPolicy::GuardFirst),
+            Action::Play { index: 2, .. }
+        ));
+    }
+}
