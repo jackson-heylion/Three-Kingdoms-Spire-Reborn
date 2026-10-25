@@ -17,6 +17,8 @@ pub mod campaign_authority;
 pub mod telemetry;
 pub mod telemetry_authority;
 pub use telemetry::{CombatCounters, CombatTelemetry, TurnTelemetry, MAX_RECENT_TURN_METRICS};
+#[cfg(test)]
+mod boss_reward_regression_tests;
 mod game_setup;
 mod action_commit;
 mod replay;
@@ -3040,25 +3042,6 @@ mod tests {
         let before = g.to_json().unwrap();
         assert!(g.apply(Action::UsePotionAt { slot: 1, target: 1 }).is_err());
         assert_eq!(g.to_json().unwrap(), before);
-    }
-
-    #[test]
-    fn boss_reward_flows_into_ancient_choice_without_losing_save() {
-        let mut g = Game::new(Hero::GuanYu, 444);
-        g.floor = 7;
-        g.last_node = Some(Node::Boss);
-        g.stage = Stage::Combat;
-        g.battle = None;
-        let _ = g.win_battle();
-        assert_eq!(g.stage, Stage::Reward);
-        g.apply(Action::Choose { index: 0 }).unwrap();
-        assert_eq!(g.stage, Stage::Ancient);
-        assert_eq!(g.boon_choices.len(), 3);
-        let snap = g.to_json().unwrap();
-        let mut restored = Game::from_json(&snap).unwrap();
-        restored.apply(Action::Choose { index: 1 }).unwrap();
-        assert_eq!(restored.stage, Stage::Map);
-        assert_eq!(restored.boons.len(), 1);
     }
 
     #[test]
