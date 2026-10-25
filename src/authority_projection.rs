@@ -216,6 +216,76 @@ impl Game {
         } else if projection.encounters.last().is_some_and(|last| !last.closed) {
             return Err("event archive has an unsealed inactive encounter".into());
         }
+        // Cursors add per-action causality checks for new saves. Old V2
+        // archives remain eligible for the existing final-only audit.
+        self.audit_event_archive_boundaries()?;
         Ok((view, projection))
+    }
+
+    /// Compare each persisted combat-event prefix with the independent
+    /// telemetry and campaign state at that exact successful action revision.
+    /// No actions, RNG stepping, or mutable Game state are used. Pre-upgrade
+    /// saves return None instead of inventing historical event boundaries.
+    pub fn audit_event_archive_boundaries(&self) -> Result<Option<usize>, String> {
+        use crate::event_stack::projection::CampaignProjector as EventProjector;
+        let archive = self.event_history.as_deref()
+            .ok_or("legacy save has no complete combat event archive")?;
+        let telemetry = self.telemetry_history.as_deref()
+            .ok_or("legacy save has no telemetry authority journal")?;
+        let campaign = self.campaign_history.as_deref()
+            .ok_or("legacy save has no campaign authority journal")?;
+        if telemetry.len() != campaign.len()
+            || usize::try_from(self.revision).ok()
+                .and_then(|revision| revision.checked_add(1)) != Some(telemetry.len())
+        {
+            return Err("event boundary journals disagree on revision count".into());
+        }
+        if telemetry.first().and_then(telemetry_authority::TelemetryEvent::archive_len).is_none() {
+            if telemetry.iter().any(|event| event.archive_len().is_some()) {
+                return Err("legacy event boundary cursors unexpectedly appear mid-run".into());
+            }
+            return Ok(None);
+        }
+
+        let mut stats = telemetry_authority::TelemetryProjector::default();
+        let mut stages = campaign_authority::CampaignProjector::default();
+        let mut events = EventProjector::new();
+        let mut offset = 0usize;
+        for (index, (telemetry_event, campaign_event)) in
+            telemetry.iter().zip(campaign).enumerate()
+        {
+            stats.push(telemetry_event)?;
+            stages.push(campaign_event)?;
+            let cursor = stats.archive_cursor()
+                .ok_or("event archive cursor missing at committed revision")?;
+            let end = usize::try_from(cursor)
+                .map_err(|_| "event archive cursor exceeds platform range")?;
+            if end < offset || end > archive.len() {
+                return Err(format!("event revision {index}: archive cursor out of bounds"));
+            }
+            for record in &archive[offset..end] {
+                events.push(record).map_err(|error|
+                    format!("event revision {index}: {error}"))?;
+            }
+            offset = end;
+            let (telemetry_state, _) = stats.state()?;
+            let (campaign_state, _) = stages.state()?;
+            let active = campaign_state.stage == crate::Stage::Combat;
+            events.projection().reconcile_telemetry(&telemetry_state.totals, active)
+                .map_err(|error| format!("event revision {index}: {error}"))?;
+            if active {
+                let encounter = events.projection().encounters.last()
+                    .ok_or_else(|| format!("event revision {index}: active encounter missing"))?;
+                if encounter.closed || encounter.floor != campaign_state.floor {
+                    return Err(format!("event revision {index}: active encounter floor/seal mismatch"));
+                }
+            } else if events.projection().encounters.last().is_some_and(|last| !last.closed) {
+                return Err(format!("event revision {index}: unsealed inactive encounter"));
+            }
+        }
+        if offset != archive.len() {
+            return Err("event archive contains records beyond final committed cursor".into());
+        }
+        Ok(Some(telemetry.len()))
     }
 }

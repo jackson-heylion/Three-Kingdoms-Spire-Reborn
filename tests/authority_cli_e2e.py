@@ -45,6 +45,8 @@ def main() -> None:
                 assert report["turn"] == 1 and report["foe_count"] >= 1
                 assert len(report["journal_domains"]) == 8
                 assert report["event_archive_reconciled"] is True
+                assert report["event_boundaries_reconciled"] is True
+                assert report["checked_revisions"] == 2
                 assert report["archived_encounters"] == 1
                 assert not report["whole_game_reconstructed"]
                 assert not report["cryptographically_authenticated"]
@@ -120,6 +122,29 @@ def main() -> None:
                     rejected.stderr,
                 )
                 assert "event outcomes disagree" in rejected.stderr, rejected.stderr
+
+                # A forged revision cursor must fail even if the final event
+                # archive, all eight journal states and Game snapshot agree.
+                tampered = json.loads(json.dumps(payload))
+                tampered["telemetry_history"][1]["archive_len"] = 0
+                forged = directory / "forged-event-boundary.json"
+                forged.write_text(json.dumps(tampered), encoding="utf-8")
+                rejected = invoke([authority, str(forged)])
+                assert rejected.returncode != 0, rejected.stdout
+                assert "event revision" in rejected.stderr, rejected.stderr
+
+                # Older V2 saves have no cursor evidence. They retain the
+                # existing final-state audit, but cannot claim revision checks.
+                tampered = json.loads(json.dumps(payload))
+                for event in tampered["telemetry_history"]:
+                    event.pop("archive_len", None)
+                forged = directory / "legacy-no-boundaries.json"
+                forged.write_text(json.dumps(tampered), encoding="utf-8")
+                legacy = invoke([authority, str(forged)])
+                assert legacy.returncode == 0, legacy.stderr
+                legacy_report = json.loads(legacy.stdout)
+                assert legacy_report["event_archive_reconciled"] is True
+                assert legacy_report["event_boundaries_reconciled"] is False
 
                 # Missing old V2 event archives are readable but not certified.
                 tampered = json.loads(json.dumps(payload))
