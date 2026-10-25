@@ -1,4 +1,4 @@
-//! Atomic, lockstep projection of six committed action-boundary journals.
+//! Atomic, lockstep projection of seven committed action-boundary journals.
 //!
 //! This joins *every revision*, not merely the final snapshots: individually
 //! legal journals with contradictory intermediate combat coordinates fail.
@@ -6,6 +6,7 @@
 //! partial authority, not whole-Game event sourcing or authentication.
 use crate::{
     Game,
+    campaign_authority::{self, CampaignState},
     card_zone_events::{self, CardZones},
     combat_effect_events::{self, BattleEffects},
     combat_resource_events::{self, BattleResources},
@@ -23,6 +24,7 @@ pub struct AuthorityView {
     pub foes: Option<FoeBoard>,
     pub cards: CardZones,
     pub effects: Option<BattleEffects>,
+    pub campaign: CampaignState,
 }
 
 impl AuthorityView {
@@ -33,6 +35,11 @@ impl AuthorityView {
         let effects = self.effects.as_ref().map(|s| (s.floor, s.turn));
         if combat != foes || combat != cards || combat != effects {
             return Err("cross-journal combat floor/turn mismatch".into());
+        }
+        if (self.campaign.stage == crate::Stage::Combat) != self.combat.is_some()
+            || self.combat.as_ref().is_some_and(|battle| battle.floor != self.campaign.floor)
+        {
+            return Err("cross-journal campaign stage/floor mismatch".into());
         }
         Ok(())
     }
@@ -48,6 +55,7 @@ impl AuthorityView {
             || self.foes != FoeBoard::current(game)
             || self.cards != CardZones::current(game)
             || self.effects != BattleEffects::current(game)
+            || self.campaign != CampaignState::current(game)
         {
             return Err("composite authority differs from Game snapshot".into());
         }
@@ -63,6 +71,7 @@ pub struct AuthorityStep<'a> {
     pub foes: &'a foe_board_events::FoeBoardEvent,
     pub cards: &'a card_zone_events::CardZoneEvent,
     pub effects: &'a combat_effect_events::CombatEffectEvent,
+    pub campaign: &'a campaign_authority::CampaignEvent,
 }
 
 /// Incremental six-stream reducer. Failed steps cannot partially advance any
@@ -75,6 +84,7 @@ pub struct CompositeAuthorityProjector {
     foes: foe_board_events::FoeBoardProjector,
     cards: card_zone_events::CardZoneProjector,
     effects: combat_effect_events::CombatEffectProjector,
+    campaign: campaign_authority::CampaignProjector,
 }
 
 impl CompositeAuthorityProjector {
@@ -87,11 +97,12 @@ impl CompositeAuthorityProjector {
         let (foes, r3) = self.foes.state()?;
         let (cards, r4) = self.cards.state()?;
         let (effects, r5) = self.effects.state()?;
-        if [r1, r2, r3, r4, r5].iter().any(|r| *r != r0) {
+        let (campaign, r6) = self.campaign.state()?;
+        if [r1, r2, r3, r4, r5, r6].iter().any(|r| *r != r0) {
             return Err("cross-journal committed revision mismatch".into());
         }
         let view = AuthorityView {
-            revision: r0, resources, rng_state, combat, foes, cards, effects,
+            revision: r0, resources, rng_state, combat, foes, cards, effects, campaign,
         };
         view.check_combat_coordinates()?;
         Ok(view)
@@ -105,13 +116,14 @@ impl CompositeAuthorityProjector {
         next.foes.push(step.foes)?;
         next.cards.push(step.cards)?;
         next.effects.push(step.effects)?;
+        next.campaign.push(step.campaign)?;
         next.view()?; // Includes cross-stream revision and floor/turn agreement.
         *self = next;
         Ok(())
     }
 }
 
-/// Reduce the six complete journals in lockstep at *every* revision. Missing
+/// Reduce the seven complete journals in lockstep at *every* revision. Missing
 /// legacy journals or mismatched journal lengths are not repaired or inferred.
 /// This function reads only persisted event journals, never the Game snapshot.
 pub fn project(game: &Game) -> Result<AuthorityView, String> {
@@ -127,9 +139,11 @@ pub fn project(game: &Game) -> Result<AuthorityView, String> {
         .ok_or("legacy save has no card zone authority journal")?;
     let effects = game.combat_effect_history.as_ref()
         .ok_or("legacy save has no combat effect authority journal")?;
+    let campaign = game.campaign_history.as_ref()
+        .ok_or("legacy save has no campaign authority journal")?;
 
     let length = resources.len();
-    if [rng.len(), combat.len(), foes.len(), cards.len(), effects.len()]
+    if [rng.len(), combat.len(), foes.len(), cards.len(), effects.len(), campaign.len()]
         .iter().any(|n| *n != length)
     {
         return Err("authority journals disagree on committed revision count".into());
@@ -140,13 +154,14 @@ pub fn project(game: &Game) -> Result<AuthorityView, String> {
             resources: &resources[index], rng: &rng[index],
             combat: &combat[index], foes: &foes[index],
             cards: &cards[index], effects: &effects[index],
+            campaign: &campaign[index],
         }).map_err(|error| format!("authority boundary {index}: {error}"))?;
     }
     projector.view()
 }
 
 impl Game {
-    /// Six journal reductions, each revision's cross-stream consistency and
+    /// Seven journal reductions, each revision's cross-stream consistency and
     /// final snapshot agreement. Never writes or mutates the saved Game.
     pub fn audit_composite_authority(&self) -> Result<AuthorityView, String> {
         let view = project(self)?;

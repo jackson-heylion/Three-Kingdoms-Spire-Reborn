@@ -27,7 +27,7 @@ impl Terrain {
         }
     }
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ActMap {
     pub act: u8,
     pub rows: Vec<[Node;3]>,
