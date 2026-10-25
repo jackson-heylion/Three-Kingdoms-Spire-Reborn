@@ -13,6 +13,12 @@ impl Game {
         let mut game = Self::new_with_ascension(hero,seed,ascension);
         game.mode = mode;
         game.run_id = run_id;
+        // new_with_ascension initialized the Standard identity. Re-anchor
+        // revision zero after choosing the actual mode and stable run ID.
+        let initial = campaign_authority::CampaignState::current(&game);
+        if let Some(history) = game.campaign_history.as_mut() {
+            history[0] = campaign_authority::CampaignEvent::Started { state: initial };
+        }
         game
     }
     pub fn new_with_ascension(hero: Hero, seed: u64, ascension: u8) -> Self {

@@ -72,8 +72,21 @@ def main() -> None:
                 assert rejected.returncode != 0, "cross-journal campaign floor forgery passed"
                 assert "cross-journal" in rejected.stderr, rejected.stderr
 
+                for field, forged_value in (
+                    ("seed", payload["seed"] + 1),
+                    ("run_id", payload["run_id"] + "-forged"),
+                ):
+                    tampered = json.loads(json.dumps(payload))
+                    tampered[field] = forged_value
+                    forged = directory / f"forged-{field}.json"
+                    forged.write_text(json.dumps(tampered), encoding="utf-8")
+                    rejected = invoke([authority, str(forged)])
+                    assert rejected.returncode != 0, (
+                        field, "forged run identity passed authority audit"
+                    )
+
                 assert json.loads(save.read_text(encoding="utf-8")) == payload
-                print(f"PASS {hero} ascension={ascension}: seven streams/restart/two tamper cases")
+                print(f"PASS {hero} ascension={ascension}: seven streams/restart/identity tamper")
     print("PASS 10 cross-platform real-process composite authority scenarios")
 
 
