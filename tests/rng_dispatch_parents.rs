@@ -61,8 +61,19 @@ fn incomplete_or_rewritten_history_cannot_claim_rng_observer_causality() {
 
     let mut missing = game.clone();
     missing.event_history = None;
-    let legacy = missing.reconstruct_rng_draw_attribution().unwrap();
-    assert!(legacy.iter().flat_map(|step| &step.calls).all(|call|
+    assert!(missing.reconstruct_rng_draw_attribution().is_err(),
+        "a cursor-certified campaign must reject a missing event archive");
+
+    // A genuinely old V2 save has neither the complete event archive nor
+    // revision cursors. Strip both, rather than mixing legacy and new proof.
+    let mut legacy = missing;
+    let mut journal = serde_json::to_value(legacy.telemetry_history.as_ref().unwrap()).unwrap();
+    for event in journal.as_array_mut().unwrap() {
+        event.as_object_mut().unwrap().remove("archive_len");
+    }
+    legacy.telemetry_history = Some(serde_json::from_value(journal).unwrap());
+    let attribution = legacy.reconstruct_rng_draw_attribution().unwrap();
+    assert!(attribution.iter().flat_map(|step| &step.calls).all(|call|
         call.dispatch_parent.is_none() && call.event_cursor_before.is_none()),
         "legacy RNG counts remain available without invented event parents");
 

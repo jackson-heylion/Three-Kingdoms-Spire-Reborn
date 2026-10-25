@@ -34,37 +34,70 @@ fn monotonic(old: &CombatCounters, next: &CombatCounters) -> bool {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TelemetryEvent {
-    Started { state: CombatTelemetry },
-    Changed { revision: u64, state: Option<CombatTelemetry> },
+    Started {
+        state: CombatTelemetry,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        archive_len: Option<u64>,
+    },
+    Changed {
+        revision: u64,
+        state: Option<CombatTelemetry>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        archive_len: Option<u64>,
+    },
+}
+impl TelemetryEvent {
+    /// A cursor is absent in pre-upgrade V2 journals, never inferred.
+    pub fn archive_len(&self) -> Option<u64> {
+        match self {
+            Self::Started { archive_len, .. } | Self::Changed { archive_len, .. } => *archive_len,
+        }
+    }
 }
 pub fn transition(before: &CombatTelemetry, after: &CombatTelemetry, revision: u64)
     -> Result<TelemetryEvent, String>
+{
+    transition_with_archive(before, after, revision, None)
+}
+/// Persist the settled event-archive prefix at the same atomic action boundary.
+pub fn transition_with_archive(before: &CombatTelemetry, after: &CombatTelemetry,
+    revision: u64, archive_len: Option<u64>) -> Result<TelemetryEvent, String>
 {
     if !valid(before) || !valid(after) || !monotonic(&before.totals, &after.totals) {
         return Err("invalid combat telemetry transition".into());
     }
     Ok(TelemetryEvent::Changed {
-        revision, state: (before != after).then(|| after.clone()),
+        revision, state: (before != after).then(|| after.clone()), archive_len,
     })
 }
 #[derive(Clone, Debug, Default)]
 pub struct TelemetryProjector {
     state: Option<CombatTelemetry>,
     revision: u64,
+    archive_len: Option<u64>,
 }
 impl TelemetryProjector {
+    pub fn archive_cursor(&self) -> Option<u64> { self.archive_len }
     pub fn push(&mut self, event: &TelemetryEvent) -> Result<(), String> {
         match event {
-            TelemetryEvent::Started { state } => {
-                if self.state.is_some() || *state != CombatTelemetry::default() {
+            TelemetryEvent::Started { state, archive_len } => {
+                if self.state.is_some() || *state != CombatTelemetry::default()
+                    || archive_len.is_some_and(|n| n != 0)
+                {
                     return Err("invalid or duplicate telemetry journal start".into());
                 }
                 self.state = Some(state.clone());
+                self.archive_len = *archive_len;
             }
-            TelemetryEvent::Changed { revision, state } => {
+            TelemetryEvent::Changed { revision, state, archive_len } => {
                 let previous = self.state.as_ref().ok_or("telemetry journal missing start")?;
                 if self.revision.checked_add(1) != Some(*revision) {
                     return Err("gap or duplicate telemetry journal revision".into());
+                }
+                if self.archive_len.is_some() != archive_len.is_some()
+                    || self.archive_len.zip(*archive_len).is_some_and(|(old, new)| new < old)
+                {
+                    return Err("telemetry archive cursor missing or regressed".into());
                 }
                 if let Some(next) = state {
                     if !valid(next) || !monotonic(&previous.totals, &next.totals)
@@ -74,6 +107,7 @@ impl TelemetryProjector {
                     }
                     self.state = Some(next.clone());
                 }
+                self.archive_len = *archive_len;
                 self.revision = *revision;
             }
         }

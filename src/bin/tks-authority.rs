@@ -12,6 +12,7 @@ fn run() -> Result<(), String> {
         .map_err(|error| format!("cannot read save: {error}"))?;
     let game = Game::from_json(&raw)?;
     let (view, archive) = game.audit_event_archive_authority()?;
+    let checked_revisions = game.audit_event_archive_boundaries()?;
     let report = serde_json::json!({
         "revision": view.revision,
         "rng_state": view.rng_state,
@@ -22,6 +23,8 @@ fn run() -> Result<(), String> {
         "deck_cards": view.cards.deck.len(),
         "foe_count": view.foes.as_ref().map_or(0, |foes| foes.foes.len()),
         "event_archive_reconciled": true,
+        "event_boundaries_reconciled": checked_revisions.is_some(),
+        "checked_revisions": checked_revisions.unwrap_or(0),
         "archived_encounters": archive.encounters.len(),
         "journal_domains": [
             "resources", "rng", "combat_resources",

@@ -42,7 +42,9 @@ fn projector_rejects_regression_atomically() {
     let before = projector.state().unwrap();
     let mut bad = before.0.clone();
     bad.totals.battles_started = 0;
-    assert!(projector.push(&TelemetryEvent::Changed { revision: 2, state: Some(bad) }).is_err());
+    assert!(projector.push(&TelemetryEvent::Changed {
+        revision: 2, state: Some(bad), archive_len: events[2].archive_len(),
+    }).is_err());
     assert_eq!(projector.state().unwrap(), before);
     projector.push(&events[2]).unwrap();
     assert_eq!(projector.state().unwrap().1, 2);

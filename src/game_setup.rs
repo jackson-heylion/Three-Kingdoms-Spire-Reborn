@@ -42,7 +42,7 @@ impl Game {
             combat_effect_history: Some(vec![combat_effect_events::CombatEffectEvent::Started]),
             campaign_history: None,
             telemetry_history: Some(vec![telemetry_authority::TelemetryEvent::Started {
-                state: CombatTelemetry::default(),
+                state: CombatTelemetry::default(), archive_len: Some(0),
             }]),
             modifiers: vec![], doctrine: None, telemetry: CombatTelemetry::default(), rewards: vec![], market: vec![],
             log: vec![format!("{}率部出征，征途由此开始。", hero.name())],

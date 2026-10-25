@@ -91,8 +91,17 @@ impl Game {
                 &campaign_authority::CampaignState::current(&draft), draft.revision,
             )?)
         } else { None };
-        let telemetry_event = if self.telemetry_history.is_some() {
-            Some(telemetry_authority::transition(&self.telemetry, &draft.telemetry, draft.revision)?)
+        let telemetry_event = if let Some(history) = self.telemetry_history.as_ref() {
+            // Preserve the absence of revision cursors in older V2 journals:
+            // resuming a legacy campaign must not invent earlier event evidence.
+            let archive_len = if history.last().and_then(|event| event.archive_len()).is_some() {
+                Some(u64::try_from(draft.event_history.as_ref()
+                    .ok_or("event archive missing for cursor-enabled campaign")?.len())
+                    .map_err(|_| "event archive cursor overflow")?)
+            } else { None };
+            Some(telemetry_authority::transition_with_archive(
+                &self.telemetry, &draft.telemetry, draft.revision, archive_len,
+            )?)
         } else { None };
         if let Some(actions) = draft.action_history.as_mut() {
             actions.push(action);
