@@ -24,11 +24,12 @@ fn remaining_four_bosses_have_seed_paired_three_policy_encounters() {
     for (plan_index, plan) in PLANS.iter().enumerate() {
         for (boss_index, boss) in BOSSES.iter().enumerate() {
             for ascension in DIFFICULTIES {
-                // Identical seed for all three policies and each baseline/plan
-                // pair; disjoint from the earlier Simayi/Zuoci fixture seeds.
-                let seed = 26_400_000_u64 + plan_index as u64 * 1_000
-                    + boss_index as u64 * 100 + u64::from(ascension);
-                for (policy_id, policy) in POLICIES {
+                for trial in 0..2_u64 {
+                    // Same seed across policies and both sides of a pair;
+                    // disjoint from earlier Simayi/Zuoci fixtures.
+                    let seed = 26_400_000_u64 + plan_index as u64 * 1_000
+                        + boss_index as u64 * 100 + u64::from(ascension) + trial;
+                    for (policy_id, policy) in POLICIES {
                     let baseline = duel_with_policy(
                         encounter(plan, boss, ascension, seed, false), boss, policy,
                     );
@@ -49,17 +50,19 @@ fn remaining_four_bosses_have_seed_paired_three_policy_encounters() {
                         "boss": boss,
                         "ascension": ascension,
                         "seed": seed,
+                        "trial": trial,
                         "policy": policy_id,
                         "baseline": duel_report(&baseline),
                         "curated": duel_report(&curated),
                         "baseline_discards": baseline.discard_actions,
                         "curated_discards": curated.discard_actions,
                     }));
+                    }
                 }
             }
         }
     }
-    let pairs = 15 * BOSSES.len() * DIFFICULTIES.len() * POLICIES.len();
+    let pairs = 15 * BOSSES.len() * DIFFICULTIES.len() * POLICIES.len() * 2;
     assert_eq!(cells.len(), pairs);
     assert!(technique_events > 0, "no boss-specific technique was exercised");
     let report = serde_json::json!({
@@ -69,6 +72,7 @@ fn remaining_four_bosses_have_seed_paired_three_policy_encounters() {
         "bosses": BOSSES,
         "policies": POLICIES.map(|(id, _)| id),
         "ascensions": DIFFICULTIES,
+        "samples_per_cell": 2,
         "pairs": pairs,
         "baseline_wins": baseline_wins,
         "curated_wins": curated_wins,
