@@ -27,7 +27,8 @@ fn ten_campaigns_attribute_every_archived_event_to_one_real_action() {
             let game = campaign(hero, ascension);
             let original = game.to_json().unwrap();
             let restored = Game::from_json(&original).unwrap();
-            let trace = restored.reconstruct_action_event_trace().unwrap();
+            let trace: Vec<three_kingdoms_spire_reborn::event_stack::ActionEventTrace> =
+                restored.reconstruct_action_event_trace().unwrap();
             assert_eq!(trace.len(), 3, "{} ascension {ascension}", hero.name());
             assert_eq!(trace.iter().map(|t| t.revision).collect::<Vec<_>>(), vec![1, 2, 3]);
             assert_eq!(trace[0].stage_before, Stage::Map);
