@@ -27,3 +27,18 @@ target/debug/tks-attest /path/to/save.json --rng-trace
 **尚未实现**调用栈、随机抽样与战斗父事件的直接关联、独立事件归约器或外部认证的逐次 RNG 事件日志。这个诊断仍依赖当前版本规则确定性重放；游戏规则变更可能使旧存档无法通过复验。动作日志、RNG 日志和快照均由同一存档保存，三者同时重写仍可能内部一致；若需要证明历史未被改写，应与**事先独立保存**的 `RevisionCheckpoint` 配合。
 
 本增量不代表完整 P1：通用事件替换、15套构筑自然成型和平衡、卡牌×遗物×敌军所有交互、120回全文异本校勘、真人 TTY 和完整国际化仍未验收，不发布正式1.0。
+
+## 2026-10-25：RNG 与战斗事件的真实写入时序
+
+`Game::reconstruct_rng_draw_attribution()` 的每次调用新增 `event_cursor_before`（该次 `random()` 执行前完整战斗事件档案中已有多少条记录）；每个动作增加 `event_start`、`event_end`（档案半开区间）。无事件档案的旧 V2 存档仍可做 RNG 归属，但上述游标为 `null`，不能冒充有完整事件因果证据。
+
+新接口 `Game::reconstruct_action_rng_event_timeline()` 使用真实动作重放，将每个动作的 `rng_call` 与 `combat_event` 按实际写入顺序合并为一条 JSON 时间线。它要求完整动作、RNG、战斗事件档案，逐步检查游标单调性、事件区间与存档档案前缀，最终核对完整 Game。旧档缺战斗事件档案、日志缺失或篡改时拒绝输出。
+
+```sh
+cargo build --bin tks-attest
+target/debug/tks-attest /path/to/save.json --timeline
+```
+
+`tests/action_rng_timeline.rs` 覆盖五职业×双难度真实战斗动作、跨进程存档往返、逐条事件与 RNG 调用对齐、旧档及篡改拒绝；`tests/checkpoint_cli_e2e.py` 在 macOS/Linux 真实 CLI 进程核对 JSON 输出及存档不变。须以 PR 最终 SHA 的双平台 CI 为准。
+
+**严格边界**：`event_cursor_before` 是**已经追加的事件数量**，不是父事件 ID。随机调用可能先于其引发的战斗事件；仅能证明相对执行时序，不能证明事件内部父子关系，更不能从该日志独立归约完整 Game。时间线仍依赖当前版本规则的确定性动作重放；外部历史真实性仍须预先保存的可信检查点。
