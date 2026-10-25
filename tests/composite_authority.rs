@@ -91,6 +91,47 @@ fn snapshot_tampering_is_detected_without_mutating_journal_projection() {
 }
 
 #[test]
+fn independently_valid_telemetry_cannot_invent_battles_or_outcomes() {
+    let mut game = Game::new(Hero::GuanYu, 20261026);
+    game.apply(Action::Choose { index: 1 }).unwrap();
+    assert!(game.battle.is_some());
+    assert_eq!(game.telemetry.totals.battles_started, 1);
+
+    for (extra_starts, extra_wins) in [(1, 0), (0, 1)] {
+        let mut forged = game.clone();
+        let last = forged.telemetry_history.as_mut().unwrap().last_mut().unwrap();
+        if let three_kingdoms_spire_reborn::telemetry_authority::TelemetryEvent::Changed {
+            state: Some(state), ..
+        } = last {
+            state.totals.battles_started += extra_starts;
+            state.totals.battles_won += extra_wins;
+        } else {
+            panic!("expected the committed encounter-start telemetry change");
+        }
+        forged.telemetry.totals.battles_started += extra_starts;
+        forged.telemetry.totals.battles_won += extra_wins;
+
+        // Each forged stream is independently legal, and its final state
+        // agrees with the forged snapshot. Only the cross-stream lifecycle
+        // invariant detects the invented encounter or victory.
+        let projected = three_kingdoms_spire_reborn::telemetry_authority::project(
+            forged.telemetry_history.as_ref().unwrap()).unwrap();
+        assert_eq!(projected.0, forged.telemetry);
+        let error = authority::project(&forged).unwrap_err();
+        assert!(error.contains("cross-journal battle lifecycle"), "{error}");
+
+        // A rejected revision cannot corrupt the stream projector.
+        let mut projector = authority::CompositeAuthorityProjector::new();
+        projector.push(step(&game, 0)).unwrap();
+        let before = projector.view().unwrap();
+        assert!(projector.push(step(&forged, 1)).is_err());
+        assert_eq!(projector.view().unwrap(), before);
+        projector.push(step(&game, 1)).unwrap();
+        assert_eq!(projector.view().unwrap().revision, 1);
+    }
+}
+
+#[test]
 fn revision_zero_has_eight_valid_idle_projections() {
     let game = Game::new(Hero::LuBu, 99);
     let view = game.audit_composite_authority().unwrap();
