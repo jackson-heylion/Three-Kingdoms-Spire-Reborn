@@ -1,4 +1,4 @@
-//! Atomic, lockstep projection of seven committed action-boundary journals.
+//! Atomic, lockstep projection of eight committed action-boundary journals.
 //!
 //! This joins *every revision*, not merely the final snapshots: individually
 //! legal journals with contradictory intermediate combat coordinates fail.
@@ -79,7 +79,7 @@ impl AuthorityView {
     }
 }
 
-/// One complete committed action boundary from six independent event streams.
+/// One complete committed action boundary from eight independent event streams.
 pub struct AuthorityStep<'a> {
     pub resources: &'a resource_events::ResourceEvent,
     pub rng: &'a rng_events::RngEvent,
@@ -91,8 +91,8 @@ pub struct AuthorityStep<'a> {
     pub telemetry: &'a telemetry_authority::TelemetryEvent,
 }
 
-/// Incremental six-stream reducer. Failed steps cannot partially advance any
-/// domain, even if five of the six individual events were otherwise valid.
+/// Incremental eight-stream reducer. Failed steps cannot partially advance any
+/// domain, even if seven of the eight individual events were otherwise valid.
 #[derive(Clone, Debug, Default)]
 pub struct CompositeAuthorityProjector {
     resources: resource_events::ResourceProjector,
@@ -143,7 +143,7 @@ impl CompositeAuthorityProjector {
     }
 }
 
-/// Reduce the seven complete journals in lockstep at *every* revision. Missing
+/// Reduce the eight complete journals in lockstep at *every* revision. Missing
 /// legacy journals or mismatched journal lengths are not repaired or inferred.
 /// This function reads only persisted event journals, never the Game snapshot.
 pub fn project(game: &Game) -> Result<AuthorityView, String> {
@@ -183,11 +183,39 @@ pub fn project(game: &Game) -> Result<AuthorityView, String> {
 }
 
 impl Game {
-    /// Seven journal reductions, each revision's cross-stream consistency and
+    /// Eight journal reductions, each revision's cross-stream consistency and
     /// final snapshot agreement. Never writes or mutates the saved Game.
     pub fn audit_composite_authority(&self) -> Result<AuthorityView, String> {
         let view = project(self)?;
         view.verify_snapshot(self)?;
         Ok(view)
+    }
+
+    /// Reconcile the complete combat-event archive with all eight independently
+    /// reduced action-boundary journals. This is a read-only cross-source audit,
+    /// not action replay, full-Game reconstruction, or cryptographic attestation.
+    /// Missing legacy archives cannot be silently promoted to certified status.
+    pub fn audit_event_archive_authority(&self) -> Result<
+        (AuthorityView, crate::event_stack::projection::CampaignProjection), String
+    > {
+        let view = self.audit_composite_authority()?;
+        let archive = self.event_history.as_deref()
+            .ok_or("legacy save has no complete combat event archive")?;
+        let projection = crate::event_stack::projection::project(archive)?;
+        projection.reconcile_telemetry(&view.telemetry.totals, view.combat.is_some())?;
+
+        // Event-only outcome reconciliation proves counts, but an attacker
+        // could also move an otherwise well-formed active encounter to a
+        // different floor. Bind its coordinate to the campaign journal.
+        if let Some(combat) = view.combat {
+            let current = projection.encounters.last()
+                .ok_or("active combat missing from event archive")?;
+            if current.closed || current.floor != combat.floor {
+                return Err("event archive active encounter differs from campaign".into());
+            }
+        } else if projection.encounters.last().is_some_and(|last| !last.closed) {
+            return Err("event archive has an unsealed inactive encounter".into());
+        }
+        Ok((view, projection))
     }
 }

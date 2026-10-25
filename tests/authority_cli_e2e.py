@@ -44,6 +44,8 @@ def main() -> None:
                 assert report["stage"] == "combat"
                 assert report["turn"] == 1 and report["foe_count"] >= 1
                 assert len(report["journal_domains"]) == 8
+                assert report["event_archive_reconciled"] is True
+                assert report["archived_encounters"] == 1
                 assert not report["whole_game_reconstructed"]
                 assert not report["cryptographically_authenticated"]
 
@@ -97,8 +99,39 @@ def main() -> None:
                 forged.write_text(json.dumps(tampered), encoding="utf-8")
                 assert invoke([authority, str(forged)]).returncode != 0
 
+                # Forge the archived combat events and matching live window,
+                # leaving all eight action-boundary journals untouched.
+                tampered = json.loads(json.dumps(payload))
+                archive = tampered["event_history"]
+                assert archive, "new campaigns must archive actual combat events"
+                first = next(
+                    record for record in archive if record["event"]["kind"] != "card_played"
+                )
+                seq = first["event"]["seq"]
+                first["event"]["kind"] = "card_played"
+                for event in tampered["battle"]["events"]:
+                    if event["seq"] == seq:
+                        event["kind"] = "card_played"
+                forged = directory / "forged-event-archive.json"
+                forged.write_text(json.dumps(tampered), encoding="utf-8")
+                rejected = invoke([authority, str(forged)])
+                assert rejected.returncode != 0, (
+                    "forged combat archive passed eight-domain reconciliation",
+                    rejected.stderr,
+                )
+                assert "event outcomes disagree" in rejected.stderr, rejected.stderr
+
+                # Missing old V2 event archives are readable but not certified.
+                tampered = json.loads(json.dumps(payload))
+                tampered.pop("event_history")
+                forged = directory / "missing-event-archive.json"
+                forged.write_text(json.dumps(tampered), encoding="utf-8")
+                rejected = invoke([authority, str(forged)])
+                assert rejected.returncode != 0
+                assert "complete combat event archive" in rejected.stderr
+
                 assert json.loads(save.read_text(encoding="utf-8")) == payload
-                print(f"PASS {hero} ascension={ascension}: eight streams/restart/identity and telemetry tamper")
+                print(f"PASS {hero} ascension={ascension}: eight streams/archive/restart/identity and telemetry tamper")
     print("PASS 10 cross-platform real-process composite authority scenarios")
 
 
