@@ -1,17 +1,17 @@
-//! Unified read-only projection of six *committed action-boundary* journals.
+//! Atomic, lockstep projection of six committed action-boundary journals.
 //!
-//! Unlike Game action replay, each component reduces only its own persisted
-//! authority events. This joins their revisions and combat coordinates, so
-//! independently well-formed but mutually inconsistent journals are rejected.
-//! It does NOT restore the whole Game (map, lore, relics, boons, telemetry,
-//! stage, enemy-event trigger internals are still missing), authenticate a
-//! forged set of journals, or provide a transactional multi-file store.
+//! This joins *every revision*, not merely the final snapshots: individually
+//! legal journals with contradictory intermediate combat coordinates fail.
+//! No action replay or Game snapshot is consulted by project(). This remains
+//! partial authority, not whole-Game event sourcing or authentication.
 use crate::{
-    Game, card_zone_events::{self, CardZones},
+    Game,
+    card_zone_events::{self, CardZones},
     combat_effect_events::{self, BattleEffects},
     combat_resource_events::{self, BattleResources},
     foe_board_events::{self, FoeBoard},
-    resource_events::{self, Resources}, rng_events,
+    resource_events::{self, Resources},
+    rng_events::{self},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -26,8 +26,6 @@ pub struct AuthorityView {
 }
 
 impl AuthorityView {
-    /// The four independently reduced battle views must describe the same
-    /// active encounter floor/turn, or all four must be absent.
     fn check_combat_coordinates(&self) -> Result<(), String> {
         let combat = self.combat.map(|s| (s.floor, s.turn));
         let foes = self.foes.as_ref().map(|s| (s.floor, s.turn));
@@ -39,8 +37,7 @@ impl AuthorityView {
         Ok(())
     }
 
-    /// Separately compare the independently reduced view with the current
-    /// snapshot. This is consistency checking, NOT a cryptographic signature.
+    /// Separate final snapshot comparison; does not authenticate either side.
     pub fn verify_snapshot(&self, game: &Game) -> Result<(), String> {
         if self.revision != game.revision
             || self.resources != (Resources {
@@ -58,9 +55,65 @@ impl AuthorityView {
     }
 }
 
-/// Reduce six complete journals, without consulting action history, RNG
-/// algorithm, current Game state or event archive. Reject missing legacy
-/// journals rather than inventing an authoritative history.
+/// One complete committed action boundary from six independent event streams.
+pub struct AuthorityStep<'a> {
+    pub resources: &'a resource_events::ResourceEvent,
+    pub rng: &'a rng_events::RngEvent,
+    pub combat: &'a combat_resource_events::BattleResourceEvent,
+    pub foes: &'a foe_board_events::FoeBoardEvent,
+    pub cards: &'a card_zone_events::CardZoneEvent,
+    pub effects: &'a combat_effect_events::CombatEffectEvent,
+}
+
+/// Incremental six-stream reducer. Failed steps cannot partially advance any
+/// domain, even if five of the six individual events were otherwise valid.
+#[derive(Clone, Debug, Default)]
+pub struct CompositeAuthorityProjector {
+    resources: resource_events::ResourceProjector,
+    rng: rng_events::RngProjector,
+    combat: combat_resource_events::BattleResourceProjector,
+    foes: foe_board_events::FoeBoardProjector,
+    cards: card_zone_events::CardZoneProjector,
+    effects: combat_effect_events::CombatEffectProjector,
+}
+
+impl CompositeAuthorityProjector {
+    pub fn new() -> Self { Self::default() }
+
+    pub fn view(&self) -> Result<AuthorityView, String> {
+        let (resources, r0) = self.resources.state()?;
+        let (rng_state, r1) = self.rng.state()?;
+        let (combat, r2) = self.combat.state()?;
+        let (foes, r3) = self.foes.state()?;
+        let (cards, r4) = self.cards.state()?;
+        let (effects, r5) = self.effects.state()?;
+        if [r1, r2, r3, r4, r5].iter().any(|r| *r != r0) {
+            return Err("cross-journal committed revision mismatch".into());
+        }
+        let view = AuthorityView {
+            revision: r0, resources, rng_state, combat, foes, cards, effects,
+        };
+        view.check_combat_coordinates()?;
+        Ok(view)
+    }
+
+    pub fn push(&mut self, step: AuthorityStep<'_>) -> Result<(), String> {
+        let mut next = self.clone();
+        next.resources.push(step.resources)?;
+        next.rng.push(step.rng)?;
+        next.combat.push(step.combat)?;
+        next.foes.push(step.foes)?;
+        next.cards.push(step.cards)?;
+        next.effects.push(step.effects)?;
+        next.view()?; // Includes cross-stream revision and floor/turn agreement.
+        *self = next;
+        Ok(())
+    }
+}
+
+/// Reduce the six complete journals in lockstep at *every* revision. Missing
+/// legacy journals or mismatched journal lengths are not repaired or inferred.
+/// This function reads only persisted event journals, never the Game snapshot.
 pub fn project(game: &Game) -> Result<AuthorityView, String> {
     let resources = game.resource_history.as_ref()
         .ok_or("missing resource authority journal")?;
@@ -75,25 +128,26 @@ pub fn project(game: &Game) -> Result<AuthorityView, String> {
     let effects = game.combat_effect_history.as_ref()
         .ok_or("missing combat effect authority journal")?;
 
-    let (resources, r0) = resource_events::project(resources)?;
-    let (rng_state, r1) = rng_events::project(rng)?;
-    let (combat, r2) = combat_resource_events::project(combat)?;
-    let (foes, r3) = foe_board_events::project(foes)?;
-    let (cards, r4) = card_zone_events::project(cards)?;
-    let (effects, r5) = combat_effect_events::project(effects)?;
-    if [r1, r2, r3, r4, r5].iter().any(|r| *r != r0) {
-        return Err("cross-journal committed revision mismatch".into());
+    let length = resources.len();
+    if [rng.len(), combat.len(), foes.len(), cards.len(), effects.len()]
+        .iter().any(|n| *n != length)
+    {
+        return Err("cross-journal record count mismatch".into());
     }
-    let view = AuthorityView {
-        revision: r0, resources, rng_state, combat, foes, cards, effects,
-    };
-    view.check_combat_coordinates()?;
-    Ok(view)
+    let mut projector = CompositeAuthorityProjector::new();
+    for index in 0..length {
+        projector.push(AuthorityStep {
+            resources: &resources[index], rng: &rng[index],
+            combat: &combat[index], foes: &foes[index],
+            cards: &cards[index], effects: &effects[index],
+        })?;
+    }
+    projector.view()
 }
 
 impl Game {
-    /// Verify six independent committed journal projections together, including
-    /// revision, floor/turn and snapshot agreement. Never mutate the save.
+    /// Six journal reductions, each revision's cross-stream consistency and
+    /// final snapshot agreement. Never writes or mutates the saved Game.
     pub fn audit_composite_authority(&self) -> Result<AuthorityView, String> {
         let view = project(self)?;
         view.verify_snapshot(self)?;
