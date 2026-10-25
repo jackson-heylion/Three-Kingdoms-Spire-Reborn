@@ -58,6 +58,7 @@ mod tests {
         assert_eq!(game.random(0), 0);
         assert_eq!(game.random(1), 0);
         assert_eq!(game.rng_state, state);
+        assert_eq!(game.to_json().unwrap(), original, "zero-bound calls never change save");
         let sampled = game.random(7);
         assert!(sampled < 7);
         let calls = game.rng_trace.take().unwrap();
@@ -67,6 +68,8 @@ mod tests {
             && call.state_after == state && call.value == 0));
         assert!(calls.iter().all(|call| call.call_site.contains(".rs:")));
         assert_ne!(calls[2].state_after, state);
-        assert_eq!(game.to_json().unwrap(), original, "diagnostics never persist");
+        let after_draw = game.to_json().unwrap();
+        assert_ne!(after_draw, original, "real draws must still advance the saved RNG");
+        assert!(!after_draw.contains("rng_trace"), "diagnostic calls must not persist");
     }
 }
