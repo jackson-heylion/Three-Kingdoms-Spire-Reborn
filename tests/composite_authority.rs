@@ -185,3 +185,42 @@ fn transient_cross_stream_conflict_cannot_hide_behind_consistent_final_state() {
     projector.push(step(&game, 1)).unwrap();
     assert_eq!(projector.view().unwrap().revision, 1);
 }
+
+#[test]
+fn combat_archive_cannot_forge_card_events_while_eight_journals_remain_valid() {
+    use three_kingdoms_spire_reborn::combat::EventKind;
+
+    for hero in HEROES {
+        for ascension in [0, 10] {
+            let game = campaign(hero, ascension);
+            let (view, archive) = game.audit_event_archive_authority().unwrap();
+            assert_eq!(view.revision, game.revision);
+            assert_eq!(archive.encounters.len(), 1);
+            assert_eq!(archive.encounters[0].floor, game.floor);
+
+            let mut forged = game.clone();
+            let record = forged.event_history.as_mut().unwrap()
+                .iter_mut().find(|record| record.event.kind != EventKind::CardPlayed)
+                .unwrap();
+            let seq = record.event.seq;
+            record.event.kind = EventKind::CardPlayed;
+            // Keep the current-battle 80-event window consistent, so the
+            // ordinary save validator still accepts this forged archive.
+            let window = forged.battle.as_mut().unwrap().events.iter_mut()
+                .find(|event| event.seq == seq).unwrap();
+            window.kind = EventKind::CardPlayed;
+            forged.validate().unwrap();
+            assert!(forged.audit_composite_authority().is_ok(),
+                "all eight action-boundary journals remain independently valid");
+            assert!(forged.audit_event_archive_authority().unwrap_err()
+                .contains("event outcomes disagree"),
+                "cross-source audit must reject an invented CardPlayed event");
+
+            let mut missing = game.clone();
+            missing.event_history = None;
+            assert!(missing.audit_composite_authority().is_ok());
+            assert!(missing.audit_event_archive_authority().unwrap_err()
+                .contains("complete combat event archive"));
+        }
+    }
+}
