@@ -114,9 +114,8 @@ mod tests {
         assert_eq!(trace[3].parent, Some(EventCoordinate {
             encounter: trace[2].event.encounter, seq: trace[2].event.event.seq,
         }));
-        validate_edges(&trace).unwrap_err(); // The trace omits earlier campaign events.
-        // The full replay method, unlike this direct observer test, checks all
-        // archived events and their exact original sequence.
+        validate_edges(&trace).unwrap();
+        // The full replay method also checks the entire original event archive.
     }
 
     #[test]
