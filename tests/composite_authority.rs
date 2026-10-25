@@ -5,6 +5,7 @@ use three_kingdoms_spire_reborn::{
     content::Hero,
     event_stack::authority,
     combat_resource_events::{self, BattleResourceChange, BattleResourceEvent},
+    card_zone_events::{self, BattleCardsChange, CardZoneEvent},
 };
 
 const HEROES: [Hero; 5] = [
@@ -70,7 +71,7 @@ fn revision_gaps_and_missing_legacy_journals_never_pass_as_complete() {
 
     let mut shortened = game.clone();
     shortened.rng_history.as_mut().unwrap().pop();
-    assert!(authority::project(&shortened).unwrap_err().contains("revision mismatch"));
+    assert!(authority::project(&shortened).unwrap_err().contains("record count mismatch"));
 
     let mut corrupt = game.clone();
     corrupt.foe_board_history.as_mut().unwrap().remove(1);
@@ -96,4 +97,47 @@ fn revision_zero_has_six_valid_idle_projections() {
     assert_eq!(view.revision, 0);
     assert!(view.combat.is_none() && view.foes.is_none()
         && view.cards.battle.is_none() && view.effects.is_none());
+}
+
+fn step(game: &Game, index: usize) -> authority::AuthorityStep<'_> {
+    authority::AuthorityStep {
+        resources: &game.resource_history.as_ref().unwrap()[index],
+        rng: &game.rng_history.as_ref().unwrap()[index],
+        combat: &game.battle_resource_history.as_ref().unwrap()[index],
+        foes: &game.foe_board_history.as_ref().unwrap()[index],
+        cards: &game.card_zone_history.as_ref().unwrap()[index],
+        effects: &game.combat_effect_history.as_ref().unwrap()[index],
+    }
+}
+
+#[test]
+fn transient_cross_stream_conflict_cannot_hide_behind_consistent_final_state() {
+    let mut game = Game::new(Hero::GuanYu, 20261025);
+    game.apply(Action::Choose { index: 1 }).unwrap();
+    game.apply(Action::EndTurn).unwrap();
+    let expected = authority::project(&game).unwrap();
+
+    let mut tampered = game.clone();
+    // The first battle journal says turn 2 too early, but the second update
+    // catches up: final snapshot and individual card-zone projection agree.
+    if let CardZoneEvent::Changed {
+        battle: BattleCardsChange::Enter { zones }, ..
+    } = &mut tampered.card_zone_history.as_mut().unwrap()[1] {
+        zones.turn += 1;
+    } else {
+        panic!("expected card-zone Enter after map choice");
+    }
+    assert_eq!(card_zone_events::project(
+        tampered.card_zone_history.as_ref().unwrap()).unwrap().0,
+        expected.cards, "independent final card-zone state must remain valid");
+    assert!(authority::project(&tampered).unwrap_err().contains("cross-journal"));
+
+    // Atomicity: the failed revision leaves all six streams at revision zero.
+    let mut projector = authority::CompositeAuthorityProjector::new();
+    projector.push(step(&game, 0)).unwrap();
+    let before = projector.view().unwrap();
+    assert!(projector.push(step(&tampered, 1)).is_err());
+    assert_eq!(projector.view().unwrap(), before);
+    projector.push(step(&game, 1)).unwrap();
+    assert_eq!(projector.view().unwrap().revision, 1);
 }
