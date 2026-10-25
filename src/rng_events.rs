@@ -1,5 +1,9 @@
 //! RNG-state snapshots at committed action boundaries.
 //! This projects state, not draw counts, causal validity, or tamper authenticity.
+#[path = "rng_draw_attribution.rs"]
+mod draw_attribution;
+pub use draw_attribution::{MAX_ATTRIBUTED_DRAWS_PER_ACTION, RngDrawAttribution};
+
 use crate::Game;
 use serde::{Deserialize, Serialize};
 
