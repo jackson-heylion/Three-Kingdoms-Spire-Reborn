@@ -6,6 +6,7 @@ pub mod combat;
 pub mod event_stack;
 pub mod resource_events;
 pub mod rng_events;
+mod rng_runtime;
 pub mod combat_resource_events;
 pub mod foe_board_events;
 pub mod card_zone_events;
@@ -269,6 +270,9 @@ pub struct Game {
     pub revision: u64,
     pub seed: u64,
     pub rng_state: u64,
+    /// Opt-in offline RNG call trace; never saved, never enabled during play.
+    #[serde(skip)]
+    pub(crate) rng_trace: Option<Vec<rng_events::RngCall>>,
     /// Action-boundary RNG snapshots; absent in old V2 saves.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rng_history: Option<Vec<rng_events::RngEvent>>,
@@ -381,6 +385,7 @@ impl Game {
         let max_hp = hero.max_hp();
         let mut game = Self {
             version: SAVE_VERSION, revision: 0, seed, rng_state: seed.max(1),
+            rng_trace: None,
             rng_history: Some(vec![]),
             hero, hp: max_hp, max_hp, gold: 90, floor: 0, stage: Stage::Map,
             last_node: None, route: vec![], deck: deck.clone(), relics: vec!["军旗".into()],
@@ -544,21 +549,6 @@ impl Game {
             { return Err("无效战斗数据".into()); }
         }
         Ok(())
-    }
-    fn random(&mut self, upper: usize) -> usize {
-        if upper <= 1 { return 0; }
-        let mut x = self.rng_state;
-        x ^= x >> 12;
-        x ^= x << 25;
-        x ^= x >> 27;
-        self.rng_state = x;
-        (x.wrapping_mul(0x2545F4914F6CDD1D) % upper as u64) as usize
-    }
-    fn shuffle(&mut self, cards: &mut [Card]) {
-        for i in (1..cards.len()).rev() {
-            let j = self.random(i + 1);
-            cards.swap(i, j);
-        }
     }
     fn refresh_route(&mut self) {
         let next = self.floor + 1;
