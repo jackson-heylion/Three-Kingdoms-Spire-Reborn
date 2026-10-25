@@ -21,6 +21,9 @@ pub struct RngCall {
     /// Number of archived combat events already emitted when random() ran.
     /// None for old saves without an event archive; NOT a parent-event ID.
     pub event_cursor_before: Option<usize>,
+    /// Exact synchronous observer currently dispatching when this draw ran.
+    /// None for ordinary action effects; never inferred from event adjacency.
+    pub dispatch_parent: Option<crate::event_parent::EventCoordinate>,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -140,6 +143,23 @@ impl Game {
                     }
                 } else if call.event_cursor_before != event_start {
                     return Err(format!("RNG/event archive availability diverged at revision {}", index + 1));
+                }
+                // A parent is only valid when the RNG call happened inside
+                // an observer dispatch whose event was emitted in this action.
+                // In particular, a prior action's event or merely the latest
+                // event in the archive cannot be claimed as a parent.
+                if let Some(parent) = call.dispatch_parent {
+                    let (Some(start), Some(position), Some(archive)) =
+                        (event_start, call.event_cursor_before, replay.event_history.as_ref())
+                    else {
+                        return Err(format!("RNG dispatch parent has no event archive at revision {}", index + 1));
+                    };
+                    if !archive.get(start..position).is_some_and(|events|
+                        events.iter().any(|event| event.encounter == parent.encounter
+                            && event.event.seq == parent.seq))
+                    {
+                        return Err(format!("RNG dispatch parent is not a prior same-action event at revision {}", index + 1));
+                    }
                 }
                 previous_event_cursor = call.event_cursor_before;
                 if call.state_before != cursor || call.call_site.is_empty() {
