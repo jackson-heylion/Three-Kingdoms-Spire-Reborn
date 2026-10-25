@@ -5,7 +5,7 @@
 mod authority_bundle;
 
 use crate::{
-    Action, Game, campaign_authority, card_zone_events, combat_effect_events, combat_resource_events, foe_board_events, resource_events, rng_events, telemetry_authority,
+    Action, Game, campaign_authority, card_zone_events, combat_effect_events, battle_runtime_events, combat_resource_events, foe_board_events, resource_events, rng_events, telemetry_authority,
 };
 
 impl Game {
@@ -21,11 +21,13 @@ impl Game {
         // Restore the live journal before any fallible game operation.
         let card_history = self.card_zone_history.take();
         let effect_history = self.combat_effect_history.take();
+        let runtime_history = self.battle_runtime_history.take();
         let campaign_history = self.campaign_history.take();
         let telemetry_history = self.telemetry_history.take();
         let mut draft = self.clone();
         self.card_zone_history = card_history;
         self.combat_effect_history = effect_history;
+        self.battle_runtime_history = runtime_history;
         self.campaign_history = campaign_history;
         self.telemetry_history = telemetry_history;
         let messages = draft.apply_unchecked(action.clone())?;
@@ -76,6 +78,13 @@ impl Game {
         } else {
             None
         };
+        let runtime_event = if self.battle_runtime_history.is_some() {
+            Some(battle_runtime_events::transition(
+                battle_runtime_events::BattleRuntime::current(self),
+                battle_runtime_events::BattleRuntime::current(&draft),
+                draft.revision,
+            )?)
+        } else { None };
         let card_event = if self.card_zone_history.is_some() {
             Some(card_zone_events::transition(
                 &card_zone_events::CardZones::current(self),
@@ -117,6 +126,11 @@ impl Game {
         {
             return Err("combat effect journal exceeds action limit".into());
         }
+        if runtime_event.is_some()
+            && self.battle_runtime_history.as_ref().is_some_and(|history| history.len() >= 50_001)
+        {
+            return Err("battle runtime journal exceeds action limit".into());
+        }
         if campaign_event.is_some()
             && self.campaign_history.as_ref().is_some_and(|history| history.len() >= 50_001)
         {
@@ -137,6 +151,11 @@ impl Game {
             let mut history = self.combat_effect_history.take().expect("checked effect journal");
             history.push(event);
             draft.combat_effect_history = Some(history);
+        }
+        if let Some(event) = runtime_event {
+            let mut history = self.battle_runtime_history.take().expect("checked runtime journal");
+            history.push(event);
+            draft.battle_runtime_history = Some(history);
         }
         if let Some(event) = campaign_event {
             let mut history = self.campaign_history.take().expect("checked campaign journal");

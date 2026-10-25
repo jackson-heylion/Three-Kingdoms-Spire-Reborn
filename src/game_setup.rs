@@ -1,7 +1,7 @@
 //! Campaign creation and map regeneration, extracted from the large engine.
 use crate::{Game, Card, Stage, RunMode, SAVE_VERSION, MAX_FLOOR, map,
     resource_events, rng_events, combat_resource_events, foe_board_events,
-    card_zone_events, combat_effect_events, campaign_authority, telemetry_authority, CombatTelemetry};
+    card_zone_events, combat_effect_events, battle_runtime_events, campaign_authority, telemetry_authority, CombatTelemetry};
 use crate::content::Hero;
 
 impl Game {
@@ -40,6 +40,7 @@ impl Game {
             foe_board_history: Some(vec![foe_board_events::FoeBoardEvent::Started]),
             card_zone_history: Some(vec![card_zone_events::CardZoneEvent::Started { deck }]),
             combat_effect_history: Some(vec![combat_effect_events::CombatEffectEvent::Started]),
+            battle_runtime_history: Some(vec![battle_runtime_events::BattleRuntimeEvent::Started]),
             campaign_history: None,
             telemetry_history: Some(vec![telemetry_authority::TelemetryEvent::Started {
                 state: CombatTelemetry::default(), archive_len: Some(0),

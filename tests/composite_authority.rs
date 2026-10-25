@@ -1,4 +1,4 @@
-//! Eight committed event journals form a coherent partial authority view.
+//! Nine committed event journals form a coherent partial authority view.
 //! No action replay, RNG stepping or snapshot is needed for the projection.
 use three_kingdoms_spire_reborn::{
     Action, Game, RunMode,
@@ -6,6 +6,7 @@ use three_kingdoms_spire_reborn::{
     event_stack::authority,
     combat_resource_events::{self, BattleResourceChange, BattleResourceEvent},
     card_zone_events::{self, BattleCardsChange, CardZoneEvent},
+    battle_runtime_events::{BattleRuntimeEvent, BattleRuntimeChange},
 };
 
 const HEROES: [Hero; 5] = [
@@ -132,7 +133,7 @@ fn independently_valid_telemetry_cannot_invent_battles_or_outcomes() {
 }
 
 #[test]
-fn revision_zero_has_eight_valid_idle_projections() {
+fn revision_zero_has_nine_valid_idle_projections() {
     let game = Game::new(Hero::LuBu, 99);
     let view = game.audit_composite_authority().unwrap();
     assert_eq!(view.revision, 0);
@@ -149,6 +150,7 @@ fn step(game: &Game, index: usize) -> authority::AuthorityStep<'_> {
         foes: &game.foe_board_history.as_ref().unwrap()[index],
         cards: &game.card_zone_history.as_ref().unwrap()[index],
         effects: &game.combat_effect_history.as_ref().unwrap()[index],
+        runtime: &game.battle_runtime_history.as_ref().unwrap()[index],
         campaign: &game.campaign_history.as_ref().unwrap()[index],
         telemetry: &game.telemetry_history.as_ref().unwrap()[index],
     }
@@ -209,6 +211,17 @@ fn combat_archive_cannot_forge_card_events_while_eight_journals_remain_valid() {
             let window = forged.battle.as_mut().unwrap().events.iter_mut()
                 .find(|event| event.seq == seq).unwrap();
             window.kind = EventKind::CardPlayed;
+            // The ninth domain independently records the current event window.
+            // Keep that journal consistent with the forged snapshot, so only
+            // event-to-telemetry causality can reject the invented play.
+            let last = forged.battle_runtime_history.as_mut().unwrap().last_mut().unwrap();
+            match last {
+                BattleRuntimeEvent::Changed { change: BattleRuntimeChange::Enter { state }
+                    | BattleRuntimeChange::Update { state }, .. } => {
+                    state.events.iter_mut().find(|event| event.seq == seq).unwrap().kind = EventKind::CardPlayed;
+                }
+                _ => panic!("expected recorded active battle window"),
+            }
             forged.validate().unwrap();
             assert!(forged.audit_composite_authority().is_ok(),
                 "all eight action-boundary journals remain independently valid");
