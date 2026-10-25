@@ -61,6 +61,24 @@ def main() -> None:
         assert trace[0]["state_after"] == json.loads(initial)["rng_state"]
         assert save.read_bytes() == initial, "RNG trace must be read-only"
 
+        timeline = json.loads(execute(attest, str(save), "--timeline"))
+        assert len(timeline) == 1 and timeline[0]["revision"] == 1
+        steps = timeline[0]["steps"]
+        events = json.loads(initial)["event_history"]
+        event_cursor = 0
+        rng_calls = 0
+        for step in steps:
+            if step["kind"] == "rng_call":
+                assert step["record"]["event_cursor_before"] == event_cursor
+                rng_calls += 1
+            elif step["kind"] == "combat_event":
+                assert step["record"] == events[event_cursor]
+                event_cursor += 1
+            else:
+                raise AssertionError(f"unknown timeline step: {step['kind']}")
+        assert event_cursor == len(events) and rng_calls == len(calls)
+        assert save.read_bytes() == initial, "timeline export must be read-only"
+
         edited = json.loads(initial)
         edited["gold"] += 1
         save.write_text(json.dumps(edited), encoding="utf-8")
