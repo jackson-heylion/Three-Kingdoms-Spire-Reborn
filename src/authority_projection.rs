@@ -278,9 +278,7 @@ impl Game {
             .ok_or("legacy save has no telemetry authority journal")?;
         let campaign = self.campaign_history.as_deref()
             .ok_or("legacy save has no campaign authority journal")?;
-        let runtime = self.battle_runtime_history.as_deref()
-            .ok_or("legacy save has no battle runtime authority journal")?;
-        if telemetry.len() != campaign.len() || telemetry.len() != runtime.len()
+        if telemetry.len() != campaign.len()
             || usize::try_from(self.revision).ok()
                 .and_then(|revision| revision.checked_add(1)) != Some(telemetry.len())
         {
@@ -291,6 +289,13 @@ impl Game {
                 return Err("legacy event boundary cursors unexpectedly appear mid-run".into());
             }
             return Ok(None);
+        }
+        // Legacy saves without revision cursors keep their explicit
+        // uncertified result, even if the ninth runtime journal is absent.
+        let runtime = self.battle_runtime_history.as_deref()
+            .ok_or("legacy save has no battle runtime authority journal")?;
+        if runtime.len() != telemetry.len() {
+            return Err("event boundary runtime journal revision count mismatch".into());
         }
 
         let mut stats = telemetry_authority::TelemetryProjector::default();
