@@ -64,10 +64,10 @@ pub fn validate(archive: &[RunEvent]) -> Result<(), String> {
                     return Err(format!("encounter {encounter}: duplicate or revived summon"));
                 }
             }
-            EventKind::DamageReceived => {
-                if event.amount < 0 || event.target.as_deref() != Some("hero") {
-                    return Err(format!("encounter {encounter}: invalid hero damage"));
-                }
+            EventKind::DamageReceived
+                if event.amount < 0 || event.target.as_deref() != Some("hero") =>
+            {
+                return Err(format!("encounter {encounter}: invalid hero damage"));
             }
             _ => {}
         }
