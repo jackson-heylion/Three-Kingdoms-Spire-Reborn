@@ -2,6 +2,10 @@
 //! No seed, action log, RNG or Game snapshot is consulted. These counters do
 //! not reconstruct decks, HP, intent, listeners or any other authoritative state.
 use super::{verify_record_coordinate, RunEvent};
+
+/// Semantic validation of the complete, settled combat archive.
+#[path = "event_projection/causality.rs"]
+pub mod causality;
 use crate::combat::EventKind;
 use serde::{Deserialize, Serialize};
 
