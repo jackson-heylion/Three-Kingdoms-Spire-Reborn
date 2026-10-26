@@ -92,6 +92,8 @@ pub const BONDS: &[Bond] = &[
     Bond { protagonist: Hero::GuanYu, companion: "刘备", relation: Relation::Sworn, chapter: 22, flag: "wangzhong_release_record", note: "刘备放归王忠刘岱，关羽在张飞再拦时遵守放俘军令；玩家选择保留这份军簿" },
     Bond { protagonist: Hero::CaoCao, companion: "程昱", relation: Relation::Mentor, chapter: 24, flag: "palace_purge_record", note: "程昱劝止废帝，曹操仍诛董承并害董妃；记录谏言不等于小说中撤回宫门杀戮" },
     Bond { protagonist: Hero::LuBu, companion: "陈宫", relation: Relation::Mentor, chapter: 18, flag: "xiaopei_courier_guard", note: "截获密书不等于可以杀使；玩家可架空选择保全来使并预警百姓" },
+    Bond { protagonist: Hero::LuBu, companion: "侯成", relation: Relation::Betrayal, chapter: 19, flag: "xiapi_orders_account", note: "追回失马献酒请示而遭重罚；献门叛变并非无前因，玩家可架空保留完整军令账" },
+    Bond { protagonist: Hero::CaoCao, companion: "荀攸", relation: Relation::Mentor, chapter: 19, flag: "xiapi_flood_ledger", note: "荀攸止退、郭嘉荀彧议决水、侯成宋宪魏续献门须分清因果；玩家可架空记录水攻风险" },
 ];
 
 include!("lore_beats.rs");
@@ -112,12 +114,9 @@ pub struct EasterEgg {
 /// Alternate monetary choices never plant a prerequisite, so they cannot
 /// claim the same narrative ending accidentally.
 pub const EASTER_EGGS: &[EasterEgg] = &[
-    EasterEgg {id:"xiapi_household_debt",name:"放俘守眷旧约",hero:Some(Hero::GuanYu),chapters:&[22,24,75],
-        flags:&["wangzhong_release_record","xiapi_household_ledger","jingzhou_warning"],reward_gold:22,reward_heal:7,
-        hint:"雪阵放俘、下邳守眷与荆州防务相隔数十回；先护人命的军令，终于在后方危局得到回响。"},
-    EasterEgg {id:"jiping_palace_debt",name:"衣带诏与宫门旧账",hero:Some(Hero::CaoCao),chapters:&[14,23,24,30],
-        flags:&["xuhuang_honor","jiping_case_record","palace_purge_record","guandu_grain"],reward_gold:19,reward_heal:7,
-        hint:"迎帝许都、吉平案证、宫门诛杀与官渡用兵并存；胜败不能替代对诏令和人命的追问。"},
+    EasterEgg {id:"xutian_xuzhou_debt",name:"许田收刀·徐州军簿",hero:Some(Hero::GuanYu),chapters:&[20,21,75],
+        flags:&["xutian_guarded_emperor","xuzhou_gate_account","jingzhou_warning"],reward_gold:21,reward_heal:6,
+        hint:"许田收刀护天子、徐州记下车胄伏杀与家属死难、荆州审势防变，三份军簿都拒绝只记一时刀功。"},
     EasterEgg {id:"sword_debt",name:"青龙旧债",hero:Some(Hero::GuanYu),chapters:&[25,50],
         flags:&["baima_debt","huarong_mercy"],reward_gold:35,reward_heal:8,
         hint:"青龙刀刃上的旧日刀痕，终于不再指向那条泥泞的山道。"},
@@ -166,6 +165,18 @@ pub const EASTER_EGGS: &[EasterEgg] = &[
     EasterEgg {id:"xiaopei_courier_reckoning",name:"小沛留使旧账",hero:Some(Hero::LuBu),chapters:&[16,17,18,19],
         flags:&["halberd_shot","seven_armies_account","xiaopei_courier_guard","white_gate"],reward_gold:16,reward_heal:5,
         hint:"辕门止兵、七路反戈与小沛密使三事，终于在白门楼前追问一纸军令如何对人负责。"},
+    EasterEgg {id:"xiapi_household_debt",name:"放俘守眷旧约",hero:Some(Hero::GuanYu),chapters:&[22,24,75],
+        flags:&["wangzhong_release_record","xiapi_household_ledger","jingzhou_warning"],reward_gold:22,reward_heal:7,
+        hint:"雪阵放俘、下邳守眷与荆州防务相隔数十回；先护人命的军令，终于在后方危局得到回响。"},
+    EasterEgg {id:"jiping_palace_debt",name:"衣带诏与宫门旧账",hero:Some(Hero::CaoCao),chapters:&[14,23,24,30],
+        flags:&["xuhuang_honor","jiping_case_record","palace_purge_record","guandu_grain"],reward_gold:19,reward_heal:7,
+        hint:"迎帝许都、吉平案证、宫门诛杀与官渡用兵并存；胜败不能替代对诏令和人命的追问。"},
+    EasterEgg {id:"xiapi_orders_debt",name:"下邳失令军簿",hero:Some(Hero::LuBu),chapters:&[18,19],
+        flags:&["xiaopei_courier_guard","xiapi_orders_account","white_gate"],reward_gold:18,reward_heal:6,
+        hint:"小沛密使的生死、下邳拒谏和侯成受罚，到了白门楼也不能只归咎于降将。"},
+    EasterEgg {id:"xiapi_water_debt",name:"决水安民军报",hero:Some(Hero::CaoCao),chapters:&[17,18,19,30],
+        flags:&["shouchun_grain_account","anzhong_field_report","guandu_grain","xiapi_flood_ledger"],reward_gold:20,reward_heal:6,
+        hint:"寿春粮令、安众虚实、官渡军粮与下邳决水，四份军报终于写上同一条军民责任。"},
     EasterEgg {id:"redhare_returns",name:"赤兔无主",hero:Some(Hero::LuBu),chapters:&[3,8,16,19],
         flags:&["red_hare","phoenix_pavilion","halberd_shot","white_gate"],reward_gold:30,reward_heal:10,
         hint:"赤兔不再认旧旗，马蹄声却仍追问那一次背盟。"},

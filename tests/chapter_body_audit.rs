@@ -34,6 +34,8 @@ fn three_cross_act_debts_require_their_prior_flags() {
         ("shouchun_grain","puyang_supply",1),
         ("anzhong","shouchun_grain_account",1),
         ("xiaopei_courier","seven_armies_account",1),
+        ("xiapi_orders","xiaopei_courier_guard",1),
+        ("xiapi_flood","anzhong_field_report",1),
         ("wangzhong_prisoners","wenjiu_oath",1),
         ("xiapi_household","wangzhong_release_record",1),
         ("jiping_testimony","xuhuang_honor",1),
@@ -53,13 +55,7 @@ fn chapter_reading_statuses_cannot_be_mistaken_for_completed_textual_collation()
         .collect::<Vec<_>>();
     let reviewed=lines.iter().filter(|fields|fields[3]=="正文通读/未完成异本对校")
         .map(|fields|fields[0].as_str()).collect::<Vec<_>>();
-    let mut expected=(1..=18).map(|n|format!("{n:03}")).collect::<Vec<_>>();
-    for n in 19..=21 {
-        if lines[n-1][3]=="正文通读/未完成异本对校" {
-            expected.push(format!("{n:03}"));
-        }
-    }
-    expected.extend((22..=24).map(|n|format!("{n:03}")));
+    let expected=(1..=24).map(|n|format!("{n:03}")).collect::<Vec<_>>();
     assert_eq!(reviewed,expected.iter().map(String::as_str).collect::<Vec<_>>());
     assert!(lines[0][4].contains("oldid=2583915"));
     assert!(lines[1][4].contains("oldid=8185068"));
@@ -89,6 +85,13 @@ fn chapter_reading_statuses_cannot_be_mistaken_for_completed_textual_collation()
     assert!(lines[17][4].contains("oldid=2567980"));
     assert!(lines[17][5].contains("anzhong"));
     assert!(lines[17][5].contains("xiaopei_courier"));
+    assert!(lines[18][4].contains("oldid=2567981"));
+    assert!(lines[18][5].contains("xiapi_orders"));
+    assert!(lines[18][5].contains("xiapi_flood"));
+    assert!(lines[19][4].contains("oldid=8187289"));
+    assert!(lines[19][5].contains("xutian_guard"));
+    assert!(lines[20][4].contains("oldid=2567982"));
+    assert!(lines[20][5].contains("xuzhou_gate"));
     for (n,oldid,beat) in [
         (22,"2567985","wangzhong_prisoners"),
         (23,"2567986","jiping_testimony"),
