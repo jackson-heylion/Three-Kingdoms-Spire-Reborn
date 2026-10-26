@@ -54,6 +54,7 @@ fn three_cross_act_debts_require_their_prior_flags() {
         ("chaisang_envoy","dangyang_refuge_account",2),
         ("jiangdong_council","chaisang_envoy_record",2),
         ("jiangdong_muster","jiangdong_hostage_record",2),
+        ("river_banquet_inquest","chain_ship_risk_record",2),
     ] {
         let beat=BEATS.iter().find(|b|b.id==id).unwrap();
         assert_eq!(beat.prerequisite,Some(needed));
