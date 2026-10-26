@@ -88,6 +88,8 @@ pub const BONDS: &[Bond] = &[
     Bond { protagonist: Hero::LuBu, companion: "刘备", relation: Relation::Rival, chapter: 16, flag: "halberd_shot", note: "辕门射戟的解围不代表恩怨尽解" },
     Bond { protagonist: Hero::CaoCao, companion: "王垕", relation: Relation::Betrayal, chapter: 17, flag: "shouchun_grain_account", note: "小斛是主帅之令，王垕按令发粮却被斩顶罪；玩家可架空选择公开军令担责" },
     Bond { protagonist: Hero::LuBu, companion: "陈登", relation: Relation::Alliance, chapter: 17, flag: "seven_armies_account", note: "陈登联络韩暹杨奉反戈破袁，后来暗通曹操；盟约与军纪应分别记账" },
+    Bond { protagonist: Hero::CaoCao, companion: "贾诩", relation: Relation::Rival, chapter: 18, flag: "anzhong_field_report", note: "贾诩先阻追后劝追，曹军安众初胜不掩二次追击损失；敌军判断也须入军报" },
+    Bond { protagonist: Hero::LuBu, companion: "陈宫", relation: Relation::Mentor, chapter: 18, flag: "xiaopei_courier_guard", note: "截获密书不等于可以杀使；玩家可架空选择保全来使并预警百姓" },
 ];
 
 include!("lore_beats.rs");
@@ -150,6 +152,12 @@ pub const EASTER_EGGS: &[EasterEgg] = &[
     EasterEgg {id:"seven_armies_debt",name:"辕门军书后账",hero:Some(Hero::LuBu),chapters:&[16,17,19],
         flags:&["halberd_shot","seven_armies_account","white_gate"],reward_gold:18,reward_heal:5,
         hint:"辕门止战、七路反戈与白门问责相照，胜仗之外还须清点被军马惊散的百姓。"},
+    EasterEgg {id:"anzhong_reckoning",name:"安众虚实军报",hero:Some(Hero::CaoCao),chapters:&[17,18,30],
+        flags:&["shouchun_grain_account","anzhong_field_report","guandu_grain"],reward_gold:18,reward_heal:5,
+        hint:"寿春小斛、安众两次追击与官渡粮道都入同一份军报；不再只记录对自己有利的胜绩。"},
+    EasterEgg {id:"xiaopei_courier_reckoning",name:"小沛留使旧账",hero:Some(Hero::LuBu),chapters:&[16,17,18,19],
+        flags:&["halberd_shot","seven_armies_account","xiaopei_courier_guard","white_gate"],reward_gold:16,reward_heal:5,
+        hint:"辕门止兵、七路反戈与小沛密使三事，终于在白门楼前追问一纸军令如何对人负责。"},
     EasterEgg {id:"redhare_returns",name:"赤兔无主",hero:Some(Hero::LuBu),chapters:&[3,8,16,19],
         flags:&["red_hare","phoenix_pavilion","halberd_shot","white_gate"],reward_gold:30,reward_heal:10,
         hint:"赤兔不再认旧旗，马蹄声却仍追问那一次背盟。"},

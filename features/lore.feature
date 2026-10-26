@@ -156,7 +156,10 @@ Scenario: Guan Yu's debt and mercy reveal a once-only hidden ending
     Then the flag "shouchun_grain_account" is present
     And my deck contains "granary_support"
     And the bond with "王垕" is active
-    And act 1 offers the lore scene "guandu"
+    And act 1 offers the lore scene "anzhong"
+    And the lore scene "anzhong"
+    When I choose 2
+    Then act 1 offers the lore scene "guandu"
     When I save and restore
     Then the flag "shouchun_grain_account" is present
     And the lore scene "guandu"
@@ -172,3 +175,54 @@ Scenario: Guan Yu's debt and mercy reveal a once-only hidden ending
     Then the flag "shouchun_grain_account" is absent
     And act 1 offers the lore scene "guandu"
     And the bond with "王垕" is absent
+
+  Scenario: Cao Cao keeps both Anzhong reports and learns from the later defeat
+    Given a "cao" campaign with seed 181
+    And the flag "shouchun_grain_account" was earned earlier
+    And the flag "xu_capital" was earned earlier
+    And the lore scene "anzhong"
+    When I choose 1
+    Then the flag "anzhong_field_report" is present
+    And my deck contains "qimou"
+    And the bond with "贾诩" is active
+    And act 1 offers the lore scene "guandu"
+    When I save and restore
+    Then the flag "anzhong_field_report" is present
+    And the lore scene "guandu"
+    When I choose 1
+    Then the hidden conclusion "anzhong_reckoning" is unlocked
+
+  Scenario: Cao Cao's selective Anzhong report cannot block the old Guandu arc
+    Given a "cao" campaign with seed 182
+    And the flag "shouchun_grain_account" was earned earlier
+    And the flag "xu_capital" was earned earlier
+    And the lore scene "anzhong"
+    When I choose 2
+    Then the flag "anzhong_field_report" is absent
+    And act 1 offers the lore scene "guandu"
+    And the bond with "贾诩" is absent
+
+  Scenario: Lu Bu spares the intercepted courier and faces the choice at White Gate
+    Given a "lubu" campaign with seed 183
+    And the flag "halberd_shot" was earned earlier
+    And the flag "seven_armies_account" was earned earlier
+    And the lore scene "xiaopei_courier"
+    When I choose 1
+    Then the flag "xiaopei_courier_guard" is present
+    And my deck contains "hold_line"
+    And the bond with "陈宫" is active
+    And act 2 offers the lore scene "whitegate"
+    When I save and restore
+    Then the flag "xiaopei_courier_guard" is present
+    And the lore scene "whitegate"
+    When I choose 1
+    Then the hidden conclusion "xiaopei_courier_reckoning" is unlocked
+
+  Scenario: Lu Bu's execution of the courier does not lock the old White Gate route
+    Given a "lubu" campaign with seed 184
+    And the flag "halberd_shot" was earned earlier
+    And the flag "seven_armies_account" was earned earlier
+    And the lore scene "xiaopei_courier"
+    When I choose 2
+    Then the flag "xiaopei_courier_guard" is absent
+    And act 2 offers the lore scene "whitegate"
