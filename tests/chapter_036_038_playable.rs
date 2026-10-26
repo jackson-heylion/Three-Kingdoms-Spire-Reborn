@@ -36,7 +36,8 @@ fn fixed_sources_and_literary_order_are_auditable() {
     assert_eq!(beat("jiangdong_hostage").unwrap().chapter, 38);
     assert_eq!(beat("fancheng_counsel").unwrap().prerequisite, Some("xinye_counsel_record"));
     assert_eq!(beat("xushu_departure").unwrap().prerequisite, Some("fancheng_counsel_record"));
-    assert_eq!(beat("longzhong_conditions").unwrap().prerequisite, Some("longzhong_plan"));
+    assert_eq!(beat("longzhong_letter").unwrap().prerequisite, Some("longzhong_plan"));
+    assert_eq!(beat("longzhong_conditions").unwrap().prerequisite, Some("longzhong_visit_record"));
     assert_eq!(beat("jiangdong_hostage").unwrap().prerequisite, Some("sun_succession_account"));
     assert!(beat("xushu_departure").unwrap().premise.contains("两访均未见孔明"));
     assert!(beat("jiangdong_hostage").unwrap().premise.contains("回末黄祖未死"));
@@ -71,6 +72,11 @@ fn longzhong_conditions_are_optional_and_pay_only_after_red_cliffs() {
     let mut g = at(Hero::ZhugeLiang, "longzhong", &[]);
     g.apply(Action::Choose { index: 1 }).unwrap();
     assert!(has(&g, "longzhong_plan"));
+    assert_eq!(next_beat(Hero::ZhugeLiang, 1, &g.lore_flags, &[]).map(|b| b.id), Some("borrow_arrows"), "legacy act-1 remains available before the optional letter");
+    assert_eq!(next_beat(Hero::ZhugeLiang, 0, &g.lore_flags, &[]).map(|b| b.id), Some("longzhong_letter"));
+    enter(&mut g, "longzhong_letter");
+    g.apply(Action::Choose { index: 1 }).unwrap();
+    assert!(has(&g, "longzhong_visit_record"));
     assert_eq!(next_beat(Hero::ZhugeLiang, 1, &g.lore_flags, &[]).map(|b| b.id), Some("longzhong_conditions"));
     enter(&mut g, "longzhong_conditions");
     let before = g.to_json().unwrap();
@@ -127,6 +133,7 @@ fn legacy_saves_without_new_flags_still_reach_original_payoffs() {
     guan.apply(Action::Choose { index: 1 }).unwrap();
     assert!(has(&guan, "jingzhou_warning"));
     assert_eq!(awards(&guan, "fancheng_xushu_jingzhou"), 0);
+    assert_eq!(next_beat(Hero::ZhugeLiang, 1, &["longzhong_plan".into()], &[]).map(|b| b.id), Some("borrow_arrows"));
     let mut zhuge = at(Hero::ZhugeLiang, "redcliff", &["longzhong_plan"]);
     zhuge.apply(Action::Choose { index: 1 }).unwrap();
     assert!(has(&zhuge, "redcliff_wind"));
