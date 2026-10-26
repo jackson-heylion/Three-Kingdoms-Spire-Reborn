@@ -40,6 +40,9 @@ fn three_cross_act_debts_require_their_prior_flags() {
         ("xiapi_household","wangzhong_release_record",1),
         ("jiping_testimony","xuhuang_honor",1),
         ("palace_ledger","jiping_case_record",1),
+        ("five_passes","seal_return_record",1),
+        ("gucheng_witness","five_passes_record",1),
+        ("sun_succession","taishi_trust",1),
     ] {
         let beat=BEATS.iter().find(|b|b.id==id).unwrap();
         assert_eq!(beat.prerequisite,Some(needed));
@@ -55,7 +58,7 @@ fn chapter_reading_statuses_cannot_be_mistaken_for_completed_textual_collation()
         .collect::<Vec<_>>();
     let reviewed=lines.iter().filter(|fields|fields[3]=="正文通读/未完成异本对校")
         .map(|fields|fields[0].as_str()).collect::<Vec<_>>();
-    let expected=(1..=26).map(|n|format!("{n:03}")).collect::<Vec<_>>();
+    let expected=(1..=29).map(|n|format!("{n:03}")).collect::<Vec<_>>();
     assert_eq!(reviewed,expected.iter().map(String::as_str).collect::<Vec<_>>());
     assert!(lines[0][4].contains("oldid=2583915"));
     assert!(lines[1][4].contains("oldid=8185068"));
@@ -101,5 +104,13 @@ fn chapter_reading_statuses_cannot_be_mistaken_for_completed_textual_collation()
         assert!(lines[n-1][5].contains(beat));
     }
     assert!(lines[23][5].contains("palace_ledger"));
+    for (n,oldid,beat) in [
+        (27,"8186000","five_passes"),
+        (28,"2567993","gucheng_witness"),
+        (29,"2567991","sun_succession"),
+    ] {
+        assert!(lines[n-1][4].contains(&format!("oldid={oldid}")));
+        assert!(lines[n-1][5].contains(beat));
+    }
     assert_eq!(lines.iter().filter(|fields|fields[3]=="已完成全回正文审校").count(),0);
 }
