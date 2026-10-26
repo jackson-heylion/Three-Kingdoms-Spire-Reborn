@@ -234,4 +234,4 @@ Scenario: Lu Bu keeps Xiapi order records before the old White Gate choice
     And act 2 offers the lore scene "liaodong"
     And the lore scene "liaodong"
     When I choose 1
-    Then the hidden conclusion "grain_book" is not unlocked
+    Then the flag "liaodong_letter" is present
