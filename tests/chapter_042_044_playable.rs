@@ -108,7 +108,8 @@ fn zhuge_chaisang_war_council_records_rival_views_and_pays_once() {
 fn sun_muster_is_optional_and_does_not_rewrite_wedding_yiling() {
     let mut game = at(Hero::SunShangxiang, "jiangdong_muster", &["jiangdong_hostage_record"]);
     let snapshot = game.to_json().unwrap();
-    assert!(game.apply(Action::Choose { index: 3 }).is_err());
+    // Choice 3 is a valid non-intervention; only 4 is invalid.
+    assert!(game.apply(Action::Choose { index: 4 }).is_err());
     assert_eq!(game.to_json().unwrap(), snapshot);
     game.apply(Action::Choose { index: 2 }).unwrap();
     assert!(!has(&game, "jiangdong_muster_record"));
