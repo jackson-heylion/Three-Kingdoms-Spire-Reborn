@@ -247,7 +247,11 @@ impl Game {
             .ok_or("legacy save has no complete combat event archive")?;
         let projection = crate::event_stack::projection::project(archive)?;
         crate::event_stack::projection::causality::validate(archive)?;
+        // Preserve the established cross-journal mismatch diagnostic for
+        // forged event counters; the stricter action grammar still rejects
+        // any independently inconsistent settled archive afterwards.
         projection.reconcile_telemetry(&view.telemetry.totals, view.combat.is_some())?;
+        crate::event_stack::projection::action_causality::validate(archive)?;
 
         // Event-only outcome reconciliation proves counts, but an attacker
         // could also move an otherwise well-formed active encounter to a
