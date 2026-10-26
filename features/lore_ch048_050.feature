@@ -28,7 +28,7 @@ Feature: Chapters 048-050 distinguish novel Red Cliffs from history and keep ori
     When I choose 1
     Then the flag "liaodong_letter" is present
 
-  Scenario: Old Zhuge Red Cliffs and Guan Yu Huarong scenes need no new chapter 048 flag
+  Scenario: The old Zhuge Red Cliffs scene needs no new chapter 048 flag
     Given a "zhuge" campaign with seed 4852
     And the flag "longzhong_plan" was earned earlier
     And the lore scene "redcliff"
