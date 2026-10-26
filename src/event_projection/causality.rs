@@ -177,7 +177,7 @@ mod tests {
     #[test]
     fn permits_append_only_summons_and_resets_slot_tracking_per_encounter() {
         let archive = vec![
-            record(1,1,1,EventKind::DamageDealt,"hero",3,Some("foe:0")),
+            record(1,1,EventKind::DamageDealt,"hero",3,Some("foe:0")),
             record(1,2,EventKind::FoeSummoned,"militia",1,Some("foe:1")),
             record(1,3,EventKind::DamageDealt,"hero",2,Some("foe:1")),
             record(1,4,EventKind::FoeSummoned,"militia",1,Some("foe:2")),
