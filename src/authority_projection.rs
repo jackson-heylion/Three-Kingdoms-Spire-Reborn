@@ -246,6 +246,7 @@ impl Game {
         let archive = self.event_history.as_deref()
             .ok_or("legacy save has no complete combat event archive")?;
         let projection = crate::event_stack::projection::project(archive)?;
+        crate::event_stack::projection::causality::validate(archive)?;
         projection.reconcile_telemetry(&view.telemetry.totals, view.combat.is_some())?;
 
         // Event-only outcome reconciliation proves counts, but an attacker
