@@ -49,7 +49,13 @@ fn chapter_reading_statuses_cannot_be_mistaken_for_completed_textual_collation()
         .collect::<Vec<_>>();
     let reviewed=lines.iter().filter(|fields|fields[3]=="正文通读/未完成异本对校")
         .map(|fields|fields[0].as_str()).collect::<Vec<_>>();
-    assert_eq!(reviewed,vec!["001","002","003","004","005","006","007","008","009","010","011","012","013","014","015","016","017","018"]);
+    let mut expected=(1..=18).map(|n|format!("{n:03}")).collect::<Vec<_>>();
+    if lines[18][3]=="正文通读/未完成异本对校" {
+        assert!(lines[18][4].contains("oldid=2567981"),"chapter 19 must cite its pinned revision");
+        expected.push("019".to_owned());
+    }
+    expected.extend(["020","021"].map(str::to_owned));
+    assert_eq!(reviewed,expected.iter().map(String::as_str).collect::<Vec<_>>());
     assert!(lines[0][4].contains("oldid=2583915"));
     assert!(lines[1][4].contains("oldid=8185068"));
     assert!(lines[2][4].contains("oldid=2567965"));
@@ -78,5 +84,9 @@ fn chapter_reading_statuses_cannot_be_mistaken_for_completed_textual_collation()
     assert!(lines[17][4].contains("oldid=2567980"));
     assert!(lines[17][5].contains("anzhong"));
     assert!(lines[17][5].contains("xiaopei_courier"));
+    assert!(lines[19][4].contains("oldid=8187289"));
+    assert!(lines[19][5].contains("xutian_guard"));
+    assert!(lines[20][4].contains("oldid=2567982"));
+    assert!(lines[20][5].contains("xuzhou_gate"));
     assert_eq!(lines.iter().filter(|fields|fields[3]=="已完成全回正文审校").count(),0);
 }

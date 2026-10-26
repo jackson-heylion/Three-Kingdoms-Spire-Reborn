@@ -110,6 +110,9 @@ pub struct EasterEgg {
 /// Alternate monetary choices never plant a prerequisite, so they cannot
 /// claim the same narrative ending accidentally.
 pub const EASTER_EGGS: &[EasterEgg] = &[
+    EasterEgg {id:"xutian_xuzhou_debt",name:"许田收刀·徐州军簿",hero:Some(Hero::GuanYu),chapters:&[20,21,75],
+        flags:&["xutian_guarded_emperor","xuzhou_gate_account","jingzhou_warning"],reward_gold:21,reward_heal:6,
+        hint:"许田收刀护天子、徐州记下车胄伏杀与家属死难、荆州审势防变，三份军簿都拒绝只记一时刀功。"},
     EasterEgg {id:"sword_debt",name:"青龙旧债",hero:Some(Hero::GuanYu),chapters:&[25,50],
         flags:&["baima_debt","huarong_mercy"],reward_gold:35,reward_heal:8,
         hint:"青龙刀刃上的旧日刀痕，终于不再指向那条泥泞的山道。"},
