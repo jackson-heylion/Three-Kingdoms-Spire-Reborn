@@ -281,3 +281,17 @@ Scenario: Guan Yu's debt and mercy reveal a once-only hidden ending
     And the flag "guandu_grain" was earned earlier
     Then act 2 offers the lore scene "liaodong"
     And the flag "xiapi_flood_ledger" is absent
+
+  Scenario: Guan Yu preserves three terms and returns the seal before the Huarong payoff
+    Given a "guanyu" campaign with seed 2526
+    And the flag "wenjiu_oath" was earned earlier
+    And the flag "baima_debt" was earned earlier
+    And the lore scene "baima_terms"
+    When I choose 1
+    Then the flag "three_terms_record" is present
+    And the lore scene "seal_return"
+    When I choose 1
+    Then the flag "seal_return_record" is present
+    And the lore scene "huarong"
+    When I choose 1
+    Then the hidden conclusion "three_terms_huarong" is unlocked
