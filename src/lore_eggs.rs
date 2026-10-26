@@ -88,4 +88,14 @@
     EasterEgg {id:"jingxiang_warning_debt",name:"檀溪脱险·荆襄用人旧账",hero:Some(Hero::GuanYu),chapters:&[28,34,35,75],
         flags:&["ancient_reunion","tanxi_warning_record","xinye_counsel_record","jingzhou_warning"],reward_gold:21,reward_heal:8,
         hint:"古城释疑、襄阳宴局、南漳访贤与荆州江防相照：情报、谏言与护卫责任不可只以胜负结算。"},
+    EasterEgg {id:"fancheng_xushu_jingzhou",name:"樊城谏书·隆中求贤旧账",hero:Some(Hero::GuanYu),chapters:&[35,36,37,75],
+        flags:&["xinye_counsel_record","fancheng_counsel_record","xushu_departure_record","jingzhou_warning"],reward_gold:20,reward_heal:8,
+        hint:"新野识人、樊城两次拒谏、徐庶伪书与隆中两访，直至荆州江防，军报须同时记录人才与民命代价。"},
+    EasterEgg {id:"longzhong_strategy_debt",name:"隆中条件·赤壁盟约",hero:Some(Hero::ZhugeLiang),chapters:&[37,38,49],
+        flags:&["longzhong_plan","longzhong_conditions_record","redcliff_wind"],reward_gold:21,reward_heal:7,
+        hint:"第三顾后的隆中对以结孙、修政、荆益立足与等待时机为前提，赤壁战机不能倒写成命定胜利。"},
+    EasterEgg {id:"jiangdong_guest_debt",name:"江东拒质·夷陵旧怨",hero:Some(Hero::SunShangxiang),chapters:&[29,38,54,84],
+        flags:&["sun_succession_account","jiangdong_hostage_record","jiangdong_covenant","yiling_ashes"],reward_gold:20,reward_heal:7,
+        hint:"江东拒送质子、甘宁旧怨与苏飞待决，婚盟之后仍须在夷陵记下双方军民与旧臣责任。"},
+
 ]
