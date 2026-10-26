@@ -72,6 +72,7 @@ fn refusing_or_skipping_the_new_ledger_preserves_legacy_routes() {
         g.apply(Action::Choose { index: choice }).unwrap();
         assert!(!has(&g, "river_banquet_record"));
         assert_eq!(reward_count(&g), 0);
+        assert_eq!(next_beat(Hero::CaoCao, 2, &g.lore_flags, &g.lore_seen).map(|b| b.id), Some("liaodong"));
         enter(&mut g, "liaodong");
         g.apply(Action::Choose { index: 1 }).unwrap();
         assert!(has(&g, "liaodong_letter"));
