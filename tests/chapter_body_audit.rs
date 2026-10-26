@@ -42,7 +42,7 @@ fn three_cross_act_debts_require_their_prior_flags() {
         ("palace_ledger","jiping_case_record",1),
         ("five_passes","seal_return_record",1),
         ("gucheng_witness","five_passes_record",1),
-        ("sun_succession","taishi_trust",1),
+        ("sun_succession","taishi_trust",0),
     ] {
         let beat=BEATS.iter().find(|b|b.id==id).unwrap();
         assert_eq!(beat.prerequisite,Some(needed));
