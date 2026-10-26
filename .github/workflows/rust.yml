@@ -690,7 +690,7 @@ jobs:
           import json,os,pathlib
           p=pathlib.Path(os.environ['RUNNER_TEMP'])/'tks-natural-builds.json'
           d=json.loads(p.read_text())
-          assert d['schema_version']==1 and d['samples_per_cell']==1
+          assert d['schema_version']==2 and d['samples_per_cell']==1
           assert len(d['cells'])==15*11
           assert len(set((c['id'],c['ascension']) for c in d['cells']))==165
           assert len(set(c['id'] for c in d['cells']))==15
@@ -700,6 +700,16 @@ jobs:
                      and 0<=c['focus_picks']<=c['focus_offer_screens']<=c['reward_screens']
                      and 0<=c['core_distinct_sum']<=4
                      and 0<=c['support_distinct_sum']<=2 for c in d['cells'])
+          assert all(
+              0<=c['boss_wins']<=c['boss_battles']
+              and 0<=c['boss_full_formed']<=c['boss_core_formed']<=c['boss_battles']
+              and 0<=c['boss_core_wins']<=min(c['boss_core_formed'],c['boss_wins'])
+              and 0<=c['counter_boss_wins']<=c['counter_boss_battles']<=c['boss_battles']
+              and 0<=c['boss_core_owned_sum']<=4*c['boss_battles']
+              and 0<=c['boss_support_owned_sum']<=2*c['boss_battles']
+              and 0<=c['boss_floor_sum']<=100*c['boss_battles']
+              for c in d['cells'])
+          print('Natural pre-boss deck formation, real encounter denominators and survival accounting validated')
           print('Normal ten-card starter × 15 plans × 11 ascensions: 165 seeded pairs')
           PY
 
