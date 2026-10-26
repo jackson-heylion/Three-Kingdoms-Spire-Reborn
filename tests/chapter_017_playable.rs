@@ -61,11 +61,11 @@ fn seven_armies_choice_commits_card_flag_and_single_white_gate_payoff() {
     restored.lore_current = Some("whitegate".into());
     let payoff = restored.apply(Action::Choose { index: 1 }).unwrap().join(" ");
     assert!(payoff.contains("辕门军书后账"));
-    assert_eq!(restored.easter_unlocked.iter().filter(|id| *id == "seven_armies_debt").count(), 1);
+    assert_eq!(restored.easter_unlocked.iter().filter(|id| id.as_str() == "seven_armies_debt").count(), 1);
     restored.stage = Stage::Story;
     restored.lore_current = Some("whitegate".into());
     restored.apply(Action::Choose { index: 1 }).unwrap();
-    assert_eq!(restored.easter_unlocked.iter().filter(|id| *id == "seven_armies_debt").count(), 1);
+    assert_eq!(restored.easter_unlocked.iter().filter(|id| id.as_str() == "seven_armies_debt").count(), 1);
 }
 
 #[test]
@@ -79,7 +79,7 @@ fn cashing_out_seven_armies_cannot_claim_the_later_responsibility() {
     game.lore_current = Some("whitegate".into());
     let narration = game.apply(Action::Choose { index: 1 }).unwrap().join(" ");
     assert!(!narration.contains("辕门军书后账"));
-    assert!(!game.easter_unlocked.iter().any(|id| id == "seven_armies_debt"));
+    assert!(!game.easter_unlocked.iter().any(|id| id.as_str() == "seven_armies_debt"));
 }
 
 #[test]
@@ -101,11 +101,11 @@ fn shouchun_accountability_survives_save_and_reconciles_at_guandu() {
     restored.lore_current = Some("guandu".into());
     let message = restored.apply(Action::Choose { index: 1 }).unwrap().join(" ");
     assert!(message.contains("寿春粮秤旧案"));
-    assert_eq!(restored.easter_unlocked.iter().filter(|id| *id == "shouchun_grain_debt").count(), 1);
+    assert_eq!(restored.easter_unlocked.iter().filter(|id| id.as_str() == "shouchun_grain_debt").count(), 1);
     restored.stage = Stage::Story;
     restored.lore_current = Some("guandu".into());
     restored.apply(Action::Choose { index: 1 }).unwrap();
-    assert_eq!(restored.easter_unlocked.iter().filter(|id| *id == "shouchun_grain_debt").count(), 1);
+    assert_eq!(restored.easter_unlocked.iter().filter(|id| id.as_str() == "shouchun_grain_debt").count(), 1);
 }
 
 #[test]
