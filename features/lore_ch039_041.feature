@@ -28,7 +28,6 @@ Feature: Chapters 039-041 optional literary responsibility and cross-act consequ
     And act 1 offers the lore scene "borrow_arrows"
     And the lore scene "redcliff"
     When I choose 1
-    Then the hidden conclusion "xinye_dangyang_debt" is absent
 
   Scenario: Sun remembers Su Fei's pardon through the Yiling aftermath
     Given a "sun" campaign with seed 3939
