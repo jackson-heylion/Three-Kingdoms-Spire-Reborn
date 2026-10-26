@@ -224,6 +224,7 @@ pub(super) fn run(app:&mut App)->Result<(),String> {
     let mut cursor=0usize;
     let mut target=1usize;
     let mut selecting_card: Option<usize> = None;
+    let mut details = false;
     loop {
         let options = if let Some(index) = selecting_card {
             secondary_menu(app,index,target)
@@ -234,12 +235,13 @@ pub(super) fn run(app:&mut App)->Result<(),String> {
         else {cursor=cursor.min(options.len()-1);}
         let (rows,columns)=terminal_size();
         print!("\x1b[2J\x1b[H{}{}\x1b[0m",app.theme.style(),
-            hud::render(app,columns,rows,target,&options,cursor));
+            hud::render_mode(app,columns,rows,target,&options,cursor,details));
         io::stdout().flush().map_err(|e|e.to_string())?;
         let key=read_byte().map_err(|e|e.to_string())?;
         let decision=match key {
             b'j'=>{cursor=cursor.saturating_add(1).min(options.len().saturating_sub(1));None}
             b'k'=>{cursor=cursor.saturating_sub(1);None}
+            b'v'=>{details=!details;None}
             b'\r'|b'\n'=>options.get(cursor).map(|(_,cmd)|cmd.clone()),
             b'1'..=b'9'=>options.get(usize::from(key-b'1')).map(|(_,cmd)|cmd.clone()),
             b't'=>{
