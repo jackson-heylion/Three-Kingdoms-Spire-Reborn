@@ -207,6 +207,14 @@ mod tests {
             for seed in [11, 20261026] {
                 let mut game = Game::new(hero, seed);
                 game.apply(Action::Choose { index: 1 }).unwrap();
+                // All starter decks have nine Strike/Defend cards. Exercise
+                // a real card resolution and the starting healing potion,
+                // not just synthetic event fixtures.
+                let hand_index = game.battle.as_ref().unwrap().hand.iter()
+                    .position(|card| matches!(card.id.as_str(), "strike" | "defend"))
+                    .unwrap() + 1;
+                game.apply(Action::Play { index: hand_index, target: 1 }).unwrap();
+                game.apply(Action::UsePotionAt { slot: 1, target: 1 }).unwrap();
                 game.apply(Action::EndTurn).unwrap();
                 let archive = game.event_history.as_deref().unwrap();
                 validate(archive).unwrap();
