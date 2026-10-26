@@ -318,6 +318,11 @@ Scenario: Lu Bu keeps Xiapi order records before the old White Gate choice
     And the lore scene "longzhong"
     When I choose 1
     Then the flag "longzhong_plan" is present
+    And act 1 offers the lore scene "borrow_arrows"
+    And act 0 offers the lore scene "longzhong_letter"
+    And the lore scene "longzhong_letter"
+    When I choose 1
+    Then the flag "longzhong_visit_record" is present
     And act 1 offers the lore scene "longzhong_conditions"
     And the lore scene "longzhong_conditions"
     When I choose 1
