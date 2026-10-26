@@ -156,7 +156,10 @@ Scenario: Guan Yu's debt and mercy reveal a once-only hidden ending
     Then the flag "shouchun_grain_account" is present
     And my deck contains "granary_support"
     And the bond with "王垕" is active
-    And act 1 offers the lore scene "guandu"
+    And act 1 offers the lore scene "anzhong"
+    And the lore scene "anzhong"
+    When I choose 2
+    Then act 1 offers the lore scene "guandu"
     When I save and restore
     Then the flag "shouchun_grain_account" is present
     And the lore scene "guandu"
