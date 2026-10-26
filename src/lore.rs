@@ -86,6 +86,8 @@ pub const BONDS: &[Bond] = &[
     Bond { protagonist: Hero::LuBu, companion: "貂蝉", relation: Relation::Alliance, chapter: 8, flag: "phoenix_pavilion", note: "连环计推动权力裂变；戏曲演义非正史铁证" },
     Bond { protagonist: Hero::LuBu, companion: "陈宫", relation: Relation::Friend, chapter: 19, flag: "white_gate", note: "劝谏不听，遗憾延续到白门楼" },
     Bond { protagonist: Hero::LuBu, companion: "刘备", relation: Relation::Rival, chapter: 16, flag: "halberd_shot", note: "辕门射戟的解围不代表恩怨尽解" },
+    Bond { protagonist: Hero::CaoCao, companion: "王垕", relation: Relation::Betrayal, chapter: 17, flag: "shouchun_grain_account", note: "小斛是主帅之令，王垕按令发粮却被斩顶罪；玩家可架空选择公开军令担责" },
+    Bond { protagonist: Hero::LuBu, companion: "陈登", relation: Relation::Alliance, chapter: 17, flag: "seven_armies_account", note: "陈登联络韩暹杨奉反戈破袁，后来暗通曹操；盟约与军纪应分别记账" },
 ];
 
 include!("lore_beats.rs");
@@ -142,6 +144,12 @@ pub const EASTER_EGGS: &[EasterEgg] = &[
         flags:&["changan_account","xiaopei_refuge","halberd_shot","white_gate"],
         reward_gold:24,reward_heal:7,
         hint:"长安失守时无人肯留，徐州却给了小沛与军粮；辕门一箭和白门残雪，终须回答客军应守的信义。"},
+    EasterEgg {id:"shouchun_grain_debt",name:"寿春粮秤旧案",hero:Some(Hero::CaoCao),chapters:&[12,17,30],
+        flags:&["puyang_supply","shouchun_grain_account","guandu_grain"],reward_gold:16,reward_heal:5,
+        hint:"濮阳退兵、寿春小斛与乌巢粮道连成一册，主帅终于不再让仓官独担军粮之责。"},
+    EasterEgg {id:"seven_armies_debt",name:"辕门军书后账",hero:Some(Hero::LuBu),chapters:&[16,17,19],
+        flags:&["halberd_shot","seven_armies_account","white_gate"],reward_gold:18,reward_heal:5,
+        hint:"辕门止战、七路反戈与白门问责相照，胜仗之外还须清点被军马惊散的百姓。"},
     EasterEgg {id:"redhare_returns",name:"赤兔无主",hero:Some(Hero::LuBu),chapters:&[3,8,16,19],
         flags:&["red_hare","phoenix_pavilion","halberd_shot","white_gate"],reward_gold:30,reward_heal:10,
         hint:"赤兔不再认旧旗，马蹄声却仍追问那一次背盟。"},
