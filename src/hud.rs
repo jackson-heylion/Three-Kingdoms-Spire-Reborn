@@ -102,11 +102,20 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
         let act = (g.floor.saturating_sub(1) / 7 + 1).min(3);
         let hp_tone = if g.hp * 4 <= g.max_hp { Tone::Danger }
             else if g.hp * 2 <= g.max_hp { Tone::Warning } else { Tone::Good };
-        pieces(&mut out, app, columns, &[
-            (&format!("{}  第{}幕·{}层  ", g.hero.name(), act, g.floor), Tone::Accent),
-            (&format!("生命 {}/{}  ", g.hp, g.max_hp), hp_tone),
-            (&format!("金 {}  药 {}", g.gold, g.potions), Tone::Muted),
-        ]);
+        if columns < 48 {
+            line(&mut out, app, &format!("{} · 第{}幕·{}层", g.hero.name(), act, g.floor),
+                columns, Tone::Accent);
+            pieces(&mut out, app, columns, &[
+                (&format!("生命 {}/{}  ", g.hp, g.max_hp), hp_tone),
+                (&format!("金 {}  药 {}", g.gold, g.potions), Tone::Muted),
+            ]);
+        } else {
+            pieces(&mut out, app, columns, &[
+                (&format!("{}  第{}幕·{}层  ", g.hero.name(), act, g.floor), Tone::Accent),
+                (&format!("生命 {}/{}  ", g.hp, g.max_hp), hp_tone),
+                (&format!("金 {}  药 {}", g.gold, g.potions), Tone::Muted),
+            ]);
+        }
         if details && rows >= 26 {
             line(&mut out, app, &format!("{:?} A{} · {} · 战法：{}",
                 g.mode, g.ascension, g.act_name(),
@@ -229,7 +238,10 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
         }
     }
     if show_feedback {
-        line(&mut out, app, &format!("操作反馈 · {}", app.message), columns, Tone::Warning);
+        let tone = if app.message.starts_with("错误") || app.message.starts_with("存档未能") {
+            Tone::Danger
+        } else { Tone::Good };
+        line(&mut out, app, &format!("操作反馈 · {}", app.message), columns, tone);
     }
     if out.len() >= rows { out.truncate(rows - 1); }
     line(&mut out, app, "↑↓/jk 选  Enter确认  1-9快捷  t目标  v详情  :命令  ?帮助  q退出",
