@@ -103,3 +103,5 @@
 新曹操 `northern_settlement` 接原 `liaodong`，保留南皮民伤、崔琰谏言、郭嘉与公孙康各自责任；新关羽 `tanxi_warning` → `xinye_counsel` → 原 `jingzhou` 记录伊籍预警、檀溪逃生、单福试探及新野军令。玩家的选项只是**架空责任簿**，不会改写刘备跃溪、蔡瑁生还、郭嘉病逝或二吕阵亡。新旗标与隐藏奖励可拒绝且幂等，旧主线不强制补做。源码 `src/lore_beats_part5.rs`、`src/lore_eggs.rs`，Rust `tests/chapter_033_035_playable.rs`、严格 BDD `features/novel_provenance.feature`。尚待最终 SHA 的 Ubuntu/macOS Rust、BDD、CLI E2E 和确定性检查；自然地图多种子可达性与真人试玩仍未验收。
 
 **本分支累计：35/120 单底本全回因果审读、另3回片段抽检、0/120 完成全回异本文字及史料对校。** 其中文学审读登记与实际代码、CI验收各自独立，不能以PR数量代替。
+
+第033–035回另新增[《三国志》正文／裴注／小说的局部史料对勘](CHAPTERS_033_035_HISTORY_SPOTCHECK.md)：明确白狼山“冒顿／蹋顿”待异本核验、檀溪在《世语》引文且孙盛质疑、单福旧名见裴注《魏略》，以及司马徽／徐庶荐贤的叙述层级。**仅局部史料核证，0/120全回异本及史料对校计数不变。**
