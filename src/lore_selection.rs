@@ -1,0 +1,31 @@
+// Deterministic scene ordering; extracted from lore.rs to keep modules small.
+// A later optional retrospective must not steal the original Jingzhou entry
+// from an old save that has already earned the Anxi responsibility flag.
+pub fn next_beat(hero: Hero, act: u8, flags: &[String], seen: &[String]) -> Option<&'static Beat> {
+    let eligible = |b: &&Beat| {
+        b.act == act && !seen.iter().any(|id| id == b.id)
+        && b.prerequisite.is_none_or(|key| flags.iter().any(|flag| flag == key))
+        && b.hero.is_none_or(|required| required == hero)
+    };
+    BEATS.iter().filter(eligible).min_by_key(|b| {
+        let is_hero = b.hero == Some(hero);
+        let is_payoff = b.prerequisite.is_some();
+        let protect_old_jingzhou = b.id == "hanjin_ferry"
+            && flags.iter().any(|flag| flag == "anxi_seal")
+            && !seen.iter().any(|id| id == "jingzhou");
+        (if protect_old_jingzhou { 4 } else if is_hero && is_payoff { 0 } else if is_hero { 1 } else if is_payoff { 2 } else { 3 }, b.chapter)
+    })
+}
+
+
+#[cfg(test)]
+mod compatibility_tests {
+    use super::*;
+    #[test]
+    fn optional_hanjin_never_forces_old_anxi_saves_past_jingzhou() {
+        let flags = vec!["anxi_seal".into(), "xutian_guarded_emperor".into()];
+        assert_eq!(next_beat(Hero::GuanYu, 2, &flags, &[]).map(|b| b.id), Some("jingzhou"));
+        assert_eq!(next_beat(Hero::GuanYu, 2, &flags, &["jingzhou".into()]).map(|b| b.id), Some("hanjin_ferry"));
+        assert_eq!(next_beat(Hero::GuanYu, 2, &["xutian_guarded_emperor".into()], &[]).map(|b| b.id), Some("hanjin_ferry"));
+    }
+}

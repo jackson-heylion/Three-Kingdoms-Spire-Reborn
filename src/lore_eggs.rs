@@ -114,4 +114,8 @@
     EasterEgg {id:"jiangdong_muster_debt",name:"江东军令·夷陵民船后账",hero:Some(Hero::SunShangxiang),chapters:&[38,44,54,84],
         flags:&["jiangdong_hostage_record","jiangdong_muster_record","jiangdong_covenant","yiling_ashes"],reward_gold:20,reward_heal:8,
         hint:"拒质、授剑、婚盟、夷陵相隔数幕，孙氏军簿应同时记出兵与护民的责任。"},
+    EasterEgg {id:"river_spy_chain_debt",name:"三江口伪书·连船军簿",hero:Some(Hero::CaoCao),chapters:&[30,45,46,47],
+        flags:&["guandu_grain","jiangkou_inquest_record","chain_ship_risk_record"],reward_gold:22,reward_heal:8,
+        hint:"官渡用粮的旧识、三江口误杀水将、雾江折箭与连船火险相连；承认责任不改变既定的蔡张之死或曹操连船军令。"},
+
 ]

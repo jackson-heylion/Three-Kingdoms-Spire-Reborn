@@ -132,18 +132,7 @@ pub fn beat(id: &str) -> Option<&'static Beat> { BEATS.iter().find(|b| b.id == i
 /// For deterministic scenario selection: favor a hero-specific prerequisite payoff,
 /// then the hero's introductory chapter, finally a wider shared historic clue.
 /// It consumes no randomness; each encounter is used at most once per run.
-pub fn next_beat(hero: Hero, act: u8, flags: &[String], seen: &[String]) -> Option<&'static Beat> {
-    let eligible = |b: &&Beat| {
-        b.act == act && !seen.iter().any(|id| id == b.id)
-        && b.prerequisite.is_none_or(|key| flags.iter().any(|flag| flag == key))
-        && b.hero.is_none_or(|required| required == hero)
-    };
-    BEATS.iter().filter(eligible).min_by_key(|b| {
-        let is_hero = b.hero == Some(hero);
-        let is_payoff = b.prerequisite.is_some();
-        (if is_hero && is_payoff { 0 } else if is_hero { 1 } else if is_payoff { 2 } else { 3 }, b.chapter)
-    })
-}
+include!("lore_selection.rs");
 
 pub fn bonds_for(hero: Hero, flags: &[String]) -> Vec<&'static Bond> {
     BONDS.iter().filter(|b| b.protagonist == hero && flags.iter().any(|s| s == b.flag)).collect()
