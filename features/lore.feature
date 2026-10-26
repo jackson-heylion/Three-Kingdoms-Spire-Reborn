@@ -226,3 +226,60 @@ Scenario: Guan Yu's debt and mercy reveal a once-only hidden ending
     When I choose 2
     Then the flag "xiaopei_courier_guard" is absent
     And act 2 offers the lore scene "whitegate"
+
+  Scenario: Guan Yu records the released captives and guards the Xiapi household before Jingzhou
+    Given a "guanyu" campaign with seed 221
+    And the flag "anxi_seal" was earned earlier
+    And the flag "wenjiu_oath" was earned earlier
+    And the lore scene "wangzhong_prisoners"
+    When I choose 1
+    Then the flag "wangzhong_release_record" is present
+    And my deck contains "hold_line"
+    And the bond with "刘备" is active
+    And the lore scene "xiapi_household"
+    When I choose 1
+    Then the flag "xiapi_household_ledger" is present
+    When I save and restore
+    Then the flag "xiapi_household_ledger" is present
+    And act 2 offers the lore scene "jingzhou"
+    And the lore scene "jingzhou"
+    When I choose 1
+    Then the hidden conclusion "xiapi_household_debt" is unlocked
+
+  Scenario: Guan Yu refuses the prisoner ledger without locking the old Jingzhou choice
+    Given a "guanyu" campaign with seed 222
+    And the flag "anxi_seal" was earned earlier
+    And the flag "wenjiu_oath" was earned earlier
+    And the lore scene "wangzhong_prisoners"
+    When I choose 2
+    Then the flag "wangzhong_release_record" is absent
+    And act 2 offers the lore scene "jingzhou"
+
+  Scenario: Cao Cao keeps Jiping testimony and the palace casualty ledger until Guandu
+    Given a "cao" campaign with seed 223
+    And the flag "xu_capital" was earned earlier
+    And the flag "xuhuang_honor" was earned earlier
+    And the lore scene "jiping_testimony"
+    When I choose 1
+    Then the flag "jiping_case_record" is present
+    And my deck contains "qimou"
+    And act 1 offers the lore scene "palace_ledger"
+    And the lore scene "palace_ledger"
+    When I choose 1
+    Then the flag "palace_purge_record" is present
+    And the bond with "程昱" is active
+    And act 1 offers the lore scene "guandu"
+    When I save and restore
+    Then the flag "palace_purge_record" is present
+    And the lore scene "guandu"
+    When I choose 1
+    Then the hidden conclusion "jiping_palace_debt" is unlocked
+
+  Scenario: Refusing Jiping testimony preserves the old Guandu route
+    Given a "cao" campaign with seed 224
+    And the flag "xu_capital" was earned earlier
+    And the flag "xuhuang_honor" was earned earlier
+    And the lore scene "jiping_testimony"
+    When I choose 2
+    Then the flag "jiping_case_record" is absent
+    And act 1 offers the lore scene "guandu"
