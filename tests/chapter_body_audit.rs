@@ -32,6 +32,8 @@ fn three_cross_act_debts_require_their_prior_flags() {
         ("jieting_debt","successor_scroll",2),
         ("seven_armies","halberd_shot",1),
         ("shouchun_grain","puyang_supply",1),
+        ("anzhong","shouchun_grain_account",1),
+        ("xiaopei_courier","seven_armies_account",1),
         ("xiapi_orders","xiaopei_courier_guard",1),
         ("xiapi_flood","anzhong_field_report",2),
     ] {
@@ -49,11 +51,7 @@ fn chapter_reading_statuses_cannot_be_mistaken_for_completed_textual_collation()
         .collect::<Vec<_>>();
     let reviewed=lines.iter().filter(|fields|fields[3]=="正文通读/未完成异本对校")
         .map(|fields|fields[0].as_str()).collect::<Vec<_>>();
-    // Chapter 018 lives in a separately gated PR. Accept either merge order,
-    // but do not promote its status merely because the chapter file exists.
-    let mut expected=(1..=17).map(|n|format!("{n:03}")).collect::<Vec<_>>();
-    if lines[17][3]=="正文通读/未完成异本对校" { expected.push("018".into()); }
-    expected.push("019".into());
+    let expected=(1..=19).map(|n|format!("{n:03}")).collect::<Vec<_>>();
     assert_eq!(reviewed,expected.iter().map(String::as_str).collect::<Vec<_>>());
     assert!(lines[0][4].contains("oldid=2583915"));
     assert!(lines[1][4].contains("oldid=8185068"));
@@ -80,6 +78,9 @@ fn chapter_reading_statuses_cannot_be_mistaken_for_completed_textual_collation()
     assert!(lines[16][4].contains("oldid=2567979"));
     assert!(lines[16][5].contains("seven_armies"));
     assert!(lines[16][5].contains("shouchun_grain"));
+    assert!(lines[17][4].contains("oldid=2567980"));
+    assert!(lines[17][5].contains("anzhong"));
+    assert!(lines[17][5].contains("xiaopei_courier"));
     assert!(lines[18][4].contains("oldid=2567981"));
     assert!(lines[18][5].contains("xiapi_orders"));
     assert!(lines[18][5].contains("xiapi_flood"));
