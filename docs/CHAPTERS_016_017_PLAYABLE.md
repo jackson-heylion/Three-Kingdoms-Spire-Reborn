@@ -29,7 +29,7 @@
 
 ## 游戏中的原创改写与真实效果
 
-- 吕布 `halberd`（第016回、第一幕）保留原有前置 `phoenix_pavilion`；**新增** `seven_armies`（第017回、第二幕）只在玩家先选择止战、取得 `halberd_shot` 后可选。选择“保存军书并约束军纪”才立 `seven_armies_account`，获得卡牌、少量金币与回复；收战利或不介入不立旗。第三幕 `whitegate` 保留原前置；三旗齐备另得一次性 `seven_armies_debt` 回响。**不会因漏掉第017回而锁死白门楼。**
+- 吕布 `halberd`（第016回、第二幕）保留原有前置 `phoenix_pavilion`；**新增** `seven_armies`（第017回、第二幕）只在玩家先选择止战、取得 `halberd_shot` 后可选。选择“保存军书并约束军纪”才立 `seven_armies_account`，获得卡牌、少量金币与回复；收战利或不介入不立旗。第三幕 `whitegate` 保留原前置；三旗齐备另得一次性 `seven_armies_debt` 回响。**不会因漏掉第017回而锁死白门楼。**
 - 曹操 `puyang`（第012回、第一幕）已立 `puyang_supply` 后，第二幕可选新增 `shouchun_grain`（第017回）。玩家可以**架空地**选择公开小斛军令并担责，立 `shouchun_grain_account`；原著实际是斩王垕顶罪。此旗与第三幕之前的 `guandu_grain` 共同触发一次性 `shouchun_grain_debt`。原有 `guandu` 前置 `xu_capital` 不变，漏掉新剧情仍可进入官渡。
 - 两条剧情均使用已有 `Game::apply(Action::Choose)`、`lore_flags`、`lore_seen`、卡牌入组、金币/生命结算、V2 存档与动作历史；未增存档字段。新增隐藏结局只在三个选择旗标同时成立时兑现，且不可重复领取。
 - 这些是原创互动支线，不是声称曹操在小说中公开承担王垕之死、吕布曾推行军纪改革。仅在玩家选择后成立。
