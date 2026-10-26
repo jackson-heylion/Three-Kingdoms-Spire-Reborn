@@ -185,6 +185,10 @@ Scenario: Guan Yu's debt and mercy reveal a once-only hidden ending
     Then the flag "anzhong_field_report" is present
     And my deck contains "qimou"
     And the bond with "贾诩" is active
+    And act 1 offers the lore scene "xiapi_flood"
+    And the lore scene "xiapi_flood"
+    When I choose 2
+    Then the flag "xiapi_flood_ledger" is absent
     And act 1 offers the lore scene "guandu"
     When I save and restore
     Then the flag "anzhong_field_report" is present
