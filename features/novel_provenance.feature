@@ -235,3 +235,53 @@ Scenario: Lu Bu keeps Xiapi order records before the old White Gate choice
     And the lore scene "liaodong"
     When I choose 1
     Then the flag "liaodong_letter" is present
+
+  Scenario: Cao Cao preserves northern civilian losses after Guo Jia's Liaodong legacy
+    Given a "cao" campaign with seed 3301
+    And the flag "ye_flood_record" was earned earlier
+    And the flag "liaodong_letter" was earned earlier
+    And the lore scene "northern_settlement"
+    When I choose 1
+    Then the flag "northern_settlement_account" is present
+    And the hidden conclusion "northern_aftermath_debt" is unlocked
+    When I save and restore
+    Then the flag "northern_settlement_account" is present
+
+  Scenario: Cao Cao may refuse the northern ledger without losing old Liaodong
+    Given a "cao" campaign with seed 3302
+    And the flag "guandu_grain" was earned earlier
+    And the lore scene "northern_settlement"
+    When I choose 2
+    Then the flag "northern_settlement_account" is absent
+    And act 2 offers the lore scene "liaodong"
+    And the lore scene "liaodong"
+    When I choose 1
+    Then the flag "liaodong_letter" is present
+
+  Scenario: Guan Yu records the Tanxi escape and Xinye counsel before Jingzhou
+    Given a "guanyu" campaign with seed 3435
+    And the flag "ancient_reunion" was earned earlier
+    And the flag "anxi_seal" was earned earlier
+    And the lore scene "tanxi_warning"
+    When I choose 1
+    Then the flag "tanxi_warning_record" is present
+    And the lore scene "xinye_counsel"
+    When I choose 1
+    Then the flag "xinye_counsel_record" is present
+    When I save and restore
+    Then the flag "xinye_counsel_record" is present
+    And the lore scene "jingzhou"
+    When I choose 1
+    Then the hidden conclusion "jingxiang_warning_debt" is unlocked
+
+  Scenario: Refusing Tanxi responsibility preserves the existing Jingzhou scene
+    Given a "guanyu" campaign with seed 3436
+    And the flag "ancient_reunion" was earned earlier
+    And the flag "anxi_seal" was earned earlier
+    And the lore scene "tanxi_warning"
+    When I choose 2
+    Then the flag "tanxi_warning_record" is absent
+    And act 2 offers the lore scene "jingzhou"
+    And the lore scene "jingzhou"
+    When I choose 1
+    Then the flag "jingzhou_warning" is present
