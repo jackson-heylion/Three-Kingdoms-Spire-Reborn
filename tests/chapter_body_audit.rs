@@ -143,6 +143,7 @@ fn chapter_reading_statuses_cannot_be_mistaken_for_completed_textual_collation()
         assert!(lines[n-1][4].contains(&format!("oldid={oldid}")));
         assert!(lines[n-1][5].contains(beat));
     }
+    assert!(lines[36][5].contains("longzhong_letter"));
     assert!(lines[37][5].contains("jiangdong_hostage"));
     assert_eq!(lines.iter().filter(|fields|fields[3]=="已完成全回正文审校").count(),0);
 }
