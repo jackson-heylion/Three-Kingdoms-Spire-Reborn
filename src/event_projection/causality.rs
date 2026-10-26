@@ -7,9 +7,17 @@ use crate::{
 };
 use std::collections::HashSet;
 
-fn foe_slot(slot: Option<&str>) -> bool {
-    matches!(slot, Some("foe:0" | "foe:1" | "foe:2" | "foe:3"))
+fn foe_index(slot: Option<&str>) -> Option<u8> {
+    match slot {
+        Some("foe:0") => Some(0),
+        Some("foe:1") => Some(1),
+        Some("foe:2") => Some(2),
+        Some("foe:3") => Some(3),
+        _ => None,
+    }
 }
+
+fn foe_slot(slot: Option<&str>) -> bool { foe_index(slot).is_some() }
 
 /// A death must immediately follow a positive settled hit to the same foe
 /// from the same source. Death-triggered powers are emitted *after* the seal.
@@ -21,12 +29,16 @@ pub fn validate(archive: &[RunEvent]) -> Result<(), String> {
     let mut encounter = 0;
     let mut dead = HashSet::<String>::new();
     let mut summoned = HashSet::<String>::new();
+    // Foes occupy append-only slots, even after death. Earlier references
+    // prove a slot existed before a later claimed summon.
+    let mut highest_seen_slot: Option<u8> = None;
     for record in archive {
         verify_record_coordinate(previous, record)?;
         if record.encounter != encounter {
             encounter = record.encounter;
             dead.clear();
             summoned.clear();
+            highest_seen_slot = None;
             last = None;
         }
         let event = &record.event;
@@ -60,6 +72,13 @@ pub fn validate(archive: &[RunEvent]) -> Result<(), String> {
                     return Err(format!("encounter {encounter}: invalid summon"));
                 }
                 let slot = event.target.as_ref().expect("checked slot");
+                let index = foe_index(Some(slot)).expect("checked slot");
+                if highest_seen_slot.is_some_and(|seen| index <= seen) {
+                    return Err(format!("encounter {encounter}: summon reuses an observed foe slot"));
+                }
+                if event.source.is_empty() {
+                    return Err(format!("encounter {encounter}: summon lacks foe identity"));
+                }
                 if dead.contains(slot) || !summoned.insert(slot.clone()) {
                     return Err(format!("encounter {encounter}: duplicate or revived summon"));
                 }
@@ -70,6 +89,13 @@ pub fn validate(archive: &[RunEvent]) -> Result<(), String> {
                 return Err(format!("encounter {encounter}: invalid hero damage"));
             }
             _ => {}
+        }
+        // Damage/status targets and enemy attack sources prove prior occupancy.
+        // A subsequent summon must append after every observed foe slot.
+        for slot in [event.target.as_deref(), Some(event.source.as_str())] {
+            if let Some(index) = foe_index(slot) {
+                highest_seen_slot = Some(highest_seen_slot.map_or(index, |seen| seen.max(index)));
+            }
         }
         previous = Some((record.encounter, record.floor, event.seq));
         last = Some(record);
@@ -133,6 +159,36 @@ mod tests {
         events[3]=record(1,4,EventKind::FoeDefeated,"hero",1,Some("foe:0"));
         assert!(validate(&events).is_err());
     }
+    #[test]
+    fn rejects_summons_into_slots_already_proven_occupied() {
+        for preceding in [
+            record(1,1,1,EventKind::DamageDealt,"hero",2,Some("foe:1")),
+            record(1,1,1,EventKind::DamageReceived,"foe:2",2,Some("hero")),
+            record(1,1,1,EventKind::StatusApplied,"poison",1,Some("foe:3")),
+        ] {
+            let attempted = record(1,2,2,EventKind::FoeSummoned,"militia",1,Some("foe:1"));
+            let mut attempted = attempted;
+            attempted.floor = 1;
+            assert!(validate(&[preceding, attempted]).unwrap_err()
+                .contains("reuses an observed foe slot"));
+        }
+    }
+
+    #[test]
+    fn permits_append_only_summons_and_resets_slot_tracking_per_encounter() {
+        let archive = vec![
+            record(1,1,1,EventKind::DamageDealt,"hero",3,Some("foe:0")),
+            record(1,2,EventKind::FoeSummoned,"militia",1,Some("foe:1")),
+            record(1,3,EventKind::DamageDealt,"hero",2,Some("foe:1")),
+            record(1,4,EventKind::FoeSummoned,"militia",1,Some("foe:2")),
+            record(2,1,EventKind::FoeSummoned,"militia",1,Some("foe:1")),
+        ];
+        validate(&archive).unwrap();
+        let mut no_identity = archive;
+        no_identity[1].event.source.clear();
+        assert!(validate(&no_identity).unwrap_err().contains("lacks foe identity"));
+    }
+
     #[test]
     fn rejects_invalid_or_duplicate_summons_and_hero_damage() {
         for slot in ["foe:01","foe:4","hero"] {
