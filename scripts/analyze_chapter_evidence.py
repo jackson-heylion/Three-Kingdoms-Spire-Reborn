@@ -13,6 +13,7 @@ PARTIAL = "正文片段核查/未通读"
 PENDING = "未完成全文审校"
 OLDID = re.compile(r"oldid\s*=\s*(\d+)")
 FILE = re.compile(r"CHAPTER_(\d{3})_READING\.md\Z")
+GROUP = re.compile(r"CHAPTERS_(\d{3})_(\d{3})_READING\.md\Z")
 
 
 class EvidenceError(ValueError):
@@ -45,20 +46,23 @@ def audit(root: Path) -> dict:
         counts[status] += 1
 
     evidence = {}
-    for path in (root / "docs").glob("CHAPTER_*_READING.md"):
-        match = FILE.fullmatch(path.name)
-        if not match:
+    for path in (root / "docs").glob("CHAPTER*_READING.md"):
+        single = FILE.fullmatch(path.name)
+        grouped = GROUP.fullmatch(path.name)
+        if single:
+            chapters = [int(single.group(1))]
+        elif grouped:
+            start, end = map(int, grouped.groups())
+            if not 1 <= start <= end <= 120:
+                raise EvidenceError(f"invalid grouped evidence {path.name}")
+            chapters = range(start, end + 1)
+        else:
             continue
-        ch = match.group(1)
-        if not 1 <= int(ch) <= 120 or ch in evidence:
-            raise EvidenceError(f"invalid or duplicate evidence {ch}")
-        evidence[ch] = path
-    shared = root / "docs/CHAPTERS_001_002_READING.md"
-    if shared.exists():
-        for ch in ("001", "002"):
-            if ch in evidence:
-                raise EvidenceError(f"duplicate shared evidence {ch}")
-            evidence[ch] = shared
+        for chapter in chapters:
+            ch = f"{chapter:03}"
+            if not 1 <= chapter <= 120 or ch in evidence:
+                raise EvidenceError(f"invalid or duplicate evidence {ch}")
+            evidence[ch] = path
 
     for ch, path in evidence.items():
         revisions = set(OLDID.findall(path.read_text(encoding="utf-8")))
