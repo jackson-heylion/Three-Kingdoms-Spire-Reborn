@@ -198,8 +198,8 @@ mod tests {
         let new = NaturalBossStart::capture(&game, plan).finish(true);
         assert!(!old.core_complete && !old.support_complete);
         assert!(new.core_complete && new.support_complete);
-        assert_eq!(old.survived, false);
-        assert_eq!(new.survived, true);
+        assert!(!old.survived);
+        assert!(new.survived);
         assert!(old.core_owned < new.core_owned);
         assert!(old.support_owned < new.support_owned);
     }
