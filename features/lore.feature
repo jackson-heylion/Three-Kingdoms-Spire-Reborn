@@ -122,3 +122,53 @@ Scenario: Guan Yu's debt and mercy reveal a once-only hidden ending
     When I choose 2
     Then the flag "anxi_seal" is absent
     And act 2 does not offer the lore scene "jingzhou"
+
+  Scenario: Lu Bu keeps the Seven Armies military ledger and reconciles it at White Gate
+    Given a "lubu" campaign with seed 171
+    And the flag "halberd_shot" was earned earlier
+    And the lore scene "seven_armies"
+    When I choose 1
+    Then the flag "seven_armies_account" is present
+    And my deck contains "hold_line"
+    And the bond with "陈登" is active
+    And act 2 offers the lore scene "whitegate"
+    When I save and restore
+    Then the flag "seven_armies_account" is present
+    And the lore scene "whitegate"
+    When I choose 1
+    Then the hidden conclusion "seven_armies_debt" is unlocked
+
+  Scenario: Lu Bu's mercenary Seven Armies choice cannot claim the ledger
+    Given a "lubu" campaign with seed 172
+    And the flag "halberd_shot" was earned earlier
+    And the lore scene "seven_armies"
+    When I choose 2
+    Then the flag "seven_armies_account" is absent
+    And act 2 offers the lore scene "whitegate"
+    And the bond with "陈登" is absent
+
+  Scenario: Cao Cao assumes the Shouchun grain debt and carries it to Guandu
+    Given a "cao" campaign with seed 173
+    And the flag "puyang_supply" was earned earlier
+    And the flag "xu_capital" was earned earlier
+    And the lore scene "shouchun_grain"
+    When I choose 1
+    Then the flag "shouchun_grain_account" is present
+    And my deck contains "granary_support"
+    And the bond with "王垕" is active
+    And act 1 offers the lore scene "guandu"
+    When I save and restore
+    Then the flag "shouchun_grain_account" is present
+    And the lore scene "guandu"
+    When I choose 1
+    Then the hidden conclusion "shouchun_grain_debt" is unlocked
+
+  Scenario: Cao Cao's blame-shifting choice cannot block the old Guandu arc
+    Given a "cao" campaign with seed 174
+    And the flag "puyang_supply" was earned earlier
+    And the flag "xu_capital" was earned earlier
+    And the lore scene "shouchun_grain"
+    When I choose 2
+    Then the flag "shouchun_grain_account" is absent
+    And act 1 offers the lore scene "guandu"
+    And the bond with "王垕" is absent
