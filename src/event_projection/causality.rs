@@ -166,7 +166,7 @@ mod tests {
             record(1,1,1,EventKind::DamageReceived,"foe:2",2,Some("hero")),
             record(1,1,1,EventKind::StatusApplied,"poison",1,Some("foe:3")),
         ] {
-            let attempted = record(1,2,2,EventKind::FoeSummoned,"militia",1,Some("foe:1"));
+            let attempted = record(1,2,EventKind::FoeSummoned,"militia",1,Some("foe:1"));
             let mut attempted = attempted;
             attempted.floor = 1;
             assert!(validate(&[preceding, attempted]).unwrap_err()
