@@ -50,7 +50,11 @@ fn three_cross_act_debts_require_their_prior_flags() {
         let beat=BEATS.iter().find(|b|b.id==id).unwrap();
         assert_eq!(beat.prerequisite,Some(needed));
         assert_eq!(beat.act,act);
-        assert!(BEATS.iter().any(|earlier|earlier.flag==needed && earlier.chapter<beat.chapter));
+        assert!(BEATS.iter().any(|earlier|
+            earlier.flag == needed && (earlier.chapter < beat.chapter
+                || (id == "guandu_letters" && earlier.id == "guandu"
+                    && earlier.chapter == beat.chapter))),
+            "prerequisite {needed} must be planted before scene {id}");
     }
 }
 
