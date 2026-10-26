@@ -307,6 +307,7 @@ impl Game {
         let mut stages = campaign_authority::CampaignProjector::default();
         let mut runtimes = battle_runtime_events::BattleRuntimeProjector::default();
         let mut events = EventProjector::new();
+        let mut actions = crate::event_stack::projection::action_causality::ActionLifecycleProjector::new();
         // Keep only the latest bounded window. Re-scanning the full archive
         // at each revision would turn long campaigns into quadratic audits.
         let mut event_window: Vec<crate::combat::CombatEvent> = Vec::new();
@@ -328,6 +329,8 @@ impl Game {
             for record in &archive[offset..end] {
                 events.push(record).map_err(|error|
                     format!("event revision {index}: {error}"))?;
+                actions.push(record).map_err(|error|
+                    format!("event revision {index}: {error}"))?;
                 if window_encounter != Some(record.encounter) {
                     event_window.clear();
                     window_encounter = Some(record.encounter);
@@ -338,6 +341,10 @@ impl Game {
                 }
             }
             offset = end;
+            // A persisted revision is atomic: no card play or enemy turn may
+            // borrow its resolution from a later successful action.
+            actions.committed().map_err(|error|
+                format!("event revision {index}: {error}"))?;
             let (telemetry_state, _) = stats.state()?;
             let (campaign_state, _) = stages.state()?;
             let active = campaign_state.stage == crate::Stage::Combat;
