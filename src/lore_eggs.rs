@@ -118,4 +118,8 @@
         flags:&["guandu_grain","jiangkou_inquest_record","chain_ship_risk_record"],reward_gold:22,reward_heal:8,
         hint:"官渡用粮的旧识、三江口误杀水将、雾江折箭与连船火险相连；承认责任不改变既定的蔡张之死或曹操连船军令。"},
 
+    EasterEgg {id:"redcliff_warning_ledger",name:"伪书连船·赤壁预警旧账",hero:Some(Hero::CaoCao),chapters:&[45,47,48],
+        flags:&["jiangkou_inquest_record","chain_ship_risk_record","river_banquet_record"],reward_gold:20,reward_heal:8,
+        hint:"蒋干伪书、连船谏言、刘馥之死与北军折损不能被一次败绩抹去；此为曹营事后反省，不改赤壁既成战果。"},
+
 ]
