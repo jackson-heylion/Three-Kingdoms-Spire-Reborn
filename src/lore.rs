@@ -54,49 +54,7 @@ pub struct Bond {
     pub note: &'static str,
 }
 
-pub const BONDS: &[Bond] = &[
-    Bond { protagonist: Hero::GuanYu, companion: "刘备", relation: Relation::Sworn, chapter: 1, flag: "taoyuan_oath", note: "一诺穿越兴亡，战斗开场义气护甲增加" },
-    Bond { protagonist: Hero::GuanYu, companion: "张飞", relation: Relation::Sworn, chapter: 1, flag: "taoyuan_oath", note: "三兄弟相救相携" },
-    Bond { protagonist: Hero::GuanYu, companion: "张飞", relation: Relation::Sworn, chapter: 2, flag: "anxi_seal", note: "安喜县拒贿弃印，见义须同时顾及暴烈与怜民" },
-    Bond { protagonist: Hero::GuanYu, companion: "曹操", relation: Relation::Patron, chapter: 5, flag: "wenjiu_oath", note: "汜水关前以武勇举荐无职微者；盟军粮秣不济是另一笔旧账" },
-    Bond { protagonist: Hero::GuanYu, companion: "曹操", relation: Relation::Patron, chapter: 25, flag: "baima_debt", note: "曹营礼遇与华容报恩构成跨幕因果" },
-    Bond { protagonist: Hero::GuanYu, companion: "普净", relation: Relation::Friend, chapter: 27, flag: "five_passes_record", note: "镇国寺示警救关羽免卞喜伏击；玩家可记录这份不以斩将为中心的救援证言" },
-    Bond { protagonist: Hero::GuanYu, companion: "周仓", relation: Relation::Friend, chapter: 28, flag: "ancient_reunion", note: "古城聚义与旧部重逢" },
-    Bond { protagonist: Hero::GuanYu, companion: "吕蒙", relation: Relation::Rival, chapter: 75, flag: "jingzhou_warning", note: "荆州之得失从白衣渡江埋下回声" },
-    Bond { protagonist: Hero::ZhugeLiang, companion: "刘备", relation: Relation::Patron, chapter: 37, flag: "longzhong_plan", note: "草庐三请之后，构筑开局获得谋略" },
-    Bond { protagonist: Hero::ZhugeLiang, companion: "庞统", relation: Relation::Friend, chapter: 57, flag: "phoenix_letter", note: "卧龙凤雏，同辈相知亦各负使命" },
-    Bond { protagonist: Hero::ZhugeLiang, companion: "周瑜", relation: Relation::Rival, chapter: 44, flag: "redcliff_wind", note: "同盟相争，风火相济" },
-    Bond { protagonist: Hero::ZhugeLiang, companion: "姜维", relation: Relation::Inherited, chapter: 93, flag: "successor_scroll", note: "衣钵可传，使命未必遂愿" },
-    Bond { protagonist: Hero::ZhugeLiang, companion: "司马懿", relation: Relation::Rival, chapter: 95, flag: "empty_city", note: "知其谨慎，借彼猜疑" },
-    Bond { protagonist: Hero::SunShangxiang, companion: "孙策", relation: Relation::Family, chapter: 7, flag: "sun_father_dispatch", note: "孙坚岘山遇伏后，孙氏子女从旧部证言继承的不只是兵权，也包括质疑孤进的责任" },
-    Bond { protagonist: Hero::SunShangxiang, companion: "孙权", relation: Relation::Family, chapter: 29, flag: "sun_succession_account", note: "孙策旧案与临终托孤由后人审读，孙权继业重在任贤；非孙尚香亲历此回" },
-    Bond { protagonist: Hero::SunShangxiang, companion: "孙权", relation: Relation::Family, chapter: 54, flag: "jiangdong_covenant", note: "江东家国与个人抉择交叠" },
-    Bond { protagonist: Hero::SunShangxiang, companion: "刘备", relation: Relation::Alliance, chapter: 54, flag: "jiangdong_covenant", note: "联姻既是策谋，也是人的命运" },
-    Bond { protagonist: Hero::SunShangxiang, companion: "吴国太", relation: Relation::Family, chapter: 54, flag: "jiangdong_covenant", note: "佛寺相看，既见家事亦见国事" },
-    Bond { protagonist: Hero::SunShangxiang, companion: "赵云", relation: Relation::Rival, chapter: 61, flag: "river_divide", note: "截江夺阿斗的冲突不能抹去" },
-    Bond { protagonist: Hero::SunShangxiang, companion: "陆逊", relation: Relation::Alliance, chapter: 84, flag: "yiling_ashes", note: "夷陵之火对应江东内政与蜀吴裂痕" },
-    Bond { protagonist: Hero::CaoCao, companion: "陈宫", relation: Relation::Friend, chapter: 4, flag: "sevenstar_vow", note: "中牟释缚与吕家误杀，忠义与疑惧都随逃亡延续" },
-    Bond { protagonist: Hero::CaoCao, companion: "陈宫", relation: Relation::Rival, chapter: 10, flag: "xuzhou_debt", note: "徐州劝止连坐百姓遭拒；当年救曹的人最终因这笔军纪与民命旧账再度远去" },
-    Bond { protagonist: Hero::CaoCao, companion: "荀彧", relation: Relation::Mentor, chapter: 14, flag: "xu_capital", note: "迎天子定许都，谋主与雄主各有守望" },
-    Bond { protagonist: Hero::CaoCao, companion: "郭嘉", relation: Relation::Friend, chapter: 33, flag: "liaodong_letter", note: "遗计定辽东，人才并非一次性消耗" },
-    Bond { protagonist: Hero::CaoCao, companion: "许攸", relation: Relation::Patron, chapter: 30, flag: "guandu_grain", note: "乌巢粮道的转机由情报和旧交构成" },
-    Bond { protagonist: Hero::CaoCao, companion: "关羽", relation: Relation::Patron, chapter: 25, flag: "baima_debt", note: "白马结恩，到华容留下回响" },
-    Bond { protagonist: Hero::CaoCao, companion: "袁绍", relation: Relation::Rival, chapter: 30, flag: "guandu_grain", note: "兵多未必胜，粮断则势倾" },
-    Bond { protagonist: Hero::LuBu, companion: "丁原", relation: Relation::Betrayal, chapter: 3, flag: "red_hare", note: "赤兔美名之下的第一道背盟伤痕" },
-    Bond { protagonist: Hero::LuBu, companion: "董卓", relation: Relation::Betrayal, chapter: 9, flag: "phoenix_pavilion", note: "一时枭雄的权势无法换来忠义" },
-    Bond { protagonist: Hero::LuBu, companion: "王允", relation: Relation::Alliance, chapter: 9, flag: "changan_account", note: "诛董不等于善后；拒赦与失守留下政治责任" },
-    Bond { protagonist: Hero::LuBu, companion: "貂蝉", relation: Relation::Alliance, chapter: 8, flag: "phoenix_pavilion", note: "连环计推动权力裂变；戏曲演义非正史铁证" },
-    Bond { protagonist: Hero::LuBu, companion: "陈宫", relation: Relation::Friend, chapter: 19, flag: "white_gate", note: "劝谏不听，遗憾延续到白门楼" },
-    Bond { protagonist: Hero::LuBu, companion: "刘备", relation: Relation::Rival, chapter: 16, flag: "halberd_shot", note: "辕门射戟的解围不代表恩怨尽解" },
-    Bond { protagonist: Hero::CaoCao, companion: "王垕", relation: Relation::Betrayal, chapter: 17, flag: "shouchun_grain_account", note: "小斛是主帅之令，王垕按令发粮却被斩顶罪；玩家可架空选择公开军令担责" },
-    Bond { protagonist: Hero::LuBu, companion: "陈登", relation: Relation::Alliance, chapter: 17, flag: "seven_armies_account", note: "陈登联络韩暹杨奉反戈破袁，后来暗通曹操；盟约与军纪应分别记账" },
-    Bond { protagonist: Hero::CaoCao, companion: "贾诩", relation: Relation::Rival, chapter: 18, flag: "anzhong_field_report", note: "贾诩先阻追后劝追，曹军安众初胜不掩二次追击损失；敌军判断也须入军报" },
-    Bond { protagonist: Hero::GuanYu, companion: "刘备", relation: Relation::Sworn, chapter: 22, flag: "wangzhong_release_record", note: "刘备放归王忠刘岱，关羽在张飞再拦时遵守放俘军令；玩家选择保留这份军簿" },
-    Bond { protagonist: Hero::CaoCao, companion: "程昱", relation: Relation::Mentor, chapter: 24, flag: "palace_purge_record", note: "程昱劝止废帝，曹操仍诛董承并害董妃；记录谏言不等于小说中撤回宫门杀戮" },
-    Bond { protagonist: Hero::LuBu, companion: "陈宫", relation: Relation::Mentor, chapter: 18, flag: "xiaopei_courier_guard", note: "截获密书不等于可以杀使；玩家可架空选择保全来使并预警百姓" },
-    Bond { protagonist: Hero::LuBu, companion: "侯成", relation: Relation::Betrayal, chapter: 19, flag: "xiapi_orders_account", note: "追回失马献酒请示而遭重罚；献门叛变并非无前因，玩家可架空保留完整军令账" },
-    Bond { protagonist: Hero::CaoCao, companion: "荀攸", relation: Relation::Mentor, chapter: 19, flag: "xiapi_flood_ledger", note: "荀攸止退、郭嘉荀彧议决水、侯成宋宪魏续献门须分清因果；玩家可架空记录水攻风险" },
-];
+include!("lore_bonds.rs");
 
 include!("lore_beats.rs");
 
@@ -129,9 +87,6 @@ pub fn newly_completed_eggs(
 
 pub fn beat(id: &str) -> Option<&'static Beat> { BEATS.iter().find(|b| b.id == id) }
 
-/// For deterministic scenario selection: favor a hero-specific prerequisite payoff,
-/// then the hero's introductory chapter, finally a wider shared historic clue.
-/// It consumes no randomness; each encounter is used at most once per run.
 include!("lore_selection.rs");
 
 pub fn bonds_for(hero: Hero, flags: &[String]) -> Vec<&'static Bond> {

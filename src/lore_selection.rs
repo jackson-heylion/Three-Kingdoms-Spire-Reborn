@@ -1,6 +1,9 @@
 // Deterministic scene ordering; extracted from lore.rs to keep modules small.
 // A later optional retrospective must not steal the original Jingzhou entry
 // from an old save that has already earned the Anxi responsibility flag.
+/// For deterministic scenario selection: favor a hero-specific prerequisite payoff,
+/// then the hero's introductory chapter, finally a wider shared historic clue.
+/// It consumes no randomness; each encounter is used at most once per run.
 pub fn next_beat(hero: Hero, act: u8, flags: &[String], seen: &[String]) -> Option<&'static Beat> {
     let eligible = |b: &&Beat| {
         b.act == act && !seen.iter().any(|id| id == b.id)
