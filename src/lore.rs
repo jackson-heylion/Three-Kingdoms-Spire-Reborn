@@ -112,6 +112,9 @@ pub struct EasterEgg {
 /// Alternate monetary choices never plant a prerequisite, so they cannot
 /// claim the same narrative ending accidentally.
 pub const EASTER_EGGS: &[EasterEgg] = &[
+    EasterEgg {id:"three_terms_huarong",name:"三约挂印·华容旧义",hero:Some(Hero::GuanYu),chapters:&[25,26,50],
+        flags:&["baima_debt","three_terms_record","seal_return_record","huarong_mercy"],reward_gold:20,reward_heal:7,
+        hint:"土山三约保全刘备家眷，延津功成后封金挂印，华容路上才有恩义相偿；选择只取军功者不得领取这笔跨幕回响。"},
     EasterEgg {id:"sword_debt",name:"青龙旧债",hero:Some(Hero::GuanYu),chapters:&[25,50],
         flags:&["baima_debt","huarong_mercy"],reward_gold:35,reward_heal:8,
         hint:"青龙刀刃上的旧日刀痕，终于不再指向那条泥泞的山道。"},
