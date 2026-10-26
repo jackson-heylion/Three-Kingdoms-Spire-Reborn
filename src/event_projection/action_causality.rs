@@ -20,91 +20,119 @@ fn valid_potion(source: &str, target: Option<&str>) -> bool {
     }
 }
 
-/// A successful play has exactly one matching resolution, with any effects
-/// between them. A turn-end either starts the next turn or seals the battle.
-/// Potion use is recorded before its effect with its actual target contract.
-///
-/// This is an immutable, linear-time audit of settled records, not a new
-/// gameplay dispatch mechanism. Earlier encounters must end before the next
-/// begins; the final encounter may still be active.
-pub fn validate(archive: &[RunEvent]) -> Result<(), String> {
-    let mut previous = None;
-    let mut encounter = 0;
-    let mut closed = false;
-    let mut pending_card: Option<&str> = None;
-    let mut pending_turn_start = false;
-    for record in archive {
-        verify_record_coordinate(previous, record)?;
+/// Incremental grammar for complete, committed card, turn and potion actions.
+/// A rejected record does not change the cursor or any pending action. The
+/// state holds only the current card identity and encounter coordinates.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ActionLifecycleProjector {
+    previous: Option<(u64, u8, u64)>,
+    encounter: u64,
+    closed: bool,
+    pending_card: Option<String>,
+    pending_turn_start: bool,
+}
+
+impl ActionLifecycleProjector {
+    pub fn new() -> Self { Self::default() }
+
+    /// Stage the small state machine so a malformed record is never committed.
+    pub fn push(&mut self, record: &RunEvent) -> Result<(), String> {
+        let mut candidate = self.clone();
+        candidate.apply(record)?;
+        *self = candidate;
+        Ok(())
+    }
+
+    fn apply(&mut self, record: &RunEvent) -> Result<(), String> {
+        verify_record_coordinate(self.previous, record)?;
         let event = &record.event;
-        if record.encounter != encounter {
-            if encounter != 0 && (!closed || pending_card.is_some() || pending_turn_start) {
-                return Err(format!("encounter {encounter}: unfinished action at boundary"));
+        if record.encounter != self.encounter {
+            if self.encounter != 0
+                && (!self.closed || self.pending_card.is_some() || self.pending_turn_start)
+            {
+                return Err(format!("encounter {}: unfinished action at boundary", self.encounter));
             }
-            encounter = record.encounter;
-            closed = false;
-            pending_card = None;
-            pending_turn_start = false;
+            self.encounter = record.encounter;
+            self.closed = false;
+            self.pending_card = None;
+            self.pending_turn_start = false;
         }
-        if closed {
-            return Err(format!("encounter {encounter}: event after battle end"));
+        if self.closed {
+            return Err(format!("encounter {}: event after battle end", self.encounter));
         }
         match event.kind {
             EventKind::CardPlayed => {
-                if pending_card.is_some() || pending_turn_start || event.source.is_empty()
-                    || event.amount < 0 || event.target.is_some()
+                if self.pending_card.is_some() || self.pending_turn_start
+                    || event.source.is_empty() || event.amount < 0 || event.target.is_some()
                 {
-                    return Err(format!("encounter {encounter}: invalid or nested card play"));
+                    return Err(format!("encounter {}: invalid or nested card play", self.encounter));
                 }
-                pending_card = Some(&event.source);
+                self.pending_card = Some(event.source.clone());
             }
             EventKind::CardResolved => {
-                if pending_card != Some(event.source.as_str())
+                if self.pending_card.as_deref() != Some(event.source.as_str())
                     || event.amount != 0 || event.target.is_some()
                 {
-                    return Err(format!("encounter {encounter}: orphan or mismatched card resolution"));
+                    return Err(format!("encounter {}: orphan or mismatched card resolution", self.encounter));
                 }
-                pending_card = None;
+                self.pending_card = None;
             }
             EventKind::TurnEnded => {
-                if pending_card.is_some() || pending_turn_start
+                if self.pending_card.is_some() || self.pending_turn_start
                     || event.source != "hero" || event.amount != 0 || event.target.is_some()
                 {
-                    return Err(format!("encounter {encounter}: invalid turn end"));
+                    return Err(format!("encounter {}: invalid turn end", self.encounter));
                 }
-                pending_turn_start = true;
+                self.pending_turn_start = true;
             }
             EventKind::TurnStarted => {
-                if pending_card.is_some() || !pending_turn_start
+                if self.pending_card.is_some() || !self.pending_turn_start
                     || event.source != "hero" || event.amount != 0 || event.target.is_some()
                 {
-                    return Err(format!("encounter {encounter}: turn start without end"));
+                    return Err(format!("encounter {}: turn start without end", self.encounter));
                 }
-                pending_turn_start = false;
+                self.pending_turn_start = false;
             }
             EventKind::PotionUsed => {
-                if pending_card.is_some() || pending_turn_start || event.amount != 1
+                if self.pending_card.is_some() || self.pending_turn_start || event.amount != 1
                     || !valid_potion(&event.source, event.target.as_deref())
                 {
-                    return Err(format!("encounter {encounter}: invalid potion use"));
+                    return Err(format!("encounter {}: invalid potion use", self.encounter));
                 }
             }
             EventKind::BattleEnded => {
-                if pending_card.is_some() {
-                    return Err(format!("encounter {encounter}: battle sealed during card play"));
+                if self.pending_card.is_some() {
+                    return Err(format!("encounter {}: battle sealed during card play", self.encounter));
                 }
-                // A lethal poison, enemy attack or attrition may end a battle
-                // after TurnEnded without a subsequent TurnStarted.
-                pending_turn_start = false;
-                closed = true;
+                // Lethal poison, an enemy attack or attrition can seal the
+                // encounter after TurnEnded without a subsequent TurnStarted.
+                self.pending_turn_start = false;
+                self.closed = true;
             }
             _ => {}
         }
-        previous = Some((record.encounter, record.floor, event.seq));
+        self.previous = Some((record.encounter, record.floor, event.seq));
+        Ok(())
     }
-    if pending_card.is_some() || pending_turn_start {
-        return Err(format!("encounter {encounter}: incomplete committed action"));
+
+    /// An action revision must not end with a played-but-unresolved card or
+    /// a half-completed enemy turn. This is checked after every persisted cursor.
+    pub fn committed(&self) -> Result<(), String> {
+        if self.pending_card.is_some() || self.pending_turn_start {
+            return Err(format!("encounter {}: incomplete committed action", self.encounter));
+        }
+        Ok(())
     }
-    Ok(())
+}
+
+/// Validate a complete event archive with the same incremental grammar used
+/// at action revision boundaries. This is event-only audit, not Game replay.
+pub fn validate(archive: &[RunEvent]) -> Result<(), String> {
+    let mut projector = ActionLifecycleProjector::new();
+    for record in archive {
+        projector.push(record)?;
+    }
+    projector.committed()
 }
 
 #[cfg(test)]
@@ -201,6 +229,28 @@ mod tests {
     }
 
     #[test]
+    fn committed_revision_cannot_split_a_card_or_enemy_turn() {
+        let records = complete();
+        let mut projector = ActionLifecycleProjector::new();
+        for record in &records[..2] { projector.push(record).unwrap(); }
+        assert!(projector.committed().unwrap_err().contains("incomplete committed action"));
+        let before = projector.clone();
+        let mut forged = records[2].clone();
+        forged.event.kind = EventKind::CardResolved;
+        forged.event.source = "other_card".into();
+        assert!(projector.push(&forged).is_err());
+        assert_eq!(projector, before, "rejected event must not move cursor");
+        for record in &records[2..4] { projector.push(record).unwrap(); }
+        projector.committed().unwrap();
+        projector.push(&records[4]).unwrap();
+        assert!(projector.committed().is_err(), "TurnEnded is not a complete revision");
+        for record in &records[5..7] { projector.push(record).unwrap(); }
+        projector.committed().unwrap();
+        for record in &records[7..] { projector.push(record).unwrap(); }
+        projector.committed().unwrap();
+    }
+
+    #[test]
     fn checks_real_five_hero_first_turns_and_v2_roundtrip() {
         for hero in [Hero::GuanYu, Hero::ZhugeLiang, Hero::SunShangxiang,
                      Hero::CaoCao, Hero::LuBu] {
@@ -221,6 +271,7 @@ mod tests {
                 let loaded = Game::from_json(&game.to_json().unwrap()).unwrap();
                 validate(loaded.event_history.as_deref().unwrap()).unwrap();
                 loaded.audit_event_archive_authority().unwrap();
+                assert!(loaded.audit_event_archive_boundaries().unwrap().is_some());
             }
         }
     }
