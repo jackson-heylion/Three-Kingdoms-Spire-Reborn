@@ -98,4 +98,10 @@
         flags:&["sun_succession_account","jiangdong_hostage_record","jiangdong_covenant","yiling_ashes"],reward_gold:20,reward_heal:7,
         hint:"江东拒送质子、甘宁旧怨与苏飞待决，婚盟之后仍须在夷陵记下双方军民与旧臣责任。"},
 
+    EasterEgg {id:"xinye_dangyang_debt",name:"博望军令·新野撤民·长坂旧账",hero:Some(Hero::ZhugeLiang),chapters:&[39,40,41,49],
+        flags:&["bowang_orders_record","xinye_civilians","redcliff_wind","dangyang_refuge_account"],reward_gold:22,reward_heal:9,
+        hint:"博望分兵、新野撤民与长坂离散不能只算火攻胜负；赤壁后回查旧账，军令与民命同重。"},
+    EasterEgg {id:"jiangxia_mercy_debt",name:"苏飞获赦·江东旧怨回响",hero:Some(Hero::SunShangxiang),chapters:&[38,39,54,84],
+        flags:&["jiangdong_hostage_record","jiangxia_pardon_record","jiangdong_covenant","yiling_ashes"],reward_gold:19,reward_heal:8,
+        hint:"江夏苏飞旧恩与凌统父仇经婚盟、夷陵回望，赦令和军民安置不应被首级功簿遮蔽。"},
 ]
