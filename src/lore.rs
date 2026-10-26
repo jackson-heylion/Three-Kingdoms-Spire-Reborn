@@ -116,7 +116,7 @@ pub const EASTER_EGGS: &[EasterEgg] = &[
         flags:&["wangzhong_release_record","xiapi_household_ledger","jingzhou_warning"],reward_gold:22,reward_heal:7,
         hint:"雪阵放俘、下邳守眷与荆州防务相隔数十回；先护人命的军令，终于在后方危局得到回响。"},
     EasterEgg {id:"jiping_palace_debt",name:"衣带诏与宫门旧账",hero:Some(Hero::CaoCao),chapters:&[14,23,24,30],
-        flags:&["xu_capital","jiping_case_record","palace_purge_record","guandu_grain"],reward_gold:19,reward_heal:7,
+        flags:&["xuhuang_honor","jiping_case_record","palace_purge_record","guandu_grain"],reward_gold:19,reward_heal:7,
         hint:"迎帝许都、吉平案证、宫门诛杀与官渡用兵并存；胜败不能替代对诏令和人命的追问。"},
     EasterEgg {id:"sword_debt",name:"青龙旧债",hero:Some(Hero::GuanYu),chapters:&[25,50],
         flags:&["baima_debt","huarong_mercy"],reward_gold:35,reward_heal:8,
