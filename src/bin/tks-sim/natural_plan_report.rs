@@ -73,6 +73,9 @@ struct NaturalPlanCell {
     boss_core_formed:usize,
     boss_full_formed:usize,
     boss_core_wins:usize,
+    boss_floor_sum:u64,
+    boss_core_owned_sum:usize,
+    boss_support_owned_sum:usize,
     counter_boss_battles:usize,
     counter_boss_wins:usize,
     core_distinct_sum:usize,
@@ -100,6 +103,7 @@ fn natural_plan_report(samples:usize)->Result<NaturalPlanReport,String> {
                 complete_core:0,complete_support:0,
                 boss_battles:0,boss_wins:0,boss_core_formed:0,
                 boss_full_formed:0,boss_core_wins:0,
+                boss_floor_sum:0,boss_core_owned_sum:0,boss_support_owned_sum:0,
                 counter_boss_battles:0,counter_boss_wins:0,
                 core_distinct_sum:0,support_distinct_sum:0,
                 reward_screens:0,focus_offer_screens:0,focus_picks:0,
@@ -129,6 +133,9 @@ fn natural_plan_report(samples:usize)->Result<NaturalPlanReport,String> {
                 cell.focus_picks+=u64::from(focused.focus_picks);
                 for boss in &focused.natural_boss_evidence {
                     cell.boss_battles+=1;
+                    cell.boss_floor_sum+=u64::from(boss.floor);
+                    cell.boss_core_owned_sum+=boss.core_owned;
+                    cell.boss_support_owned_sum+=boss.support_owned;
                     cell.boss_wins+=usize::from(boss.survived);
                     cell.boss_core_formed+=usize::from(boss.core_complete);
                     cell.boss_full_formed+=usize::from(boss.core_complete && boss.support_complete);
