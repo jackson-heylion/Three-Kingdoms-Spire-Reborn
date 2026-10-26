@@ -172,6 +172,29 @@ def main() -> None:
 
                 assert json.loads(save.read_text(encoding="utf-8")) == payload
                 print(f"PASS {hero} ascension={ascension}: nine streams/archive/restart/identity and telemetry tamper")
+        # Real CLI process: an intermediate revision is forged and a later
+        # legitimate action restores the final nine-domain runtime state.
+        directory = root / "intermediate-runtime-window"
+        journey = invoke(
+            [tks, "--plain", "--save-dir", str(directory)],
+            stdin="custom guanyu 777 0\nchoose 1\nend\nquit\n",
+        )
+        assert journey.returncode == 0, journey.stderr[-1500:]
+        save = directory / "save.json"
+        assert invoke([authority, str(save)]).returncode == 0
+        payload = json.loads(save.read_text(encoding="utf-8"))
+        assert payload["revision"] >= 2, payload["revision"]
+        tampered = json.loads(json.dumps(payload))
+        first = tampered["battle_runtime_history"][1]["change"]
+        assert first["type"] == "enter" and first["state"]["events"], first
+        first["state"]["events"][0]["source"] += ":forged"
+        forged = directory / "forged-intermediate-runtime-window.json"
+        forged.write_text(json.dumps(tampered), encoding="utf-8")
+        rejected = invoke([authority, str(forged)])
+        assert rejected.returncode != 0, rejected.stdout
+        assert "event revision 1: battle runtime window differs" in rejected.stderr, rejected.stderr
+        assert json.loads(save.read_text(encoding="utf-8")) == payload
+
     print("PASS 10 cross-platform real-process composite authority scenarios")
 
 

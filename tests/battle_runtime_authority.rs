@@ -79,6 +79,46 @@ fn intermediate_runtime_floor_turn_forgery_fails_cross_journal_and_retry_is_atom
 }
 
 #[test]
+fn forged_intermediate_event_window_cannot_hide_behind_valid_final_nine_domain_state() {
+    let game = campaign(Hero::ZhugeLiang, 0);
+    assert!(game.audit_event_archive_authority().is_ok());
+
+    for alteration in ["rewrite_payload", "truncate_retained_window"] {
+        let mut forged = game.clone();
+        // SetDoctrine is revision 1; Choose enters combat at revision 2;
+        // EndTurn is revision 3 and retains the original final state.
+        let event = &mut forged.battle_runtime_history.as_mut().unwrap()[2];
+        let state = match event {
+            BattleRuntimeEvent::Changed {
+                change: BattleRuntimeChange::Enter { state }, ..
+            } => state,
+            _ => panic!("expected active combat entry at revision 2"),
+        };
+        assert!(!state.events.is_empty(), "encounter should emit opening events");
+        match alteration {
+            "rewrite_payload" => state.events[0].source.push_str(":forged"),
+            "truncate_retained_window" => { state.events.remove(0); }
+            _ => unreachable!(),
+        }
+
+        // Individual runtime history and the final nine-domain projection
+        // remain valid. Only prefix-to-runtime event evidence detects this
+        // transient rewrite (which was repaired by the later revision).
+        assert!(battle_runtime_events::project(
+            forged.battle_runtime_history.as_ref().unwrap()).is_ok());
+        assert!(forged.audit_composite_authority().is_ok());
+        forged.validate().unwrap();
+        let error = forged.audit_event_archive_authority().unwrap_err();
+        assert!(error.contains("event revision 2: battle runtime window differs"),
+            "{alteration}: {error}");
+
+        // The rejection must survive save/restart without rewriting the log.
+        let restored = Game::from_json(&forged.to_json().unwrap()).unwrap();
+        assert!(restored.audit_event_archive_authority().is_err());
+    }
+}
+
+#[test]
 fn legacy_v2_without_runtime_history_can_resume_but_cannot_claim_complete_recovery() {
     let mut game = campaign(Hero::CaoCao, 0);
     game.battle_runtime_history = None;
@@ -87,6 +127,23 @@ fn legacy_v2_without_runtime_history_can_resume_but_cannot_claim_complete_recove
     restored.apply(Action::EndTurn).unwrap();
     assert!(restored.battle_runtime_history.is_none());
     restored.verify_action_replay().unwrap();
+}
+
+#[test]
+fn cursor_free_legacy_save_without_ninth_domain_stays_uncertified_not_rejected() {
+    use three_kingdoms_spire_reborn::telemetry_authority::TelemetryEvent;
+
+    let mut legacy = campaign(Hero::CaoCao, 0);
+    legacy.battle_runtime_history = None;
+    for entry in legacy.telemetry_history.as_mut().unwrap() {
+        match entry {
+            TelemetryEvent::Started { archive_len, .. }
+            | TelemetryEvent::Changed { archive_len, .. } => *archive_len = None,
+        }
+    }
+    let restored = Game::from_json(&legacy.to_json().unwrap()).unwrap();
+    assert_eq!(restored.audit_event_archive_boundaries().unwrap(), None);
+    assert!(restored.audit_composite_authority().is_err());
 }
 
 fn step(game: &Game, index: usize) -> authority::AuthorityStep<'_> {
