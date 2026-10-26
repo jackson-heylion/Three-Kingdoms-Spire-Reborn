@@ -7,6 +7,7 @@ include!("lore_beats_part4.rs");
 include!("lore_beats_part5.rs");
 include!("lore_beats_part6.rs");
 include!("lore_beats_part7.rs");
+include!("lore_beats_part8.rs");
 
 const fn collect_beats<const N: usize>(parts: &[&[Beat]]) -> [Beat; N] {
     let mut result = [parts[0][0]; N];
@@ -25,7 +26,7 @@ const fn collect_beats<const N: usize>(parts: &[&[Beat]]) -> [Beat; N] {
     result
 }
 const BEATS_COUNT: usize =
-    BEATS_PART_1.len() + BEATS_PART_2.len() + BEATS_PART_3.len() + BEATS_PART_4.len() + BEATS_PART_5.len() + BEATS_PART_6.len() + BEATS_PART_7.len();
+    BEATS_PART_1.len() + BEATS_PART_2.len() + BEATS_PART_3.len() + BEATS_PART_4.len() + BEATS_PART_5.len() + BEATS_PART_6.len() + BEATS_PART_7.len() + BEATS_PART_8.len();
 pub const BEATS: &[Beat] = &collect_beats::<BEATS_COUNT>(&[
-    BEATS_PART_1, BEATS_PART_2, BEATS_PART_3, BEATS_PART_4, BEATS_PART_5, BEATS_PART_6, BEATS_PART_7,
+    BEATS_PART_1, BEATS_PART_2, BEATS_PART_3, BEATS_PART_4, BEATS_PART_5, BEATS_PART_6, BEATS_PART_7, BEATS_PART_8,
 ]);
