@@ -44,6 +44,17 @@ fn pinned_chapters_are_distinct_and_new_beats_remain_optional() {
         .map(|b| b.id), Some("jingzhou"), "old saves cannot be forced through new events");
     assert_eq!(next_beat(Hero::CaoCao, 1, &["xu_capital".into()], &[])
         .map(|b| b.id), Some("guandu"));
+    assert_eq!(next_beat(Hero::GuanYu, 1,
+        &["wenjiu_oath".into(), "wangzhong_release_record".into()],
+        &["xutian_guard".into(), "xuzhou_gate".into(), "wangzhong_prisoners".into()])
+        .map(|b| b.id), Some("xiapi_household"),
+        "the household scene must remain selectable after the chapter 22 choice");
+    assert_eq!(next_beat(Hero::CaoCao, 1,
+        &["xu_capital".into(), "xuhuang_honor".into(), "jiping_case_record".into()],
+        &["shouchun_grain".into(), "anzhong".into(), "xiapi_flood".into(),
+          "jiping_testimony".into()])
+        .map(|b| b.id), Some("palace_ledger"),
+        "the chapter 24 ledger must be reachable after Jiping");
     assert_eq!(beat("guandu").unwrap().prerequisite, Some("xu_capital"));
 }
 
