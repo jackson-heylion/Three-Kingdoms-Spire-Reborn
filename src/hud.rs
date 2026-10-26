@@ -214,6 +214,7 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
                 let prefix = format!("{} {}. ", if active { "▶" } else { " " }, i + 1);
                 let hp = format!("  {}/{} HP", enemy.hp, enemy.max_hp);
                 let status = format!("  甲{} 毒{}  · ", enemy.block, enemy.poison);
+                let intent = enemy.intent.label();
                 let phase = if enemy.hp == 0 { " [阵亡]" }
                     else if enemy.phase > 0 { " [二阶段]" } else { "" };
                 pieces(&mut out, app, columns, &[
@@ -221,7 +222,7 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
                     (enemy.name(), if enemy.hp == 0 { Tone::Muted } else { Tone::Danger }),
                     (&hp, if enemy.hp == 0 { Tone::Muted } else { Tone::Normal }),
                     (&status, Tone::Muted),
-                    (enemy.intent.label(), Tone::Warning),
+                    (&intent, Tone::Warning),
                     (phase, Tone::Danger),
                 ]);
             }
