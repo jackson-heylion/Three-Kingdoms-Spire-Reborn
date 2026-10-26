@@ -29,7 +29,7 @@ fn pinned_chapters_are_distinct_and_new_beats_remain_optional() {
     assert_eq!((household.chapter, household.act, household.prerequisite),
         (24, 1, Some("wangzhong_release_record")));
     assert_eq!((doctor.chapter, doctor.act, doctor.prerequisite),
-        (23, 1, Some("xu_capital")));
+        (23, 1, Some("xuhuang_honor")));
     assert_eq!((palace.chapter, palace.act, palace.prerequisite),
         (24, 1, Some("jiping_case_record")));
     assert!(prisoner.premise.contains("王忠") && prisoner.premise.contains("刘岱"));
@@ -38,12 +38,12 @@ fn pinned_chapters_are_distinct_and_new_beats_remain_optional() {
     assert_eq!(next_beat(Hero::GuanYu, 1, &["wenjiu_oath".into()],
         &["xutian_guard".into(), "xuzhou_gate".into()])
         .map(|b| b.id), Some("wangzhong_prisoners"));
-    assert_eq!(next_beat(Hero::CaoCao, 1, &["xu_capital".into()],
+    assert_eq!(next_beat(Hero::CaoCao, 1, &["xuhuang_honor".into()],
         &["guandu".into()]).map(|b| b.id), Some("jiping_testimony"));
     assert_eq!(next_beat(Hero::GuanYu, 2, &["anxi_seal".into()], &[])
         .map(|b| b.id), Some("jingzhou"), "old saves cannot be forced through new events");
     assert_eq!(next_beat(Hero::CaoCao, 1, &["xu_capital".into()], &[])
-        .map(|b| b.id), Some("jiping_testimony"));
+        .map(|b| b.id), Some("guandu"));
     assert_eq!(beat("guandu").unwrap().prerequisite, Some("xu_capital"));
 }
 
@@ -96,7 +96,7 @@ fn rejecting_the_prisoner_or_household_record_never_softlocks_old_story() {
 
 #[test]
 fn jiping_evidence_and_palace_accounting_pay_once_after_guandu() {
-    let mut game = scene(Hero::CaoCao, "jiping_testimony", &["xu_capital"]);
+    let mut game = scene(Hero::CaoCao, "jiping_testimony", &["xu_capital", "xuhuang_honor"]);
     let before = game.to_json().unwrap();
     assert!(game.apply(Action::Choose { index: 99 }).is_err());
     assert_eq!(game.to_json().unwrap(), before);
@@ -123,7 +123,7 @@ fn jiping_evidence_and_palace_accounting_pay_once_after_guandu() {
 
 #[test]
 fn refusing_the_jiping_or_palace_record_preserves_old_guandu() {
-    let mut first = scene(Hero::CaoCao, "jiping_testimony", &["xu_capital"]);
+    let mut first = scene(Hero::CaoCao, "jiping_testimony", &["xu_capital", "xuhuang_honor"]);
     first.apply(Action::Choose { index: 2 }).unwrap();
     assert!(!first.lore_flags.iter().any(|f| f == "jiping_case_record"));
     assert_ne!(next_beat(Hero::CaoCao, 1, &first.lore_flags, &first.lore_seen)
@@ -131,7 +131,7 @@ fn refusing_the_jiping_or_palace_record_preserves_old_guandu() {
     assert_eq!(next_beat(Hero::CaoCao, 1, &first.lore_flags, &first.lore_seen)
         .map(|b| b.id), Some("guandu"));
     let mut second = scene(Hero::CaoCao, "palace_ledger",
-        &["xu_capital", "jiping_case_record"]);
+        &["xu_capital", "xuhuang_honor", "jiping_case_record"]);
     second.apply(Action::Choose { index: 2 }).unwrap();
     assert!(!second.lore_flags.iter().any(|f| f == "palace_purge_record"));
     enter(&mut second, "guandu");
