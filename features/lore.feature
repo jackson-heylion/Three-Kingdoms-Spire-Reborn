@@ -260,8 +260,10 @@ Scenario: Guan Yu's debt and mercy reveal a once-only hidden ending
   Scenario: Cao Cao records Xiapi flood before Guandu and later settles the debt
     Given a "cao" campaign with seed 193
     And the flag "shouchun_grain_account" was earned earlier
-    And the flag "anzhong_field_report" was earned earlier
     And the flag "xu_capital" was earned earlier
+    And the lore scene "anzhong"
+    When I choose 1
+    Then the flag "anzhong_field_report" is present
     And the lore scene "xiapi_flood"
     When I choose 1
     Then the flag "xiapi_flood_ledger" is present
