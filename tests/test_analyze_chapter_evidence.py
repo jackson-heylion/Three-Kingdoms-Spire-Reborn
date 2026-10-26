@@ -53,6 +53,28 @@ class ChapterEvidenceTests(unittest.TestCase):
         self.assertFalse(report["collation_verified_by_this_tool"])
         self.assertFalse(report["gameplay_verified_by_this_tool"])
 
+    def test_grouped_readings_require_each_chapter_pin(self):
+        (self.root / "docs/CHAPTER_003_READING.md").unlink()
+        (self.root / "docs/CHAPTERS_003_004_READING.md").write_text(
+            "Chapter 003 oldid=333; chapter 004 oldid=444\\n", encoding="utf-8")
+        for index, revision in ((2, 333), (3, 444)):
+            self.rows[index]["body_review_status"] = module.READ
+            self.rows[index]["body_evidence"] = f"oldid={revision}"
+        self.write_rows()
+        report = module.audit(self.root)
+        self.assertEqual(report["registered_single_edition_readings"], 4)
+        self.assertEqual(report["unregistered_evidence_count"], 0)
+        self.rows[3]["body_evidence"] = "oldid=999"
+        self.write_rows()
+        with self.assertRaisesRegex(module.EvidenceError, "differs from evidence"):
+            module.audit(self.root)
+
+    def test_grouped_and_single_evidence_cannot_overlap(self):
+        (self.root / "docs/CHAPTERS_002_003_READING.md").write_text(
+            "oldid=222\\noldid=333\\n", encoding="utf-8")
+        with self.assertRaisesRegex(module.EvidenceError, "duplicate evidence"):
+            module.audit(self.root)
+
     def test_rejects_duplicate_chapter_row(self):
         self.rows[5]["chapter"] = "005"
         self.write_rows()
