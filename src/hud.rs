@@ -21,6 +21,24 @@ fn fit(text: &str, limit: usize) -> String {
     out
 }
 
+// Terminal cell width, excluding our CSI color sequences. Never use byte length
+// to place the right-hand panel beside colored Chinese text.
+fn painted_width(text: &str) -> usize {
+    let mut clean = String::new();
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' && chars.peek() == Some(&'[') {
+            chars.next();
+            for code in chars.by_ref() {
+                if ('@'..='~').contains(&code) { break; }
+            }
+        } else if !ch.is_control() {
+            clean.push(ch);
+        }
+    }
+    width(&clean)
+}
+
 fn window(total: usize, cursor: usize, available: usize) -> (usize, usize) {
     if total == 0 { return (0, 0); }
     let count = available.max(1).min(total);
@@ -39,9 +57,13 @@ fn color(app: &App, text: &str, tone: Tone) -> String {
             Tone::Danger => "1;91", Tone::Focus => "1;30;106",
         },
         Theme::Light => match tone {
-            Tone::Normal => "30", Tone::Muted => "90", Tone::Accent => "1;34",
-            Tone::Good => "1;32", Tone::Warning => "1;33",
-            Tone::Danger => "1;31", Tone::Focus => "1;97;44",
+            Tone::Normal => "30", Tone::Muted => "38;2;89;96;105",
+            Tone::Accent => "1;38;2;22;76;132",
+            Tone::Good => "1;38;2;22;105;62",
+            // The terminal's default yellow is often unreadable on a white canvas.
+            Tone::Warning => "1;38;2;142;72;0",
+            Tone::Danger => "1;38;2;165;35;43",
+            Tone::Focus => "1;97;48;2;24;75;132",
         },
         Theme::HighContrast => match tone {
             Tone::Normal => "1;97", Tone::Muted => "1;37", Tone::Accent => "1;96",
@@ -70,6 +92,51 @@ fn heading(out: &mut Vec<String>, app: &App, title: &str, columns: usize) {
     line(out, app, &line_text, columns, Tone::Muted);
 }
 
+// Wide combat keeps decisions in one column and high-value context in another.
+// No new commands, actions or persisted state are introduced.
+fn append_context(out: &mut Vec<String>, app: &App, begin: usize,
+    left_cols: usize, full_cols: usize, rows: usize, target: usize,
+    description: Option<&str>) {
+    let Some(battle) = app.game.as_ref().and_then(|g|g.battle.as_ref()) else { return; };
+    let mut context: Vec<(String, Tone)> = vec![
+        ("战斗情报".into(), Tone::Accent),
+    ];
+    if let Some(foe) = battle.foes.get(target.saturating_sub(1)) {
+        context.push((format!("目标 · {}", foe.name()), Tone::Danger));
+        context.push((format!("生命 {}/{}  护甲 {}  毒 {}",
+            foe.hp, foe.max_hp, foe.block, foe.poison), Tone::Normal));
+        context.push(("敌方意图".into(), Tone::Accent));
+        context.push((foe.intent.label().to_string(), Tone::Warning));
+        if foe.phase > 0 { context.push(("警戒 · 敌军已进入二阶段".into(), Tone::Danger)); }
+    }
+    context.extend([
+        ("────────────".into(), Tone::Muted),
+        ("当前操作说明".into(), Tone::Accent),
+        (description.unwrap_or("Enter 使用选中行动；v 查看详细信息").into(), Tone::Normal),
+        ("────────────".into(), Tone::Muted),
+        ("最近战报".into(), Tone::Accent),
+        (app.game.as_ref().and_then(|g|g.log.last()).map_or("暂无战报",String::as_str)
+            .into(), Tone::Muted),
+    ]);
+    if !app.message.is_empty() {
+        context.push(("操作反馈".into(), Tone::Accent));
+        let status = if app.message.starts_with("错误") || app.message.starts_with("存档未能") {
+            Tone::Danger
+        } else { Tone::Normal };
+        context.push((app.message.clone(), status));
+    }
+    let gap = 3;
+    let side_width = full_cols.saturating_sub(left_cols + gap);
+    for (index,(content,tone)) in context.into_iter().enumerate() {
+        let row = begin + index;
+        if row >= rows.saturating_sub(1) { break; }
+        if row >= out.len() { out.resize(row + 1, String::new()); }
+        let pad = left_cols.saturating_sub(painted_width(&out[row])) + gap;
+        out[row].push_str(&" ".repeat(pad));
+        out[row].push_str(&color(app, &fit(&content, side_width), tone));
+    }
+}
+
 fn menu_label(label: &str, combat: bool, details: bool) -> &str {
     if combat && !details { label.split_once(" · ").map_or(label, |(name, _)| name) }
     else { label }
@@ -88,8 +155,12 @@ pub(super) fn render(app: &App, columns: usize, rows: usize, target: usize,
 /// "v" toggles optional diagnostics; the default keeps decisions and threats above details.
 pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
     options: &[(String, String)], cursor: usize, details: bool) -> String {
-    let columns = columns.clamp(28, 120);
+    let full_columns = columns.clamp(28, 120);
     let rows = rows.max(16);
+    let wide = full_columns >= 100 && rows >= 24 && app.game.as_ref()
+        .is_some_and(|g| g.stage == Stage::Combat);
+    // An 80-odd-cell reading measure is easier to scan than a 120-cell menu.
+    let columns = if wide { 64 } else { full_columns.min(88) };
     let mut out = Vec::new();
     let title = if details { "三国登塔录  ·  详细视图" } else { "三国登塔录  ·  战术视图" };
     pieces(&mut out, app, columns, &[
@@ -126,22 +197,33 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
             pieces(&mut out, app, columns, &[
                 (&format!("军令 {}  ", b.energy), Tone::Accent),
                 (&format!("护甲 {}  ", b.block), Tone::Good),
-                (&format!("回合 {}  ", b.turn), Tone::Normal),
-                (&format!("武勇 {}  虚弱 {}  易伤 {}", b.strength, b.weak, b.vulnerable),
-                    if b.weak > 0 || b.vulnerable > 0 { Tone::Warning } else { Tone::Muted }),
+                (&format!("回合 {}", b.turn), Tone::Normal),
             ]);
+            let mut effects = Vec::new();
+            if b.strength != 0 { effects.push(format!("武勇 {}", b.strength)); }
+            if b.weak > 0 { effects.push(format!("虚弱 {}", b.weak)); }
+            if b.vulnerable > 0 { effects.push(format!("易伤 {}", b.vulnerable)); }
+            if !effects.is_empty() {
+                line(&mut out, app, &effects.join("  "), columns,
+                    if b.weak > 0 || b.vulnerable > 0 { Tone::Warning } else { Tone::Good });
+            }
             heading(&mut out, app, "敌军（t 切换目标）", columns);
             for (i, enemy) in b.foes.iter().enumerate() {
                 if out.len() + 5 >= rows { break; }
                 let active = i + 1 == target && enemy.hp > 0;
-                let label = format!("{} {}. {}  {}/{} HP ·甲{} 毒{} ·{}{}",
-                    if active { "▶" } else { " " }, i + 1, enemy.name(), enemy.hp,
-                    enemy.max_hp, enemy.block, enemy.poison, enemy.intent.label(),
-                    if enemy.hp == 0 { " [阵亡]" }
-                    else if enemy.phase > 0 { " [二阶段]" } else { "" });
-                line(&mut out, app, &label, columns,
-                    if enemy.hp == 0 { Tone::Muted }
-                    else if active { Tone::Warning } else { Tone::Danger });
+                let prefix = format!("{} {}. ", if active { "▶" } else { " " }, i + 1);
+                let hp = format!("  {}/{} HP", enemy.hp, enemy.max_hp);
+                let status = format!("  甲{} 毒{}  · ", enemy.block, enemy.poison);
+                let phase = if enemy.hp == 0 { " [阵亡]" }
+                    else if enemy.phase > 0 { " [二阶段]" } else { "" };
+                pieces(&mut out, app, columns, &[
+                    (&prefix, if active { Tone::Accent } else { Tone::Muted }),
+                    (enemy.name(), if enemy.hp == 0 { Tone::Muted } else { Tone::Danger }),
+                    (&hp, if enemy.hp == 0 { Tone::Muted } else { Tone::Normal }),
+                    (&status, Tone::Muted),
+                    (enemy.intent.label(), Tone::Warning),
+                    (phase, Tone::Danger),
+                ]);
             }
             // Surface only relevant resources by default; diagnostics live in detail mode.
             let resources = [
@@ -187,9 +269,9 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
     }
     let selected = options.get(cursor);
     let description = selected.and_then(|(label, _)| focus_description(label, combat));
-    let show_desc = !details && description.is_some() && rows >= 23;
-    let show_log = rows >= 28 && app.game.as_ref().is_some();
-    let show_feedback = !app.message.is_empty();
+    let show_desc = !wide && !details && description.is_some() && rows >= 23;
+    let show_log = !wide && rows >= 28 && app.game.as_ref().is_some();
+    let show_feedback = !wide && !app.message.is_empty();
     let reserved = 1 + usize::from(show_desc) + usize::from(show_log)
         + usize::from(show_feedback);
     // Keep at least one decision on-screen, including at 28×16.
@@ -206,6 +288,7 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
     } else {
         format!("选将  {}/{}", cursor + usize::from(!options.is_empty()), options.len())
     };
+    let menu_begin = out.len();
     heading(&mut out, app, &menu_title, columns);
     if options.is_empty() {
         line(&mut out, app, "暂无选项 · 按 : 输入命令", columns, Tone::Muted);
@@ -227,6 +310,10 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
             }
         }
     }
+    if wide {
+        append_context(&mut out, app, menu_begin, columns, full_columns,
+            rows, target, description);
+    }
     if show_desc {
         line(&mut out, app, &format!("选中说明 · {}", description.unwrap_or_default()),
             columns, Tone::Muted);
@@ -238,7 +325,9 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
     if show_feedback {
         let tone = if app.message.starts_with("错误") || app.message.starts_with("存档未能") {
             Tone::Danger
-        } else { Tone::Good };
+        } else if app.message.contains("胜利") || app.message.contains("成功") {
+            Tone::Good
+        } else { Tone::Accent };
         line(&mut out, app, &format!("操作反馈 · {}", app.message), columns, tone);
     }
     if out.len() >= rows { out.truncate(rows - 1); }
@@ -380,6 +469,32 @@ mod compact_hud_tests {
             assert!(screen.contains("▶"));
             assert!(screen.contains("生命"));
         }
+    }
+    #[test]
+    fn wide_combat_has_compact_action_lane_and_target_context() {
+        let app = app();
+        let choices = tui::choices(&app, 1);
+        let screen = render_mode(&app, 120, 32, 1, &choices, 0, false);
+        assert!(screen.contains("当前操作说明"), "{screen}");
+        assert!(screen.contains("敌方意图"), "{screen}");
+        assert!(screen.contains("最近战报"), "{screen}");
+        assert_eq!(screen.matches("突刺").count(),
+            choices.iter().filter(|(label, _)| label.contains("突刺")).count());
+        assert!(screen.lines().count() <= 32, "{screen}");
+        assert!(screen.lines().all(|line| width(line) <= 120), "{screen}");
+        assert!(screen.lines().any(|line| line.contains("手牌与行动")
+            && line.contains("战斗情报")), "{screen}");
+    }
+    #[test]
+    fn light_palette_avoids_default_yellow_and_keeps_legible_focus() {
+        let mut app = app();
+        app.theme = Theme::Light;
+        app.use_ansi = true;
+        let warning = color(&app, "敌军施法", Tone::Warning);
+        let focus = color(&app, "选中", Tone::Focus);
+        assert!(warning.contains("\x1b[1;38;2;142;72;0m"), "{warning:?}");
+        assert!(focus.contains("\x1b[1;97;48;2;24;75;132m"), "{focus:?}");
+        assert_eq!(painted_width(&format!("{warning}{focus}")), width("敌军施法选中"));
     }
     #[test]
     fn narrow_and_short_viewports_keep_active_choice_visible() {
