@@ -285,3 +285,59 @@ Scenario: Lu Bu keeps Xiapi order records before the old White Gate choice
     And the lore scene "jingzhou"
     When I choose 1
     Then the flag "jingzhou_warning" is present
+
+  Scenario: Guan Yu records Fancheng warnings and two failed visits before Jingzhou
+    Given a "guanyu" campaign with seed 3637
+    And the flag "xinye_counsel_record" was earned earlier
+    And the flag "anxi_seal" was earned earlier
+    And the lore scene "fancheng_counsel"
+    When I choose 1
+    Then the flag "fancheng_counsel_record" is present
+    And my deck contains "hold_line"
+    And act 2 offers the lore scene "xushu_departure"
+    And the lore scene "xushu_departure"
+    When I choose 1
+    Then the flag "xushu_departure_record" is present
+    When I save and restore
+    Then the flag "xushu_departure_record" is present
+    And the lore scene "jingzhou"
+    When I choose 1
+    Then the hidden conclusion "fancheng_xushu_jingzhou" is unlocked
+
+  Scenario: Refusing the Fancheng record leaves old Jingzhou accessible
+    Given a "guanyu" campaign with seed 3638
+    And the flag "xinye_counsel_record" was earned earlier
+    And the flag "anxi_seal" was earned earlier
+    And the lore scene "fancheng_counsel"
+    When I choose 2
+    Then the flag "fancheng_counsel_record" is absent
+    And act 2 offers the lore scene "jingzhou"
+
+  Scenario: Zhuge Liang keeps the conditions of Longzhong until Red Cliffs
+    Given a "zhuge" campaign with seed 3838
+    And the lore scene "longzhong"
+    When I choose 1
+    Then the flag "longzhong_plan" is present
+    And act 1 offers the lore scene "longzhong_conditions"
+    And the lore scene "longzhong_conditions"
+    When I choose 1
+    Then the flag "longzhong_conditions_record" is present
+    When I save and restore
+    Then the flag "longzhong_conditions_record" is present
+    And the lore scene "redcliff"
+    When I choose 1
+    Then the hidden conclusion "longzhong_strategy_debt" is unlocked
+
+  Scenario: Jiangdong records refusal to send a hostage and settles old debts
+    Given a "sun" campaign with seed 3839
+    And the flag "sun_succession_account" was earned earlier
+    And the lore scene "jiangdong_hostage"
+    When I choose 1
+    Then the flag "jiangdong_hostage_record" is present
+    And my deck contains "qiaoying"
+    And the lore scene "jiangdong_wedding"
+    When I choose 1
+    Then the flag "jiangdong_covenant" is present
+    And the lore scene "yiling"
+    When I choose 1
+    Then the hidden conclusion "jiangdong_guest_debt" is unlocked
