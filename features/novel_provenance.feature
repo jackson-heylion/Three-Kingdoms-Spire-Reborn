@@ -202,3 +202,36 @@ Scenario: Lu Bu keeps Xiapi order records before the old White Gate choice
     When I choose 1
     Then the flag "jiangdong_covenant" is present
     And act 2 offers the lore scene "yiling"
+
+
+  Scenario: Cao Cao keeps Guandu captured letters, Cangting casualties and Ye flood ledger
+    Given a "cao" campaign with seed 3032
+    And the flag "guandu_grain" was earned earlier
+    And the lore scene "guandu_letters"
+    When I choose 1
+    Then the flag "guandu_captured_letters" is present
+    And my deck contains "qimou"
+    And act 1 offers the lore scene "cangting_memorial"
+    And the lore scene "cangting_memorial"
+    When I choose 1
+    Then the flag "cangting_memorial_record" is present
+    When I save and restore
+    Then the flag "cangting_memorial_record" is present
+    And act 2 offers the lore scene "ye_flood_ledger"
+    And the lore scene "ye_flood_ledger"
+    When I choose 1
+    Then the flag "ye_flood_record" is present
+    And the lore scene "liaodong"
+    When I choose 1
+    Then the hidden conclusion "guandu_ye_civilians" is unlocked
+
+  Scenario: Cao Cao may refuse Guandu after-action records and still reach Liaodong
+    Given a "cao" campaign with seed 3033
+    And the flag "guandu_grain" was earned earlier
+    And the lore scene "guandu_letters"
+    When I choose 2
+    Then the flag "guandu_captured_letters" is absent
+    And act 2 offers the lore scene "liaodong"
+    And the lore scene "liaodong"
+    When I choose 1
+    Then the hidden conclusion "grain_book" is not unlocked
