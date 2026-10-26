@@ -251,6 +251,35 @@ mod tests {
     }
 
     #[test]
+    fn forged_action_cursor_cannot_borrow_card_resolution_from_next_revision() {
+        let mut game = Game::new(Hero::GuanYu, 11);
+        game.apply(Action::Choose { index: 1 }).unwrap();
+        let index = game.battle.as_ref().unwrap().hand.iter()
+            .position(|card| matches!(card.id.as_str(), "strike" | "defend"))
+            .unwrap() + 1;
+        game.apply(Action::Play { index, target: 1 }).unwrap();
+        let play_revision = usize::try_from(game.revision).unwrap();
+        let split_at = game.event_history.as_ref().unwrap().iter()
+            .rposition(|record| record.event.kind == EventKind::CardResolved)
+            .unwrap();
+        game.apply(Action::EndTurn).unwrap();
+        assert!(game.audit_event_archive_boundaries().unwrap().is_some());
+
+        // The full event archive is still valid. Forge only the persisted
+        // revision cursor to pretend that CardResolved arrived next action.
+        let mut forged = game.clone();
+        match &mut forged.telemetry_history.as_mut().unwrap()[play_revision] {
+            crate::telemetry_authority::TelemetryEvent::Changed { archive_len, .. } => {
+                *archive_len = Some(split_at as u64);
+            }
+            _ => panic!("expected committed telemetry revision"),
+        }
+        validate(forged.event_history.as_deref().unwrap()).unwrap();
+        let error = forged.audit_event_archive_boundaries().unwrap_err();
+        assert!(error.contains("incomplete committed action"), "{error}");
+    }
+
+    #[test]
     fn checks_real_five_hero_first_turns_and_v2_roundtrip() {
         for hero in [Hero::GuanYu, Hero::ZhugeLiang, Hero::SunShangxiang,
                      Hero::CaoCao, Hero::LuBu] {
