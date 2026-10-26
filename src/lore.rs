@@ -89,6 +89,8 @@ pub const BONDS: &[Bond] = &[
     Bond { protagonist: Hero::CaoCao, companion: "王垕", relation: Relation::Betrayal, chapter: 17, flag: "shouchun_grain_account", note: "小斛是主帅之令，王垕按令发粮却被斩顶罪；玩家可架空选择公开军令担责" },
     Bond { protagonist: Hero::LuBu, companion: "陈登", relation: Relation::Alliance, chapter: 17, flag: "seven_armies_account", note: "陈登联络韩暹杨奉反戈破袁，后来暗通曹操；盟约与军纪应分别记账" },
     Bond { protagonist: Hero::CaoCao, companion: "贾诩", relation: Relation::Rival, chapter: 18, flag: "anzhong_field_report", note: "贾诩先阻追后劝追，曹军安众初胜不掩二次追击损失；敌军判断也须入军报" },
+    Bond { protagonist: Hero::GuanYu, companion: "刘备", relation: Relation::Sworn, chapter: 22, flag: "wangzhong_release_record", note: "刘备放归王忠刘岱，关羽在张飞再拦时遵守放俘军令；玩家选择保留这份军簿" },
+    Bond { protagonist: Hero::CaoCao, companion: "程昱", relation: Relation::Mentor, chapter: 24, flag: "palace_purge_record", note: "程昱劝止废帝，曹操仍诛董承并害董妃；记录谏言不等于小说中撤回宫门杀戮" },
     Bond { protagonist: Hero::LuBu, companion: "陈宫", relation: Relation::Mentor, chapter: 18, flag: "xiaopei_courier_guard", note: "截获密书不等于可以杀使；玩家可架空选择保全来使并预警百姓" },
 ];
 
@@ -110,6 +112,12 @@ pub struct EasterEgg {
 /// Alternate monetary choices never plant a prerequisite, so they cannot
 /// claim the same narrative ending accidentally.
 pub const EASTER_EGGS: &[EasterEgg] = &[
+    EasterEgg {id:"xiapi_household_debt",name:"放俘守眷旧约",hero:Some(Hero::GuanYu),chapters:&[22,24,75],
+        flags:&["wangzhong_release_record","xiapi_household_ledger","jingzhou_warning"],reward_gold:22,reward_heal:7,
+        hint:"雪阵放俘、下邳守眷与荆州防务相隔数十回；先护人命的军令，终于在后方危局得到回响。"},
+    EasterEgg {id:"jiping_palace_debt",name:"衣带诏与宫门旧账",hero:Some(Hero::CaoCao),chapters:&[14,23,24,30],
+        flags:&["xu_capital","jiping_case_record","palace_purge_record","guandu_grain"],reward_gold:19,reward_heal:7,
+        hint:"迎帝许都、吉平案证、宫门诛杀与官渡用兵并存；胜败不能替代对诏令和人命的追问。"},
     EasterEgg {id:"sword_debt",name:"青龙旧债",hero:Some(Hero::GuanYu),chapters:&[25,50],
         flags:&["baima_debt","huarong_mercy"],reward_gold:35,reward_heal:8,
         hint:"青龙刀刃上的旧日刀痕，终于不再指向那条泥泞的山道。"},
