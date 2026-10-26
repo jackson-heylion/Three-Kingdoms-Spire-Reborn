@@ -82,4 +82,10 @@
     EasterEgg {id:"guandu_ye_civilians",name:"官渡焚书·冀州水患旧账",hero:Some(Hero::CaoCao),chapters:&[30,31,32,33],
         flags:&["guandu_grain","guandu_captured_letters","cangting_memorial_record","ye_flood_record","liaodong_letter"],reward_gold:24,reward_heal:9,
         hint:"乌巢焚粮与焚书不究、仓亭战亡及秋收、冀州漳河水患和审配献门之后，辽东遗计才兑现完整军民责任簿。"},
+    EasterEgg {id:"northern_aftermath_debt",name:"南皮民伤·辽东遗计归档",hero:Some(Hero::CaoCao),chapters:&[32,33],
+        flags:&["ye_flood_record","liaodong_letter","northern_settlement_account"],reward_gold:19,reward_heal:7,
+        hint:"冀州水攻、南皮驱民、北征耗损与郭嘉遗计，只有留下完整责任簿才得此回响。"},
+    EasterEgg {id:"jingxiang_warning_debt",name:"檀溪脱险·荆襄用人旧账",hero:Some(Hero::GuanYu),chapters:&[28,34,35,75],
+        flags:&["ancient_reunion","tanxi_warning_record","xinye_counsel_record","jingzhou_warning"],reward_gold:21,reward_heal:8,
+        hint:"古城释疑、襄阳宴局、南漳访贤与荆州江防相照：情报、谏言与护卫责任不可只以胜负结算。"},
 ]
