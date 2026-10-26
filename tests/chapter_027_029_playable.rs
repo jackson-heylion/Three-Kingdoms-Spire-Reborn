@@ -43,7 +43,7 @@ fn three_chapters_have_distinct_provenance_and_real_prior_setups() {
     assert_eq!(next_beat(Hero::GuanYu, 1, &["seal_return_record".into()], &[])
         .map(|b| b.id), Some("five_passes"));
     assert_eq!(next_beat(Hero::GuanYu, 1,
-        &["seal_return_record".into(), "five_passes_record".into()], &[])
+        &["seal_return_record".into(), "five_passes_record".into()], &["five_passes".into()])
         .map(|b| b.id), Some("gucheng_witness"));
     assert_eq!(next_beat(Hero::SunShangxiang, 0, &["taishi_trust".into()], &[])
         .map(|b| b.id), Some("sun_succession"));
