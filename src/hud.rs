@@ -79,6 +79,7 @@ fn focus_description(label: &str, combat: bool) -> Option<&str> {
     else { None }
 }
 
+#[cfg(test)]
 pub(super) fn render(app: &App, columns: usize, rows: usize, target: usize,
     options: &[(String, String)], cursor: usize) -> String {
     render_mode(app, columns, rows, target, options, cursor, false)
