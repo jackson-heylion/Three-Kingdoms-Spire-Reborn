@@ -72,7 +72,7 @@ pub fn validate(archive: &[RunEvent]) -> Result<(), String> {
                     return Err(format!("encounter {encounter}: invalid summon"));
                 }
                 let slot = event.target.as_ref().expect("checked slot");
-                let index = foe_index(Some(slot)).expect("checked slot");
+                let index = foe_index(Some(slot.as_str())).expect("checked slot");
                 if highest_seen_slot.is_some_and(|seen| index <= seen) {
                     return Err(format!("encounter {encounter}: summon reuses an observed foe slot"));
                 }
@@ -167,8 +167,6 @@ mod tests {
             record(1,1,EventKind::StatusApplied,"poison",1,Some("foe:3")),
         ] {
             let attempted = record(1,2,EventKind::FoeSummoned,"militia",1,Some("foe:1"));
-            let mut attempted = attempted;
-            attempted.floor = 1;
             assert!(validate(&[preceding, attempted]).unwrap_err()
                 .contains("reuses an observed foe slot"));
         }
