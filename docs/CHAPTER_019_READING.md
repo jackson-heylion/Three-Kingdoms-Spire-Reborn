@@ -19,7 +19,7 @@
 ## 玩家架空选择与跨幕兑现
 
 - 吕布第二幕 xiapi_orders：仅第018回 xiaopei_courier_guard 旗标可选，完整保留陈宫拒谏与侯成受罚军簿，获得 xiapi_orders_account、hold_line；第三幕 whitegate 原有 halberd_shot 前置不变，完整责任链一次性结算 xiapi_orders_debt。玩家记账不等于原著吕布改过。
-- 曹操第三幕 xiapi_flood：仅第018回 anzhong_field_report 旗标可选，完整登记决水与退水安民，获得 xiapi_flood_ledger、granary_support；若此前还有第017回寿春粮责及第030回官渡军粮，兑现一次性 xiapi_water_debt。原 liaodong 仅需 guandu_grain，不强制旧档补新剧情。
+- 曹操第二幕 xiapi_flood：仅第018回 anzhong_field_report 旗标可选，先在第019回下邳完整登记决水与退水安民，获得 xiapi_flood_ledger、granary_support；随后第030回官渡取得 guandu_grain 时，若已有第017回寿春粮责，才兑现一次性 xiapi_water_debt。不得将下邳决水写成官渡之后的战事。原 liaodong 仅需 guandu_grain，不强制旧档补新剧情。
 - 使用原 Game::apply(Action::Choose)、lore_flags、lore_seen、EASTER_EGGS 与 V2 存档；非法编号应原子拒绝，两个选择互斥，奖励仅发一次。测试文件 tests/chapter_019_playable.rs 与 features/lore.feature，最终机器验收以最终 SHA 双平台 CI 为准。
 
 仅完成第019回单底本全文情节因果通读；异本文字对校、正史核证、自然地图多种子可达率及真人试玩均未验收。

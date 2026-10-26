@@ -35,7 +35,7 @@ fn three_cross_act_debts_require_their_prior_flags() {
         ("anzhong","shouchun_grain_account",1),
         ("xiaopei_courier","seven_armies_account",1),
         ("xiapi_orders","xiaopei_courier_guard",1),
-        ("xiapi_flood","anzhong_field_report",2),
+        ("xiapi_flood","anzhong_field_report",1),
     ] {
         let beat=BEATS.iter().find(|b|b.id==id).unwrap();
         assert_eq!(beat.prerequisite,Some(needed));

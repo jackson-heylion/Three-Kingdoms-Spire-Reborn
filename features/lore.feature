@@ -253,19 +253,22 @@ Scenario: Guan Yu's debt and mercy reveal a once-only hidden ending
     And act 2 offers the lore scene "whitegate"
     And the bond with "侯成" is absent
 
-  Scenario: Cao Cao reports Xiapi flood risks after the Guandu grain decision
+  Scenario: Cao Cao records Xiapi flood before Guandu and later settles the debt
     Given a "cao" campaign with seed 193
     And the flag "shouchun_grain_account" was earned earlier
     And the flag "anzhong_field_report" was earned earlier
-    And the flag "guandu_grain" was earned earlier
+    And the flag "xu_capital" was earned earlier
     And the lore scene "xiapi_flood"
     When I choose 1
     Then the flag "xiapi_flood_ledger" is present
     And my deck contains "granary_support"
     And the bond with "荀攸" is active
+    And act 1 offers the lore scene "guandu"
     When I save and restore
     Then the flag "xiapi_flood_ledger" is present
-    And the hidden conclusion "xiapi_water_debt" is unlocked
+    And the lore scene "guandu"
+    When I choose 1
+    Then the hidden conclusion "xiapi_water_debt" is unlocked
 
   Scenario: Cao Cao can reach Liaodong without the optional Xiapi ledger
     Given a "cao" campaign with seed 194

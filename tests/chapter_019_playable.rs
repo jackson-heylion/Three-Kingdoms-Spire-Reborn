@@ -19,7 +19,7 @@ fn new_paths_are_optional_and_old_arcs_remain_reachable() {
     let lu = beat("xiapi_orders").unwrap();
     assert_eq!((lu.chapter, lu.act, lu.prerequisite), (19, 1, Some("xiaopei_courier_guard")));
     let cao = beat("xiapi_flood").unwrap();
-    assert_eq!((cao.chapter, cao.act, cao.prerequisite), (19, 2, Some("anzhong_field_report")));
+    assert_eq!((cao.chapter, cao.act, cao.prerequisite), (19, 1, Some("anzhong_field_report")));
     assert_eq!(next_beat(Hero::LuBu, 1,
         &["halberd_shot".into(), "xiaopei_courier_guard".into()],
         &["halberd".into(), "seven_armies".into(), "xiaopei_courier".into()])
@@ -74,24 +74,32 @@ fn lu_refuses_orders_but_white_gate_still_works() {
 }
 
 #[test]
-fn cao_water_report_is_atomic_and_pays_once_after_guandu() {
+fn cao_xiapi_precedes_guandu_and_debt_pays_once_in_later_act() {
     let mut game = scene(Hero::CaoCao, "xiapi_flood",
-        &["shouchun_grain_account", "anzhong_field_report", "guandu_grain"]);
+        &["shouchun_grain_account", "anzhong_field_report", "xu_capital"]);
     let before = game.to_json().unwrap();
     assert!(game.apply(Action::Choose { index: 99 }).is_err());
     assert_eq!(game.to_json().unwrap(), before);
     let deck = game.deck.len();
-    let message = game.apply(Action::Choose { index: 1 }).unwrap().join(" ");
-    assert!(message.contains("决水安民军报"));
+    game.apply(Action::Choose { index: 1 }).unwrap();
     assert!(game.lore_flags.iter().any(|s| s == "xiapi_flood_ledger"));
     assert_eq!(game.deck.len(), deck + 1);
     assert_eq!(game.deck.last().unwrap().id, "granary_support");
-    assert_eq!(count(&game, "xiapi_water_debt"), 1);
+    assert_eq!(count(&game, "xiapi_water_debt"), 0,
+        "chapter 19 must not collect chapter 30's future grain debt");
     let saved = game.to_json().unwrap();
     let mut restored = Game::from_json(&saved).unwrap();
     assert_eq!(restored.to_json().unwrap(), saved);
+    assert_eq!(next_beat(Hero::CaoCao, 1, &restored.lore_flags,
+        &["shouchun_grain".into(), "anzhong".into(), "xiapi_flood".into()])
+        .unwrap().id, "guandu");
     restored.stage = Stage::Story;
-    restored.lore_current = Some("xiapi_flood".into());
+    restored.lore_current = Some("guandu".into());
+    let message = restored.apply(Action::Choose { index: 1 }).unwrap().join(" ");
+    assert!(message.contains("决水安民军报"));
+    assert_eq!(count(&restored, "xiapi_water_debt"), 1);
+    restored.stage = Stage::Story;
+    restored.lore_current = Some("guandu".into());
     restored.apply(Action::Choose { index: 1 }).unwrap();
     assert_eq!(count(&restored, "xiapi_water_debt"), 1);
 }
