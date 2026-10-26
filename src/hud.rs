@@ -231,11 +231,9 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
         line(&mut out, app, &format!("选中说明 · {}", description.unwrap_or_default()),
             columns, Tone::Muted);
     }
-    if show_log {
-        if let Some(g) = &app.game {
-            line(&mut out, app, &format!("最近战报 · {}", g.log.last()
-                .map_or("暂无战报", String::as_str)), columns, Tone::Muted);
-        }
+    if show_log && let Some(g) = &app.game {
+        line(&mut out, app, &format!("最近战报 · {}", g.log.last()
+            .map_or("暂无战报", String::as_str)), columns, Tone::Muted);
     }
     if show_feedback {
         let tone = if app.message.starts_with("错误") || app.message.starts_with("存档未能") {
