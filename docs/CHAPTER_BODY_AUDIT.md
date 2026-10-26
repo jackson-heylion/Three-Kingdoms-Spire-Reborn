@@ -110,4 +110,4 @@
 
 固定底本第036回 `oldid=2568002`、第037回 `oldid=2567998`、第038回 `oldid=4256828`。三回已有独立单底本全文审读材料；本轮再次访问固定修订，从开篇至结尾核实，补充锚点及跨回边界，并将**既有阅读**登记入 TSV。首次通读新增 **0回**，台账登记新增 **3回**，当前堆叠分支 **38/120**（第001–038回）；main 仍以其实际合并记录为准。另第076、084、095回仅片段抽检3回。真实第二小说底本逐字对校及《三国志》史料全回核证仍为 **0/120**。
 
-玩法新增关羽 `fancheng_counsel` → `xushu_departure` → 原 `jingzhou`；诸葛亮 `longzhong_conditions` → 原 `redcliff`；孙尚香 `jiangdong_hostage` → 原 `jiangdong_wedding`、`yiling`。三条可选责任链仅正向选择解锁独立一次性奖励，拒绝不锁旧档主线。详细来源、人物知识边界与时序见 [036](CHAPTER_036_READING.md)、[037](CHAPTER_037_READING.md)、[038](CHAPTER_038_READING.md)。新增 `tests/chapter_036_038_playable.rs` 和严格 Gherkin；**最终 SHA 的双平台 Rust/BDD/CLI/确定性 CI、自然地图多种子可达性和真人试玩尚未验收**。
+玩法新增关羽 `fancheng_counsel` → `xushu_departure` → 原 `jingzhou`；诸葛亮 `longzhong_letter` → `longzhong_conditions` → 原 `redcliff`；孙尚香 `jiangdong_hostage` → 原 `jiangdong_wedding`、`yiling`。三条可选责任链仅正向选择解锁独立一次性奖励，拒绝不锁旧档主线。详细来源、人物知识边界与时序见 [036](CHAPTER_036_READING.md)、[037](CHAPTER_037_READING.md)、[038](CHAPTER_038_READING.md)。新增 `tests/chapter_036_038_playable.rs` 和严格 Gherkin；**最终 SHA 的双平台 Rust/BDD/CLI/确定性 CI、自然地图多种子可达性和真人试玩尚未验收**。
