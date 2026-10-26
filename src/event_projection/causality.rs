@@ -162,9 +162,9 @@ mod tests {
     #[test]
     fn rejects_summons_into_slots_already_proven_occupied() {
         for preceding in [
-            record(1,1,1,EventKind::DamageDealt,"hero",2,Some("foe:1")),
-            record(1,1,1,EventKind::DamageReceived,"foe:2",2,Some("hero")),
-            record(1,1,1,EventKind::StatusApplied,"poison",1,Some("foe:3")),
+            record(1,1,EventKind::DamageDealt,"hero",2,Some("foe:1")),
+            record(1,1,EventKind::DamageReceived,"foe:2",2,Some("hero")),
+            record(1,1,EventKind::StatusApplied,"poison",1,Some("foe:3")),
         ] {
             let attempted = record(1,2,EventKind::FoeSummoned,"militia",1,Some("foe:1"));
             let mut attempted = attempted;
