@@ -78,8 +78,12 @@ fn accepted_records_survive_save_and_pay_once_after_liaodong() {
 #[test]
 fn refusing_any_new_record_never_locks_legacy_liaodong() {
     for refused in ["guandu_letters", "cangting_memorial", "ye_flood_ledger"] {
-        let mut game = scene(refused,
-            &["guandu_grain", "guandu_captured_letters", "cangting_memorial_record"]);
+        let prerequisites: &[&str] = match refused {
+            "guandu_letters" => &["guandu_grain"],
+            "cangting_memorial" => &["guandu_grain", "guandu_captured_letters"],
+            _ => &["guandu_grain", "guandu_captured_letters", "cangting_memorial_record"],
+        };
+        let mut game = scene(refused, prerequisites);
         let original = game.to_json().unwrap();
         assert!(game.apply(Action::Choose { index: 0 }).is_err());
         assert_eq!(game.to_json().unwrap(), original);
