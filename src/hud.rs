@@ -346,7 +346,9 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
     } else {
         "↑↓/jk 选  Enter确认  1-9快捷  t目标  v详情  :命令  ?帮助  q退出"
     };
-    line(&mut out, app, shortcuts, columns, Tone::Muted);
+    // Wide terminals keep a full-width keyboard legend even when actions are
+    // constrained to a readable left lane.
+    line(&mut out, app, shortcuts, if wide { full_columns } else { columns }, Tone::Muted);
     format!("{}\n", out.join("\n"))
 }
 
@@ -487,6 +489,7 @@ mod compact_hud_tests {
         let screen = render_mode(&app, 120, 32, 1, &choices, 0, false);
         assert!(screen.contains("当前操作说明"), "{screen}");
         assert!(screen.contains("敌方意图"), "{screen}");
+        assert!(screen.contains("q退出") && screen.contains("?帮助"), "{screen}");
         assert!(screen.contains("最近战报"), "{screen}");
         assert_eq!(screen.matches("突刺").count(),
             choices.iter().filter(|(label, _)| label.contains("突刺")).count());
