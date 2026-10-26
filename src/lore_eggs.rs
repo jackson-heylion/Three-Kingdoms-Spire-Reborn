@@ -79,4 +79,7 @@
     EasterEgg {id:"jiangdong_succession_debt",name:"江东继业·夷陵旧账",hero:Some(Hero::SunShangxiang),chapters:&[15,29,54,84],
         flags:&["taishi_trust","sun_succession_account","jiangdong_covenant","yiling_ashes"],reward_gold:18,reward_heal:7,
         hint:"神亭守诺、孙策旧案、孙权任贤、江东婚盟与夷陵救人跨越数十回，军政责任不该只按胜负书写。"},
+    EasterEgg {id:"guandu_ye_civilians",name:"官渡焚书·冀州水患旧账",hero:Some(Hero::CaoCao),chapters:&[30,31,32,33],
+        flags:&["guandu_grain","guandu_captured_letters","cangting_memorial_record","ye_flood_record","liaodong_letter"],reward_gold:24,reward_heal:9,
+        hint:"乌巢焚粮与焚书不究、仓亭战亡及秋收、冀州漳河水患和审配献门之后，辽东遗计才兑现完整军民责任簿。"},
 ]
