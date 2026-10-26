@@ -94,9 +94,17 @@ fn heading(out: &mut Vec<String>, app: &App, title: &str, columns: usize) {
 
 // Wide combat keeps decisions in one column and high-value context in another.
 // No new commands, actions or persisted state are introduced.
-fn append_context(out: &mut Vec<String>, app: &App, begin: usize,
-    left_cols: usize, full_cols: usize, rows: usize, target: usize,
+#[derive(Clone, Copy)]
+struct ContextLayout {
+    begin: usize,
+    left_cols: usize,
+    full_cols: usize,
+    rows: usize,
+    target: usize,
+}
+fn append_context(out: &mut Vec<String>, app: &App, layout: ContextLayout,
     description: Option<&str>) {
+    let ContextLayout { begin, left_cols, full_cols, rows, target } = layout;
     let Some(battle) = app.game.as_ref().and_then(|g|g.battle.as_ref()) else { return; };
     let mut context: Vec<(String, Tone)> = vec![
         ("战斗情报".into(), Tone::Accent),
@@ -312,8 +320,9 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
         }
     }
     if wide {
-        append_context(&mut out, app, menu_begin, columns, full_columns,
-            rows, target, description);
+        append_context(&mut out, app, ContextLayout {
+            begin: menu_begin, left_cols: columns, full_cols: full_columns, rows, target,
+        }, description);
     }
     if show_desc {
         line(&mut out, app, &format!("选中说明 · {}", description.unwrap_or_default()),
