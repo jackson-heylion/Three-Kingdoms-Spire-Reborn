@@ -65,7 +65,8 @@ fn refusing_either_new_scene_does_not_grant_cross_act_reward() {
     game.apply(Action::Choose {index:2}).unwrap();
     assert!(!game.lore_flags.iter().any(|s|s=="xutian_guarded_emperor"));
     assert_ne!(next_beat(Hero::GuanYu,1,&game.lore_flags,&game.lore_seen)
-        .unwrap().id,"xuzhou_gate");
+        .map(|beat| beat.id),Some("xuzhou_gate"),
+        "refusing Xutian must not force a new story or unlock Xuzhou");
     assert_eq!(next_beat(Hero::GuanYu,2,&game.lore_flags,&game.lore_seen)
         .unwrap().id,"jingzhou");
     let mut other=scene("xuzhou_gate",&["anxi_seal","wenjiu_oath","xutian_guarded_emperor"]);
