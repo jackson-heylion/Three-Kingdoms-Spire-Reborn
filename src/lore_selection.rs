@@ -74,7 +74,16 @@ pub fn next_beat(hero: Hero, act: u8, flags: &[String], seen: &[String]) -> Opti
                 && flag("redcliff_wind") && unseen("wuzhang"))
             || (b.id == "wei_caozhen_death_archive" && flag("guandu_grain") && unseen("liaodong"))
             || (b.id == "wu_nanzhong_border_archive" && flag("jiangdong_covenant") && unseen("yiling"))
-            || (b.id == "wei_wu_tribute_review" && flag("guandu_grain") && unseen("liaodong"));
+            || (b.id == "wei_wu_tribute_review" && flag("guandu_grain") && unseen("liaodong"))
+            // The 102–104 archival additions must not displace an old Wuzhang save.
+            // This fixes the real Ubuntu chapter_051_053 regression on #157.
+            || (matches!(b.id, "weibei_bridge_loss_ledger" | "wooden_ox_transport_audit" | "shangfang_fire_account" | "wuzhang_succession_register" | "wuzhang_withdrawal_evidence")
+                && flag("redcliff_wind") && unseen("wuzhang"))
+            || (matches!(b.id, "weiyan_double_memorial_audit" | "qushan_water_rescue_dispatch")
+                && flag("redcliff_wind") && unseen("wuzhang"))
+            || (matches!(b.id, "wei_palace_labor_register" | "liaodong_rain_siege_ledger" | "wei_regency_sickbed_register" | "gaoping_oath_court_review")
+                && flag("guandu_grain") && unseen("liaodong"))
+            || (b.id == "zongyu_wu_border_receipt" && flag("jiangdong_covenant") && unseen("yiling"));
         (if protect_legacy { 4 } else if is_hero && is_payoff { 0 } else if is_hero { 1 } else if is_payoff { 2 } else { 3 }, b.chapter)
     })
 }
