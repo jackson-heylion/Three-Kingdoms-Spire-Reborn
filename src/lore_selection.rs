@@ -24,7 +24,9 @@ pub fn next_beat(hero: Hero, act: u8, flags: &[String], seen: &[String]) -> Opti
             || (b.id == "nanxu_escape_witness" && flag("jiangdong_covenant") && unseen("yiling"))
             || ((b.id == "jingzhou_pledge_copy" || b.id == "jingzhou_false_passage")
                 && flag("redcliff_wind") && unseen("wuzhang"))
-            || (b.id == "tongque_dispatch_ledger" && flag("guandu_grain") && unseen("liaodong"));
+            || (b.id == "tongque_dispatch_ledger" && flag("guandu_grain") && unseen("liaodong"))
+            || (matches!(b.id, "mateng_case" | "tongguan_retreat" | "weinan_division")
+                && flag("guandu_grain") && unseen("liaodong"));
         (if protect_legacy { 4 } else if is_hero && is_payoff { 0 } else if is_hero { 1 } else if is_payoff { 2 } else { 3 }, b.chapter)
     })
 }

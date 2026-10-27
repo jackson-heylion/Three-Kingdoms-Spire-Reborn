@@ -6,7 +6,7 @@ fn chapter_reading_statuses_cannot_be_mistaken_for_completed_textual_collation()
         .collect::<Vec<_>>();
     let reviewed=lines.iter().filter(|fields|fields[3]=="正文通读/未完成异本对校")
         .map(|fields|fields[0].as_str()).collect::<Vec<_>>();
-    let expected=(1..=56).map(|n|format!("{n:03}")).collect::<Vec<_>>();
+    let expected=(1..=59).map(|n|format!("{n:03}")).collect::<Vec<_>>();
     assert_eq!(reviewed,expected.iter().map(String::as_str).collect::<Vec<_>>());
     assert!(lines[0][4].contains("oldid=2583915"));
     assert!(lines[1][4].contains("oldid=8185068"));
@@ -115,5 +115,10 @@ fn chapter_reading_statuses_cannot_be_mistaken_for_completed_textual_collation()
         assert!(lines[n-1][5].contains(id));
     }
     assert!(lines[55][5].contains("jingzhou_false_passage"));
+    for (n,oldid,id) in [(57,"2568020","fengchu"),(58,"7909160","tongguan_retreat"),(59,"2568022","weinan_division")] {
+        assert!(lines[n-1][4].contains(&format!("oldid={oldid}")));
+        assert!(lines[n-1][5].contains(id));
+    }
+    assert!(lines[56][5].contains("leiyang_review") && lines[56][5].contains("mateng_case"));
     assert_eq!(lines.iter().filter(|fields|fields[3]=="已完成全回正文审校").count(),0);
 }
