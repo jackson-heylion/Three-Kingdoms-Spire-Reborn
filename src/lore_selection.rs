@@ -31,7 +31,11 @@ pub fn next_beat(hero: Hero, act: u8, flags: &[String], seen: &[String]) -> Opti
             || (matches!(b.id, "yizhou_map_audit" | "fu_pass_review" | "luofeng_mourning" | "jinyan_bridge_review" | "chengdu_land_decree")
                 && flag("redcliff_wind") && unseen("wuzhang"))
             || (matches!(b.id, "jingzhou_handover" | "ma_chao_letter")
-                && flag("anxi_seal") && (unseen("jingzhou") || (flag("jingzhou_warning") && unseen("maicheng"))));
+                && flag("anxi_seal") && (unseen("jingzhou") || (flag("jingzhou_warning") && unseen("maicheng"))))
+            || (b.id == "lukou_terms_record" && flag("anxi_seal") && (unseen("jingzhou") || (flag("jingzhou_warning") && unseen("maicheng"))))
+            || (b.id == "xiangshui_partition" && flag("redcliff_wind") && unseen("wuzhang"))
+            || (matches!(b.id, "hanzhong_civil_ledger" | "zuoci_court_record") && flag("guandu_grain") && unseen("liaodong"))
+            || (matches!(b.id, "xiaoyao_ferry_witness" | "ruxu_rescue_roll") && flag("jiangdong_covenant") && unseen("yiling"));
         (if protect_legacy { 4 } else if is_hero && is_payoff { 0 } else if is_hero { 1 } else if is_payoff { 2 } else { 3 }, b.chapter)
     })
 }
