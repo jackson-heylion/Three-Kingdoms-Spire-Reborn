@@ -22,6 +22,7 @@ Feature: Chapters 051-053 optional narrative accountability
   Scenario: Sun family Hefei debt is paid after Yiling
     Given a "sun" campaign with seed 5353
     And the flag "jiangdong_muster_record" was earned earlier
+    And the flag "jiangdong_covenant" was earned earlier
     And the lore scene "hefei_memorial"
     When I choose 1
     Then the flag "hefei_casualty_record" is present
