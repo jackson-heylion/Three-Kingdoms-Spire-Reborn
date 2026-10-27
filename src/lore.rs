@@ -79,6 +79,7 @@ const CHAPTER_054_056_EGGS: &[EasterEgg] = include!("lore_eggs_part3.rs");
 const CHAPTER_057_059_EGGS: &[EasterEgg] = include!("lore_eggs_part4.rs");
 const CHAPTER_060_062_EGGS: &[EasterEgg] = include!("lore_eggs_part5.rs");
 const CHAPTER_063_065_EGGS: &[EasterEgg] = include!("lore_eggs_part6.rs");
+const CHAPTER_066_068_EGGS: &[EasterEgg] = include!("lore_eggs_part7.rs");
 const fn collect_eggs<const N: usize>(parts: &[&[EasterEgg]]) -> [EasterEgg; N] {
     let mut out = [parts[0][0]; N];
     let mut pos = 0;
@@ -96,7 +97,7 @@ const fn collect_eggs<const N: usize>(parts: &[&[EasterEgg]]) -> [EasterEgg; N] 
     out
 }
 pub const EASTER_EGGS: &[EasterEgg] =
-    &collect_eggs::<{ LEGACY_EGGS.len() + NEW_EGGS.len() + CHAPTER_054_056_EGGS.len() + CHAPTER_057_059_EGGS.len() + CHAPTER_060_062_EGGS.len() + CHAPTER_063_065_EGGS.len() }>(&[LEGACY_EGGS, NEW_EGGS, CHAPTER_054_056_EGGS, CHAPTER_057_059_EGGS, CHAPTER_060_062_EGGS, CHAPTER_063_065_EGGS]);
+    &collect_eggs::<{ LEGACY_EGGS.len() + NEW_EGGS.len() + CHAPTER_054_056_EGGS.len() + CHAPTER_057_059_EGGS.len() + CHAPTER_060_062_EGGS.len() + CHAPTER_063_065_EGGS.len() + CHAPTER_066_068_EGGS.len() }>(&[LEGACY_EGGS, NEW_EGGS, CHAPTER_054_056_EGGS, CHAPTER_057_059_EGGS, CHAPTER_060_062_EGGS, CHAPTER_063_065_EGGS, CHAPTER_066_068_EGGS]);
 
 pub fn newly_completed_eggs(
     hero: Hero, flags: &[String], already: &[String]
