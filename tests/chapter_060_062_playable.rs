@@ -1,7 +1,7 @@
 //! 060–062: pinned provenance, mutually exclusive records, V2, atomic rejection and once-only cross-act payoffs.
 use three_kingdoms_spire_reborn::{Action, Game, Stage};
 use three_kingdoms_spire_reborn::content::Hero;
-use three_kingdoms_spire_reborn::lore::{beat, next_beat};
+use three_kingdoms_spire_reborn::lore::{beat, next_beat, BEATS};
 
 fn at(hero: Hero, id: &str, flags: &[&str]) -> Game {
     let mut g = Game::new(hero, 6062);
@@ -43,7 +43,9 @@ fn cao_envoy_ledger_preserves_old_liaodong_and_is_once_only() {
     let flags = ["guandu_grain", "mateng_case_record", "tongguan_retreat_record", "weinan_division_record"];
     let owned: Vec<String> = flags.iter().map(|s| (*s).into()).collect();
     assert_eq!(next_beat(Hero::CaoCao, 2, &owned, &[]).map(|b| b.id), Some("liaodong"));
-    assert_eq!(next_beat(Hero::CaoCao, 2, &owned, &["liaodong".into()]).map(|b| b.id), Some("zhangsong_audience"));
+    let all_other_scenes: Vec<String> = BEATS.iter().filter(|b| b.id != "zhangsong_audience")
+        .map(|b| b.id.to_string()).collect();
+    assert_eq!(next_beat(Hero::CaoCao, 2, &owned, &all_other_scenes).map(|b| b.id), Some("zhangsong_audience"));
     let mut g = at(Hero::CaoCao, "zhangsong_audience", &flags);
     let before = g.to_json().unwrap();
     assert!(g.apply(Action::Choose { index: 99 }).is_err());
@@ -68,7 +70,9 @@ fn sun_river_witness_cannot_steal_legacy_yiling_or_reverse_the_child() {
     let flags = ["jiangdong_covenant", "nanxu_escape_witness_record"];
     let owned: Vec<String> = flags.iter().map(|s| (*s).into()).collect();
     assert_eq!(next_beat(Hero::SunShangxiang, 2, &owned, &[]).map(|b| b.id), Some("yiling"));
-    assert_eq!(next_beat(Hero::SunShangxiang, 2, &owned, &["yiling".into()]).map(|b| b.id), Some("river_child_witness"));
+    let all_other_scenes: Vec<String> = BEATS.iter().filter(|b| b.id != "river_child_witness")
+        .map(|b| b.id.to_string()).collect();
+    assert_eq!(next_beat(Hero::SunShangxiang, 2, &owned, &all_other_scenes).map(|b| b.id), Some("river_child_witness"));
     let mut g = at(Hero::SunShangxiang, "river_child_witness", &flags);
     g.apply(Action::Choose { index: 1 }).unwrap();
     assert!(has(&g, "river_child_witness_record"));
