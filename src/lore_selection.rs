@@ -86,7 +86,11 @@ pub fn next_beat(hero: Hero, act: u8, flags: &[String], seen: &[String]) -> Opti
             || (b.id == "zongyu_wu_border_receipt" && flag("jiangdong_covenant") && unseen("yiling"))
             || (matches!(b.id, "dangu_casualty_roll" | "qiaozhou_war_counsel" | "qishan_retreat_courier") && flag("redcliff_wind") && unseen("wuzhang"))
             || (matches!(b.id, "wei_huainan_summons_audit" | "shouchun_city_captives") && flag("guandu_grain") && unseen("liaodong"))
-            || (matches!(b.id, "zhugedan_wu_hostage_receipt" | "shouchun_wu_relief" | "sunxiu_court_review") && flag("jiangdong_covenant") && unseen("yiling"));
+            || (matches!(b.id, "zhugedan_wu_hostage_receipt" | "shouchun_wu_relief" | "sunxiu_court_review") && flag("jiangdong_covenant") && unseen("yiling"))
+            // Optional late archives must not displace existing V2 main-story entries.
+            || (b.chapter >= 114 && ((flag("redcliff_wind") && unseen("wuzhang"))
+                || (flag("guandu_grain") && unseen("liaodong"))
+                || (flag("jiangdong_covenant") && unseen("yiling"))));
         (if protect_legacy { 4 } else if is_hero && is_payoff { 0 } else if is_hero { 1 } else if is_payoff { 2 } else { 3 }, b.chapter)
     })
 }
