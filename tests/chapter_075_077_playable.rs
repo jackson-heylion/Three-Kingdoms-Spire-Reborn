@@ -93,7 +93,10 @@ fn legacy_story_routes_are_not_stolen_by_optional_new_nodes() {
         (Hero::ZhugeLiang,vec!["redcliff_wind","hanzhong_king_record"],"wuzhang","chengdu_mourning_register"),
     ] {
         let flags:Vec<String>=flags.into_iter().map(str::to_owned).collect();
-        assert_eq!(next_beat(hero,2,&flags,&[]).map(|b|b.id),Some(old));
+        // A legacy Maicheng save has already visited Jingzhou; otherwise
+        // the original Jingzhou entry must remain first.
+        let prior = if old == "maicheng" { vec!["jingzhou".to_owned()] } else { vec![] };
+        assert_eq!(next_beat(hero,2,&flags,&prior).map(|b|b.id),Some(old));
         let seen:Vec<String>=BEATS.iter().filter(|b|b.id!=new).map(|b|b.id.to_owned()).collect();
         assert_eq!(next_beat(hero,2,&flags,&seen).map(|b|b.id),Some(new));
     }
