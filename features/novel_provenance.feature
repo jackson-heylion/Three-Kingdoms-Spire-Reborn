@@ -141,3 +141,147 @@ Scenario: Lu Bu keeps Xiapi order records before the old White Gate choice
     And the lore scene "huarong"
     When I choose 1
     Then the hidden conclusion "three_terms_huarong" is unlocked
+
+
+  Scenario: Guan Yu keeps the five passes and Gucheng witness ledger until Huarong
+    Given a "guanyu" campaign with seed 2728
+    And the flag "seal_return_record" was earned earlier
+    And the flag "baima_debt" was earned earlier
+    And the lore scene "five_passes"
+    When I choose 1
+    Then the flag "five_passes_record" is present
+    And my deck contains "hold_line"
+    And the bond with "普净" is active
+    And the lore scene "gucheng_witness"
+    When I choose 1
+    Then the flag "gucheng_witness_ledger" is present
+    When I save and restore
+    Then the flag "gucheng_witness_ledger" is present
+    And act 1 offers the lore scene "huarong"
+    And the lore scene "huarong"
+    When I choose 1
+    Then the hidden conclusion "five_passes_huarong" is unlocked
+
+  Scenario: Refusing the five passes ledger preserves the old Huarong route
+    Given a "guanyu" campaign with seed 2729
+    And the flag "seal_return_record" was earned earlier
+    And the flag "baima_debt" was earned earlier
+    And the lore scene "five_passes"
+    When I choose 2
+    Then the flag "five_passes_record" is absent
+    And act 1 offers the lore scene "huarong"
+    And the lore scene "huarong"
+    When I choose 1
+    Then the hidden conclusion "sword_debt" is unlocked
+    And the flag "gucheng_witness_ledger" is absent
+
+  Scenario: Sun family succession record pays after the old wedding and Yiling
+    Given a "sun" campaign with seed 2929
+    And the flag "taishi_trust" was earned earlier
+    And the lore scene "sun_succession"
+    When I choose 1
+    Then the flag "sun_succession_account" is present
+    And the bond with "孙权" is active
+    When I save and restore
+    Then the flag "sun_succession_account" is present
+    And the lore scene "jiangdong_wedding"
+    When I choose 1
+    Then the flag "jiangdong_covenant" is present
+    And act 2 offers the lore scene "yiling"
+    And the lore scene "yiling"
+    When I choose 1
+    Then the hidden conclusion "jiangdong_succession_debt" is unlocked
+
+  Scenario: Sun may refuse succession record without losing the legacy Yiling path
+    Given a "sun" campaign with seed 2930
+    And the flag "taishi_trust" was earned earlier
+    And the lore scene "sun_succession"
+    When I choose 2
+    Then the flag "sun_succession_account" is absent
+    And the lore scene "jiangdong_wedding"
+    When I choose 1
+    Then the flag "jiangdong_covenant" is present
+    And act 2 offers the lore scene "yiling"
+
+
+  Scenario: Cao Cao keeps Guandu captured letters, Cangting casualties and Ye flood ledger
+    Given a "cao" campaign with seed 3032
+    And the flag "guandu_grain" was earned earlier
+    And the lore scene "guandu_letters"
+    When I choose 1
+    Then the flag "guandu_captured_letters" is present
+    And my deck contains "qimou"
+    And act 1 offers the lore scene "cangting_memorial"
+    And the lore scene "cangting_memorial"
+    When I choose 1
+    Then the flag "cangting_memorial_record" is present
+    When I save and restore
+    Then the flag "cangting_memorial_record" is present
+    And act 2 offers the lore scene "ye_flood_ledger"
+    And the lore scene "ye_flood_ledger"
+    When I choose 1
+    Then the flag "ye_flood_record" is present
+    And the lore scene "liaodong"
+    When I choose 1
+    Then the hidden conclusion "guandu_ye_civilians" is unlocked
+
+  Scenario: Cao Cao may refuse Guandu after-action records and still reach Liaodong
+    Given a "cao" campaign with seed 3033
+    And the flag "guandu_grain" was earned earlier
+    And the lore scene "guandu_letters"
+    When I choose 2
+    Then the flag "guandu_captured_letters" is absent
+    And act 2 offers the lore scene "liaodong"
+    And the lore scene "liaodong"
+    When I choose 1
+    Then the flag "liaodong_letter" is present
+
+  Scenario: Cao Cao preserves northern civilian losses after Guo Jia's Liaodong legacy
+    Given a "cao" campaign with seed 3301
+    And the flag "ye_flood_record" was earned earlier
+    And the flag "liaodong_letter" was earned earlier
+    And the lore scene "northern_settlement"
+    When I choose 1
+    Then the flag "northern_settlement_account" is present
+    And the hidden conclusion "northern_aftermath_debt" is unlocked
+    When I save and restore
+    Then the flag "northern_settlement_account" is present
+
+  Scenario: Cao Cao may refuse the northern ledger without losing old Liaodong
+    Given a "cao" campaign with seed 3302
+    And the flag "guandu_grain" was earned earlier
+    And the lore scene "northern_settlement"
+    When I choose 2
+    Then the flag "northern_settlement_account" is absent
+    And act 2 offers the lore scene "liaodong"
+    And the lore scene "liaodong"
+    When I choose 1
+    Then the flag "liaodong_letter" is present
+
+  Scenario: Guan Yu records the Tanxi escape and Xinye counsel before Jingzhou
+    Given a "guanyu" campaign with seed 3435
+    And the flag "ancient_reunion" was earned earlier
+    And the flag "anxi_seal" was earned earlier
+    And the lore scene "tanxi_warning"
+    When I choose 1
+    Then the flag "tanxi_warning_record" is present
+    And the lore scene "xinye_counsel"
+    When I choose 1
+    Then the flag "xinye_counsel_record" is present
+    When I save and restore
+    Then the flag "xinye_counsel_record" is present
+    And the lore scene "jingzhou"
+    When I choose 1
+    Then the hidden conclusion "jingxiang_warning_debt" is unlocked
+
+  Scenario: Refusing Tanxi responsibility preserves the existing Jingzhou scene
+    Given a "guanyu" campaign with seed 3436
+    And the flag "ancient_reunion" was earned earlier
+    And the flag "anxi_seal" was earned earlier
+    And the lore scene "tanxi_warning"
+    When I choose 2
+    Then the flag "tanxi_warning_record" is absent
+    And act 2 offers the lore scene "jingzhou"
+    And the lore scene "jingzhou"
+    When I choose 1
+    Then the flag "jingzhou_warning" is present
