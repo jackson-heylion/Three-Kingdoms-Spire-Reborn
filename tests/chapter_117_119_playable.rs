@@ -23,7 +23,7 @@ fn pinned_readings_are_not_mistaken_for_complete_variant_collation() {
     let rows:Vec<_>=include_str!("../data/chapter_body_audit.tsv").lines().collect();
     assert_eq!(rows.len(),121);
     for (chapter,row) in rows.iter().enumerate().take(120).skip(117) {
-        assert!(row.starts_with(&format!("{chapter:03}\\t")));
+        assert!(row.starts_with(&format!("{chapter:03}\t")));
         assert!(row.contains(&format!("CHAPTER_{chapter:03}_READING.md")));
         assert!(row.contains("正文通读/未完成异本对校"));
     }
