@@ -75,7 +75,7 @@ fn old_zhuge_wuzhang_route_has_priority_over_new_retrospective() {
     let flags = vec!["redcliff_wind".into(), "jingxiang_lease_record".into()];
     assert_eq!(next_beat(Hero::ZhugeLiang, 2, &flags, &[]).map(|b| b.id),
         Some("wuzhang"));
-    assert_eq!(next_beat(Hero::ZhugeLiang, 2, &flags, &["wuzhang".into()])
+    assert_eq!(next_beat(Hero::ZhugeLiang, 2, &flags, &["wuzhang".into(), "nanjun_claim_ledger".into()])
         .map(|b| b.id), Some("jingzhou_pledge_copy"));
 }
 #[test]
