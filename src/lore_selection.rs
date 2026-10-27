@@ -35,7 +35,9 @@ pub fn next_beat(hero: Hero, act: u8, flags: &[String], seen: &[String]) -> Opti
             || (b.id == "lukou_terms_record" && flag("anxi_seal") && (unseen("jingzhou") || (flag("jingzhou_warning") && unseen("maicheng"))))
             || (b.id == "xiangshui_partition" && flag("redcliff_wind") && unseen("wuzhang"))
             || (matches!(b.id, "hanzhong_civil_ledger" | "zuoci_court_record") && flag("guandu_grain") && unseen("liaodong"))
-            || (matches!(b.id, "xiaoyao_ferry_witness" | "ruxu_rescue_roll") && flag("jiangdong_covenant") && unseen("yiling"));
+            || (matches!(b.id, "xiaoyao_ferry_witness" | "ruxu_rescue_roll") && flag("jiangdong_covenant") && unseen("yiling"))
+            || (matches!(b.id, "xudu_fire_inquest" | "hanshui_retreat_roll") && flag("guandu_grain") && unseen("liaodong"))
+            || (matches!(b.id, "wakou_civilian_route" | "dingjun_signal_register") && flag("redcliff_wind") && unseen("wuzhang"));
         (if protect_legacy { 4 } else if is_hero && is_payoff { 0 } else if is_hero { 1 } else if is_payoff { 2 } else { 3 }, b.chapter)
     })
 }
