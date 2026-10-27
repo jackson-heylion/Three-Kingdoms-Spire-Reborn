@@ -74,7 +74,10 @@ pub fn next_beat(hero: Hero, act: u8, flags: &[String], seen: &[String]) -> Opti
                 && flag("redcliff_wind") && unseen("wuzhang"))
             || (b.id == "wei_caozhen_death_archive" && flag("guandu_grain") && unseen("liaodong"))
             || (b.id == "wu_nanzhong_border_archive" && flag("jiangdong_covenant") && unseen("yiling"))
-            || (b.id == "wei_wu_tribute_review" && flag("guandu_grain") && unseen("liaodong"));
+            || (b.id == "wei_wu_tribute_review" && flag("guandu_grain") && unseen("liaodong"))
+            // 102–104 optional archives must not displace the legacy Wuzhang entry.
+            || (matches!(b.id, "weibei_bridge_loss_ledger" | "wooden_ox_transport_audit" | "shangfang_fire_account" | "wuzhang_succession_register" | "wuzhang_withdrawal_evidence")
+                && flag("redcliff_wind") && unseen("wuzhang"));
         (if protect_legacy { 4 } else if is_hero && is_payoff { 0 } else if is_hero { 1 } else if is_payoff { 2 } else { 3 }, b.chapter)
     })
 }
