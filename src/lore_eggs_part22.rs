@@ -1,0 +1,7 @@
+// Once-only inherited rewards; every required flag comes from an accepted choice.
+&[
+    EasterEgg {id:"jiange_mianzhu_chengdu_debt",name:"剑阁预警·绵竹伤亡·成都降书",hero:Some(Hero::ZhugeLiang),chapters:&[116,117,118],flags:&["yinping_jiangge_defense_record","jiange_detour_warning_record","mianzhu_family_casualties_record","chengdu_surrender_household_record"],reward_gold:31,reward_heal:14,hint:"守住剑阁不等于成都无险；绵竹与降书后的军民善后须连账。"},
+    EasterEgg {id:"chengdu_jiangwei_aftercare_debt",name:"成都降书·姜维最后军书",hero:Some(Hero::ZhugeLiang),chapters:&[118,119],flags:&["chengdu_surrender_household_record","jiangwei_last_courier_record"],reward_gold:29,reward_heal:13,hint:"蜀亡与姜维复汉之计已成史事，原创仅兑现降卒与乱军家属保护。"},
+    EasterEgg {id:"yinping_zhonghui_court_debt",name:"阴平奇袭·成都受降·矫诏清算",hero:Some(Hero::CaoCao),chapters:&[117,118,119],flags:&["wei_yinping_march_record","wei_chengdu_occupation_record","zhonghui_false_edict_record","wei_jin_abdication_record"],reward_gold:32,reward_heal:13,hint:"魏廷后继档案把军功、降卒、伪诏与受禅放在同一份责任账中。"},
+    EasterEgg {id:"wu_mianzhu_relief_debt",name:"吴廷援蜀·未抵绵竹",hero:Some(Hero::SunShangxiang),chapters:&[116,117,118],flags:&["wu_relief_warning_record","wu_mianzhu_relief_dispatch_record","wu_relief_arrival_dispute_record"],reward_gold:28,reward_heal:12,hint:"求援、出师与实际到达必须分账，不能把未抵达写成救援成功。"},
+]
