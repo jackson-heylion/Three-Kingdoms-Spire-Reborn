@@ -1046,3 +1046,7 @@ fn unsupported_bdd_steps_fail_loudly() {
     let invalid = "Feature: test\n  Scenario: Unknown behavior\n    Given something undefined\n";
     assert!(run_feature(invalid,"invalid.feature").unwrap_err().contains("UNIMPLEMENTED"));
 }
+
+// The chapter Gherkin files are executable, not just checked-in specifications.
+#[path = "support/lore_bdd_suite.rs"]
+mod lore_scenarios;

@@ -6,7 +6,7 @@ fn chapter_reading_statuses_cannot_be_mistaken_for_completed_textual_collation()
         .collect::<Vec<_>>();
     let reviewed=lines.iter().filter(|fields|fields[3]=="正文通读/未完成异本对校")
         .map(|fields|fields[0].as_str()).collect::<Vec<_>>();
-    let expected=(1..=71).map(|n|format!("{n:03}")).collect::<Vec<_>>();
+    let expected=(1..=74).map(|n|format!("{n:03}")).collect::<Vec<_>>();
     assert_eq!(reviewed,expected.iter().map(String::as_str).collect::<Vec<_>>());
     assert!(lines[0][4].contains("oldid=2583915"));
     assert!(lines[1][4].contains("oldid=8185068"));
@@ -137,5 +137,12 @@ fn chapter_reading_statuses_cannot_be_mistaken_for_completed_textual_collation()
         assert!(lines[n-1][5].contains(id));
     }
     assert!(lines[70][5].contains("hanshui_retreat_roll"));
+    for (n,rev,id) in [(72,"2568036","xiegu_ration_inquest"),(73,"2568035","hanzhong_king_memorial"),(74,"2568037","fancheng_flood_witness")] {
+        assert!(lines[n-1][4].contains(&format!("oldid={rev}")));
+        assert!(lines[n-1][5].contains(id));
+    }
+    assert!(lines[71][5].contains("hanzhong_route_review"));
+    assert!(lines[72][5].contains("jingxiang_border_warning"));
+    assert!(lines[73][5].contains("pangde_yujin_ledger"));
     assert_eq!(lines.iter().filter(|fields|fields[3]=="已完成全回正文审校").count(),0);
 }
