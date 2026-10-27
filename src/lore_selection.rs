@@ -66,6 +66,10 @@ pub fn next_beat(hero: Hero, act: u8, flags: &[String], seen: &[String]) -> Opti
                 && flag("redcliff_wind") && (unseen("wuzhang") || (flag("longzhong_plan") && unseen("jiangwei"))))
             || (matches!(b.id, "wanglang_death_archive" | "xincheng_secret_dispatch")
                 && flag("guandu_grain") && unseen("liaodong"))
+            || (matches!(b.id, "masu_family_account" | "second_memorial_supply_review" | "chencang_siege_wounded_ledger" | "chencang_retreat_supply_audit")
+                && flag("redcliff_wind") && unseen("wuzhang"))
+            || (matches!(b.id, "shiting_false_defection_audit" | "wu_han_enthronement_dispatch")
+                && flag("jiangdong_covenant") && unseen("yiling"))
             || (b.id == "wu_nanzhong_border_archive" && flag("jiangdong_covenant") && unseen("yiling"))
             || (b.id == "wei_wu_tribute_review" && flag("guandu_grain") && unseen("liaodong"));
         (if protect_legacy { 4 } else if is_hero && is_payoff { 0 } else if is_hero { 1 } else if is_payoff { 2 } else { 3 }, b.chapter)
