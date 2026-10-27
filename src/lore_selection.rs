@@ -40,7 +40,13 @@ pub fn next_beat(hero: Hero, act: u8, flags: &[String], seen: &[String]) -> Opti
             || (matches!(b.id, "wakou_civilian_route" | "dingjun_signal_register" | "hanzhong_route_review" | "hanzhong_king_memorial") && flag("redcliff_wind") && unseen("wuzhang"))
             || (matches!(b.id, "xiegu_ration_inquest" | "pangde_yujin_ledger") && flag("guandu_grain") && unseen("liaodong"))
             || (matches!(b.id, "jingxiang_border_warning" | "fancheng_flood_witness") && flag("anxi_seal")
-                && (unseen("jingzhou") || (flag("jingzhou_warning") && unseen("maicheng"))));
+                && (unseen("jingzhou") || (flag("jingzhou_warning") && unseen("maicheng"))))
+            || (matches!(b.id, "blade_wound_watch" | "maicheng_relief_review") && flag("anxi_seal")
+                && (unseen("jingzhou") || (flag("jingzhou_warning") && unseen("maicheng"))))
+            || (matches!(b.id, "white_cloak_signal_audit" | "jingzhou_aftermath_courier")
+                && flag("jiangdong_covenant") && unseen("yiling"))
+            || (b.id == "luoyang_head_rites" && flag("guandu_grain") && unseen("liaodong"))
+            || (b.id == "chengdu_mourning_register" && flag("redcliff_wind") && unseen("wuzhang"));
         (if protect_legacy { 4 } else if is_hero && is_payoff { 0 } else if is_hero { 1 } else if is_payoff { 2 } else { 3 }, b.chapter)
     })
 }
