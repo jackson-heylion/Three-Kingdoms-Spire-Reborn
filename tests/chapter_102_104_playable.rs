@@ -37,6 +37,8 @@ fn pinned_reading_and_history_layers_are_not_conflated() {
         assert!(row.starts_with(&format!("{chapter:03}\t")));
         assert!(row.contains(&format!("CHAPTER_{chapter:03}_READING.md")));
         assert!(row.contains("正文通读/未完成异本对校"));
+        if chapter == 102 { assert!(row.contains("wooden_ox,"), "legacy 102 scene lost"); }
+        if chapter == 104 { assert!(row.contains("wuzhang,"), "legacy 104 scene lost"); }
     }
     for (id, chapter) in [
         ("weibei_bridge_loss_ledger", 102),
