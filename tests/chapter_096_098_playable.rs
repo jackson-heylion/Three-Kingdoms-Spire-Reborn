@@ -34,8 +34,7 @@ fn pinned_full_reading_is_distinct_from_partial_history_and_missing_second_base(
     assert!(history.contains("裴松之") && history.contains("0/120"));
     let rows: Vec<_> = include_str!("../data/chapter_body_audit.tsv").lines().collect();
     assert_eq!(rows.len(), 121);
-    for chapter in 96..=98 {
-        let row = rows[chapter];
+    for (chapter, row) in rows.iter().enumerate().take(99).skip(96) {
         assert!(row.starts_with(&format!("{chapter:03}\t")));
         assert!(row.contains(&format!("CHAPTER_{chapter:03}_READING.md")));
         assert!(row.contains("正文通读/未完成异本对校"));
