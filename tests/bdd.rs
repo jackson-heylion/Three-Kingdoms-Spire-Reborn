@@ -1048,5 +1048,5 @@ fn unsupported_bdd_steps_fail_loudly() {
 }
 
 // The chapter Gherkin files are executable, not just checked-in specifications.
-#[path = "bdd_lore_scenarios.rs"]
+#[path = "support/lore_bdd_suite.rs"]
 mod lore_scenarios;
