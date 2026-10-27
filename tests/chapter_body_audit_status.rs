@@ -162,5 +162,12 @@ fn chapter_reading_statuses_cannot_be_mistaken_for_completed_textual_collation()
     assert!(lines[77][5].contains("jingzhou_mourning_counsel"));
     assert!(lines[78][5].contains("ye_court_succession_review"));
     assert!(lines[79][5].contains("chengdu_legitimacy_review"));
+    for (n,rev,id) in [(81,"8730381","eastward_campaign_counsel"),(82,"2568044","wu_wei_envoy_audit"),(83,"8730382","yiling_defense_memorial")] {
+        assert!(lines[n-1][4].contains(&format!("oldid={rev}")));
+        assert!(lines[n-1][5].contains(id));
+    }
+    assert!(lines[80][5].contains("langzhong_heads_receipt"));
+    assert!(lines[81][5].contains("wei_wu_tribute_review"));
+    assert!(lines[82][5].contains("yiling_camp_map_warning"));
     assert_eq!(lines.iter().filter(|fields|fields[3]=="已完成全回正文审校").count(),0);
 }
