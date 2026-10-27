@@ -28,8 +28,10 @@ pub fn next_beat(hero: Hero, act: u8, flags: &[String], seen: &[String]) -> Opti
             || (matches!(b.id, "mateng_case" | "tongguan_retreat" | "weinan_division" | "zhangsong_audience")
                 && flag("guandu_grain") && unseen("liaodong"))
             || (b.id == "river_child_witness" && flag("jiangdong_covenant") && unseen("yiling"))
-            || (matches!(b.id, "yizhou_map_audit" | "fu_pass_review")
-                && flag("redcliff_wind") && unseen("wuzhang"));
+            || (matches!(b.id, "yizhou_map_audit" | "fu_pass_review" | "luofeng_mourning" | "jinyan_bridge_review" | "chengdu_land_decree")
+                && flag("redcliff_wind") && unseen("wuzhang"))
+            || (matches!(b.id, "jingzhou_handover" | "ma_chao_letter")
+                && flag("anxi_seal") && (unseen("jingzhou") || (flag("jingzhou_warning") && unseen("maicheng"))));
         (if protect_legacy { 4 } else if is_hero && is_payoff { 0 } else if is_hero { 1 } else if is_payoff { 2 } else { 3 }, b.chapter)
     })
 }
