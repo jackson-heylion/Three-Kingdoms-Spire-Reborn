@@ -31,8 +31,7 @@ fn fixed_editions_full_chapter_evidence_and_history_layers_are_explicit() {
     let ledger = include_str!("../data/chapter_body_audit.tsv");
     let rows: Vec<&str> = ledger.lines().collect();
     assert_eq!(rows.len(), 121);
-    for chapter in 84..=89 {
-        let row = rows[chapter];
+    for (chapter, row) in rows.iter().enumerate().take(90).skip(84) {
         assert!(row.starts_with(&format!("{chapter:03}\t")));
         assert!(row.contains(&format!("CHAPTER_{chapter:03}_READING.md")));
     }
