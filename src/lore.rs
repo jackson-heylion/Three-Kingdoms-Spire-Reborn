@@ -73,7 +73,26 @@ pub struct EasterEgg {
 /// Hidden conclusions are only awarded after the *entire* flag chain.
 /// Alternate monetary choices never plant a prerequisite, so they cannot
 /// claim the same narrative ending accidentally.
-pub const EASTER_EGGS: &[EasterEgg] = include!("lore_eggs.rs");
+const LEGACY_EGGS: &[EasterEgg] = include!("lore_eggs.rs");
+const NEW_EGGS: &[EasterEgg] = include!("lore_eggs_part2.rs");
+const fn collect_eggs<const N: usize>(parts: &[&[EasterEgg]]) -> [EasterEgg; N] {
+    let mut out = [parts[0][0]; N];
+    let mut pos = 0;
+    let mut i = 0;
+    while i < parts.len() {
+        let mut j = 0;
+        while j < parts[i].len() {
+            out[pos] = parts[i][j];
+            pos += 1;
+            j += 1;
+        }
+        i += 1;
+    }
+    assert!(pos == N);
+    out
+}
+pub const EASTER_EGGS: &[EasterEgg] =
+    &collect_eggs::<{ LEGACY_EGGS.len() + NEW_EGGS.len() }>(&[LEGACY_EGGS, NEW_EGGS]);
 
 pub fn newly_completed_eggs(
     hero: Hero, flags: &[String], already: &[String]

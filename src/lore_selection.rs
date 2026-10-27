@@ -13,10 +13,15 @@ pub fn next_beat(hero: Hero, act: u8, flags: &[String], seen: &[String]) -> Opti
     BEATS.iter().filter(eligible).min_by_key(|b| {
         let is_hero = b.hero == Some(hero);
         let is_payoff = b.prerequisite.is_some();
+        let flag = |f: &str| flags.iter().any(|x| x == f);
+        let unseen = |id: &str| !seen.iter().any(|x| x == id);
         let protect_old_jingzhou = b.id == "hanjin_ferry"
-            && flags.iter().any(|flag| flag == "anxi_seal")
-            && !seen.iter().any(|id| id == "jingzhou");
-        (if protect_old_jingzhou { 4 } else if is_hero && is_payoff { 0 } else if is_hero { 1 } else if is_payoff { 2 } else { 3 }, b.chapter)
+            && flag("anxi_seal") && unseen("jingzhou");
+        let protect_legacy = protect_old_jingzhou
+            || (b.id == "changsha_mercy" && flag("anxi_seal") && unseen("jingzhou"))
+            || (b.id == "nanjun_claim_ledger" && flag("redcliff_wind") && unseen("wuzhang"))
+            || (b.id == "hefei_memorial" && flag("jiangdong_covenant") && unseen("yiling"));
+        (if protect_legacy { 4 } else if is_hero && is_payoff { 0 } else if is_hero { 1 } else if is_payoff { 2 } else { 3 }, b.chapter)
     })
 }
 
