@@ -79,6 +79,8 @@ fn redcliff_to_wuzhang_debt_is_once_only_and_survives_v2_restore() {
 fn bridge_losses_fire_risk_and_withdrawal_require_three_distinct_acceptances() {
     let mut game = scene(Hero::ZhugeLiang, "weibei_bridge_loss_ledger", &["redcliff_wind"]);
     game.apply(Action::Choose { index: 1 }).unwrap();
+    enter(&mut game, "wooden_ox_transport_audit");
+    game.apply(Action::Choose { index: 1 }).unwrap();
     enter(&mut game, "shangfang_fire_account");
     game.apply(Action::Choose { index: 1 }).unwrap();
     assert_eq!(count(&game, "weibei_shangfang_withdrawal_debt"), 0);
@@ -87,6 +89,8 @@ fn bridge_losses_fire_risk_and_withdrawal_require_three_distinct_acceptances() {
     assert_eq!(count(&game, "weibei_shangfang_withdrawal_debt"), 1);
     let mut refused = scene(Hero::ZhugeLiang, "weibei_bridge_loss_ledger", &["redcliff_wind"]);
     refused.apply(Action::Choose { index: 2 }).unwrap();
+    enter(&mut refused, "wooden_ox_transport_audit");
+    refused.apply(Action::Choose { index: 1 }).unwrap();
     enter(&mut refused, "shangfang_fire_account");
     refused.apply(Action::Choose { index: 1 }).unwrap();
     enter(&mut refused, "wuzhang_withdrawal_evidence");
