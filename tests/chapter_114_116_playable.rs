@@ -91,6 +91,43 @@ fn accepted_shu_wei_wu_chains_pay_without_duplication() {
     assert_eq!(count(&wu,"sunxiu_wu_relief_warning_debt"),1);
 }
 
+
+#[test]
+fn qishan_payoff_needs_all_accepted_114_to_116_responsibilities() {
+    let mut missing_tanshan = scene(Hero::ZhugeLiang, "yangping_gate_betrayal",
+        &["qishan_retreat_courier_record", "taoyang_xiahouba_casualty_record",
+          "tazhong_farming_dispatch_record"]);
+    missing_tanshan.apply(Action::Choose { index: 1 }).unwrap();
+    assert_eq!(count(&missing_tanshan, "qishan_tazhong_yangping_debt"), 0,
+        "the 114 grain-loss audit cannot be silently skipped");
+
+    let mut missing_taoyang = scene(Hero::ZhugeLiang, "yangping_gate_betrayal",
+        &["qishan_retreat_courier_record", "tanshan_grain_fire_record",
+          "tazhong_farming_dispatch_record"]);
+    missing_taoyang.apply(Action::Choose { index: 1 }).unwrap();
+    assert_eq!(count(&missing_taoyang, "qishan_tazhong_yangping_debt"), 0,
+        "the 115 civilian and casualty account cannot be silently skipped");
+
+    let mut complete = scene(Hero::ZhugeLiang, "yangping_gate_betrayal",
+        &["qishan_retreat_courier_record", "tanshan_grain_fire_record",
+          "taoyang_xiahouba_casualty_record", "tazhong_farming_dispatch_record"]);
+    complete.apply(Action::Choose { index: 1 }).unwrap();
+    assert_eq!(count(&complete, "qishan_tazhong_yangping_debt"), 1);
+    let snapshot = complete.to_json().unwrap();
+    let mut restored = Game::from_json(&snapshot).unwrap();
+    enter(&mut restored, "yangping_gate_betrayal");
+    restored.apply(Action::Choose { index: 1 }).unwrap();
+    assert_eq!(count(&restored, "qishan_tazhong_yangping_debt"), 1,
+        "restoring a V2 save must not pay the debt twice");
+
+    let mut refused = scene(Hero::ZhugeLiang, "yangping_gate_betrayal",
+        &["qishan_retreat_courier_record", "tanshan_grain_fire_record",
+          "taoyang_xiahouba_casualty_record", "tazhong_farming_dispatch_record"]);
+    refused.apply(Action::Choose { index: 2 }).unwrap();
+    assert_eq!(count(&refused, "qishan_tazhong_yangping_debt"), 0);
+    assert!(!refused.lore_flags.iter().any(|flag| flag == "yangping_gate_betrayal_record"));
+}
+
 #[test]
 fn old_main_story_wins_and_new_archives_remain_selectable() {
     assert_eq!(next_beat(Hero::ZhugeLiang,2,&["redcliff_wind".into(),"qishan_retreat_courier_record".into()],&[]).map(|b|b.id),Some("wuzhang"));
