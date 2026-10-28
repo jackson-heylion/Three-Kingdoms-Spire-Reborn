@@ -187,7 +187,7 @@ mod narrative_reading_tests {
         assert!(full.contains("【当前演义剧情】"));
         let all_lines = hud_reading::lines(&app, 28, &options, 0);
         assert_eq!(all_lines.join("").replace(' ', ""),
-            full.replace('\n', "").replace(' ', ""));
+            full.replace(['\n', ' '], ""));
         let last = hud_reading::max_offset(&app, 28, 16, &options, 0);
         assert!(last > 0);
         for offset in [0, last / 2, last, usize::MAX] {

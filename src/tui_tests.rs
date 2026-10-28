@@ -131,3 +131,61 @@ mod narrative_choice_tests {
         assert_eq!(app.game.as_ref().unwrap().to_json().unwrap(), before);
     }
 }
+
+#[cfg(test)]
+mod fullscreen_help_tests {
+    use super::*;
+    use crate::{Profile, Theme};
+    use three_kingdoms_spire_reborn::{Game, content::Hero};
+
+    #[test]
+    fn question_mark_opens_full_help_before_and_during_a_run_without_state_changes() {
+        for with_game in [false, true] {
+            let game = with_game.then(|| Game::new(Hero::GuanYu, 1729));
+            let before = game.as_ref().map(|game| game.to_json().unwrap());
+            let mut app = App { game, profile: Profile::new(), theme: Theme::Dark,
+                dir: std::path::PathBuf::new(), use_ansi: false, message: "旧提示".into() };
+            let mut reading = false;
+            let mut help = false;
+            let mut offset = 13;
+            show_help(&mut app, &mut reading, &mut help, &mut offset);
+            assert!(reading && help);
+            assert_eq!(offset, 0);
+            assert!(app.message.contains("new [武将]"), "{}", app.message);
+            assert!(app.message.contains("chapter 1-120"));
+            assert!(app.message.contains("quit"));
+            let doc = hud_reading::help_document(&app);
+            assert!(doc.contains("【完整命令列表】"));
+            assert!(doc.contains("new [武将]"));
+            assert_eq!(app.game.as_ref().map(|game| game.to_json().unwrap()), before);
+        }
+    }
+
+    #[test]
+    fn help_is_scrollable_and_preserves_all_commands_in_narrow_terminals() {
+        let mut app = App { game: None, profile: Profile::new(), theme: Theme::Dark,
+            dir: std::path::PathBuf::new(), use_ansi: false, message: String::new() };
+        let mut reading = false;
+        let mut help = false;
+        let mut offset = 0;
+        show_help(&mut app, &mut reading, &mut help, &mut offset);
+        let plain = hud_reading::help_document(&app);
+        for (columns, rows) in [(28, 16), (40, 20), (80, 24), (120, 38)] {
+            let lines = hud_reading::help_lines(&app, columns);
+            assert_eq!(lines.join(""), plain.replace('\n', ""), "lost help text");
+            let max = hud_reading::help_max_offset(&app, columns, rows);
+            assert!(max > 0, "{columns}x{rows}");
+            for scroll in [0, max / 2, max, usize::MAX] {
+                let screen = hud_reading::render_help(&app, columns, rows, scroll);
+                assert!(screen.lines().count() <= rows, "{screen}");
+                assert!(screen.lines().all(|line|
+                    unicode_width::UnicodeWidthStr::width(line) <= columns), "{screen}");
+            }
+            let last = hud_reading::render_help(&app, columns, rows, max);
+            assert!(last.contains("quit"), "{last}");
+        }
+        assert!(is_help_command("help"));
+        assert!(is_help_command("  h  "));
+        assert!(!is_help_command("choose 1"));
+    }
+}

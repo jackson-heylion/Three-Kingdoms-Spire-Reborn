@@ -227,6 +227,20 @@ fn typed_command()->io::Result<String> {
         io::stdout().flush()?;
     }
 }
+// Help is a presentation action: the shared CLI help text is authoritative,
+// but '?' must open a scrollable page rather than a clipped one-line toast.
+fn show_help(app: &mut App, reading: &mut bool, help: &mut bool, offset: &mut usize) {
+    if app.command("help") {
+        *reading = true;
+        *help = true;
+        *offset = 0;
+    }
+}
+
+fn is_help_command(command: &str) -> bool {
+    matches!(command.trim(), "help" | "h")
+}
+
 pub(super) fn run(app:&mut App)->Result<(),String> {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         return Err("交互式TUI需要真实终端；管道脚本请使用 --plain".into());
@@ -237,6 +251,7 @@ pub(super) fn run(app:&mut App)->Result<(),String> {
     let mut selecting_card: Option<usize> = None;
     let mut details = false;
     let mut reading = false;
+    let mut reading_help = false;
     let mut reading_offset = 0usize;
     loop {
         let options = if let Some(index) = selecting_card {
@@ -247,7 +262,9 @@ pub(super) fn run(app:&mut App)->Result<(),String> {
         if options.is_empty() {cursor=0;}
         else {cursor=cursor.min(options.len()-1);}
         let (rows,columns)=terminal_size();
-        let frame = if reading {
+        let frame = if reading && reading_help {
+            hud_reading::render_help(app, columns, rows, reading_offset)
+        } else if reading {
             hud_reading::render(app, columns, rows, &options, cursor, reading_offset)
         } else {
             hud::render_mode(app, columns, rows, target, &options, cursor, details)
@@ -256,10 +273,21 @@ pub(super) fn run(app:&mut App)->Result<(),String> {
         io::stdout().flush().map_err(|e|e.to_string())?;
         let key = read_byte().map_err(|e|e.to_string())?;
         if reading {
-            let max = hud_reading::max_offset(app, columns, rows, &options, cursor);
+            let max = if reading_help {
+                hud_reading::help_max_offset(app, columns, rows)
+            } else {
+                hud_reading::max_offset(app, columns, rows, &options, cursor)
+            };
             let page = rows.saturating_sub(3).max(1);
             match key {
                 b'i' | b'q' | b'\r' | b'\n' => reading = false,
+                b'?' => {
+                    if reading_help {
+                        reading = false;
+                    } else {
+                        show_help(app, &mut reading, &mut reading_help, &mut reading_offset);
+                    }
+                },
                 b'j' | b'n' => {
                     reading_offset = reading_offset.saturating_add(if key == b'n' {page} else {1}).min(max);
                 }
@@ -282,7 +310,7 @@ pub(super) fn run(app:&mut App)->Result<(),String> {
             b'j'=>{cursor=cursor.saturating_add(1).min(options.len().saturating_sub(1));None}
             b'k'=>{cursor=cursor.saturating_sub(1);None}
             b'v'=>{details=!details;None}
-            b'i'=>{reading=true;reading_offset=0;None}
+            b'i'=>{reading=true;reading_help=false;reading_offset=0;None}
             b'\r'|b'\n'=>options.get(cursor).map(|(_,cmd)|cmd.clone()),
             b'1'..=b'9'=>options.get(usize::from(key-b'1')).map(|(_,cmd)|cmd.clone()),
             b't'=>{
@@ -294,7 +322,10 @@ pub(super) fn run(app:&mut App)->Result<(),String> {
                 }
                 None
             }
-            b'?'=>Some("help".into()),
+            b'?'=>{
+                show_help(app, &mut reading, &mut reading_help, &mut reading_offset);
+                None
+            },
             b':' => {
                 let command=typed_command().map_err(|e|e.to_string())?;
                 if command.is_empty(){None}else{Some(command)}
@@ -326,6 +357,12 @@ pub(super) fn run(app:&mut App)->Result<(),String> {
                 continue;
             }
             if !app.command(&command) {return Ok(());}
+            if is_help_command(&command) {
+                reading = true;
+                reading_help = true;
+                reading_offset = 0;
+                continue;
+            }
             selecting_card = None;
             // Menu choices depend on the committed stage; avoid retaining stale selection.
             cursor=0;

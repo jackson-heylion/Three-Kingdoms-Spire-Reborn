@@ -155,4 +155,4 @@ cargo run --release --bin tks-sim -- 1000
 
 ### 终端兼容性与辅助操作
 
-TUI 遇到「驿道奇遇」会显示剧情前提和具体选择；按 `i` 可打开只读全文视图，`j/k` 或方向键滚动、`n/p` 翻页、`i`/回车/`q` 返回主界面。长菜单选项、战报和命令反馈都能在全文视图完整阅读，窄屏省略会提示 `i全文`。全文视图不会执行选择或写入存档。TUI 菜单宽度按当前 TTY 列数裁剪，裁剪按 Unicode 显示单元计算（不截断汉字字节）；`:` 高级命令允许直接输入中文附魔名称，退格按字符列宽擦除。终端提供 `theme highcontrast` 高对比主题；在屏幕阅读器或自动化下推荐 `--plain`，不会清屏。Linux 默认使用 `$XDG_DATA_HOME/ThreeKingdomsSpireReborn` 或 `~/.local/share/ThreeKingdomsSpireReborn`，首次升级仍能找到旧版 macOS 风格目录中的现有存档；macOS 继续使用 Application Support。该改进并不构成完整人工无障碍与双语验收。
+TUI 遇到「驿道奇遇」会显示剧情前提和具体选择；按 `?` 直接打开完整可滚动操作帮助（`:help` 同样可用），按 `i` 可打开只读全文视图，`j/k` 或方向键滚动、`n/p` 翻页、`i`/回车/`q` 返回主界面。长菜单选项、战报和命令反馈都能在全文视图完整阅读，窄屏省略会提示 `i全文`。全文视图不会执行选择或写入存档。TUI 菜单宽度按当前 TTY 列数裁剪，裁剪按 Unicode 显示单元计算（不截断汉字字节）；`:` 高级命令允许直接输入中文附魔名称，退格按字符列宽擦除。终端提供 `theme highcontrast` 高对比主题；在屏幕阅读器或自动化下推荐 `--plain`，不会清屏。Linux 默认使用 `$XDG_DATA_HOME/ThreeKingdomsSpireReborn` 或 `~/.local/share/ThreeKingdomsSpireReborn`，首次升级仍能找到旧版 macOS 风格目录中的现有存档；macOS 继续使用 Application Support。该改进并不构成完整人工无障碍与双语验收。

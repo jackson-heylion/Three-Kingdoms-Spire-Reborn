@@ -79,18 +79,46 @@ pub(super) fn max_offset(app: &App, columns: usize, rows: usize,
         .saturating_sub(rows.max(16).saturating_sub(3))
 }
 
+/// A dedicated, formatted help document: never mix commands behind the
+/// currently selected card or the previous combat log.
+pub(super) fn help_document(app: &App) -> String {
+    format!(
+        "【键盘操作】\n↑↓ / j k：移动选择  Enter：确认  1—9：快捷行动\n\
+         t：切换敌军目标  v：详细视图  i：阅读全文\n\
+         ?：打开或关闭帮助  :：输入命令  q：退出（帮助页内为返回）\n\n\
+         【完整命令列表】\n按 : 输入以下命令；可随时按 ? 查看本页。\n\n{}",
+        app.message.replace('；', "；\n")
+    )
+}
+
+pub(super) fn help_lines(app: &App, columns: usize) -> Vec<String> {
+    wrapped(&help_document(app), columns.clamp(28, 120))
+}
+
+pub(super) fn help_max_offset(app: &App, columns: usize, rows: usize) -> usize {
+    help_lines(app, columns).len()
+        .saturating_sub(rows.max(16).saturating_sub(3))
+}
+
+pub(super) fn render_help(app: &App, columns: usize, rows: usize, offset: usize) -> String {
+    render_body("三国登塔录 · 操作帮助", "帮助只读 · 不修改战役状态",
+        help_lines(app, columns), columns, rows, offset)
+}
+
 pub(super) fn render(app: &App, columns: usize, rows: usize,
     options: &[(String, String)], cursor: usize, offset: usize) -> String {
+    render_body("三国登塔录 · 全文阅读（只读）", "全文模式不执行行动，也不改变存档",
+        lines(app, columns, options, cursor), columns, rows, offset)
+}
+
+fn render_body(title: &str, subtitle: &str, body: Vec<String>,
+    columns: usize, rows: usize, offset: usize) -> String {
     let columns = columns.clamp(28, 120);
     let rows = rows.max(16);
-    let body = lines(app, columns, options, cursor);
     let visible = rows - 3;
     let start = offset.min(body.len().saturating_sub(visible));
     let end = (start + visible).min(body.len());
-    let mut screen = vec![
-        "三国登塔录 · 全文阅读（只读）".to_owned(),
-        "全文模式不执行行动，也不改变存档".to_owned(),
-    ];
+    let mut screen = vec![title.to_owned(), subtitle.to_owned()];
     screen.extend(body[start..end].iter().cloned());
     let footer = if columns < 50 {
         format!("i/q返回 jk滚动 n/p翻页 {}/{}", end, body.len())
