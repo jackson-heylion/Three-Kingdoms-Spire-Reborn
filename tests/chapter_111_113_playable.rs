@@ -103,3 +103,44 @@ fn old_main_story_wins_and_late_archives_are_independently_selectable() {
         assert!(Game::from_json(&json).is_ok());
     }
 }
+
+#[test]
+fn successor_debts_require_each_intermediate_accepted_choice() {
+    use three_kingdoms_spire_reborn::lore::newly_completed_eggs;
+
+    let wei_partial = vec![
+        "shouchun_false_edict_record".into(),
+        "shouchun_city_captives_record".into(),
+    ];
+    assert!(!newly_completed_eggs(Hero::CaoCao, &wei_partial, &[])
+        .iter().any(|egg| egg.id == "huainan_shouchun_captives_debt"));
+    let mut wei_complete = wei_partial;
+    wei_complete.push("wei_huainan_summons_record".into());
+    assert_eq!(newly_completed_eggs(Hero::CaoCao, &wei_complete, &[])
+        .iter().filter(|egg| egg.id == "huainan_shouchun_captives_debt").count(), 1);
+
+    let wu_partial = vec![
+        "dongxing_snow_bridge_record".into(),
+        "sunxiu_court_review_record".into(),
+    ];
+    assert!(!newly_completed_eggs(Hero::SunShangxiang, &wu_partial, &[])
+        .iter().any(|egg| egg.id == "dongxing_sunxiu_court_debt"));
+    let mut wu_complete = wu_partial;
+    wu_complete.push("zhugedan_wu_hostage_record".into());
+    wu_complete.push("shouchun_wu_relief_record".into());
+    assert_eq!(newly_completed_eggs(Hero::SunShangxiang, &wu_complete, &[])
+        .iter().filter(|egg| egg.id == "dongxing_sunxiu_court_debt").count(), 1);
+    assert!(newly_completed_eggs(Hero::SunShangxiang, &wu_complete,
+        &["dongxing_sunxiu_court_debt".into()]).is_empty());
+
+    let mut refused = scene(Hero::SunShangxiang, "shouchun_wu_relief",
+        &["dongxing_snow_bridge_record", "zhugedan_wu_hostage_record"]);
+    let before = refused.to_json().unwrap();
+    assert!(refused.apply(Action::Choose { index: 99 }).is_err());
+    assert_eq!(refused.to_json().unwrap(), before);
+    refused.apply(Action::Choose { index: 2 }).unwrap();
+    assert!(!refused.lore_flags.iter().any(|flag| flag == "shouchun_wu_relief_record"));
+    assert_eq!(count(&refused, "dongxing_sunxiu_court_debt"), 0);
+    assert_eq!(Game::from_json(&refused.to_json().unwrap()).unwrap()
+        .easter_unlocked, refused.easter_unlocked);
+}
