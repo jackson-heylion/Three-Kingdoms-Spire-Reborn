@@ -6,7 +6,11 @@ fn chapter_reading_statuses_cannot_be_mistaken_for_completed_textual_collation()
         .collect::<Vec<_>>();
     let reviewed=lines.iter().filter(|fields|fields[3]=="正文通读/未完成异本对校")
         .map(|fields|fields[0].as_str()).collect::<Vec<_>>();
-    let expected=(1..=77).map(|n|format!("{n:03}")).collect::<Vec<_>>();
+    // The contiguous reviewed prefix may grow; do not hard-code the last chapter.
+    // Require the already evidenced 001–080 baseline, but never claim future chapters reviewed.
+    assert_eq!(lines.len(), 120);
+    assert!(reviewed.len() >= 80, "previously evidenced chapters 001–080 must remain reviewed");
+    let expected=(1..=reviewed.len()).map(|n|format!("{n:03}")).collect::<Vec<_>>();
     assert_eq!(reviewed,expected.iter().map(String::as_str).collect::<Vec<_>>());
     assert!(lines[0][4].contains("oldid=2583915"));
     assert!(lines[1][4].contains("oldid=8185068"));
@@ -151,5 +155,12 @@ fn chapter_reading_statuses_cannot_be_mistaken_for_completed_textual_collation()
     assert!(lines[74][5].contains("white_cloak_signal_audit"));
     assert!(lines[76][5].contains("jingzhou_aftermath_courier"));
     assert!(lines[76][5].contains("luoyang_head_rites"));
+    for (n,rev,id) in [(78,"2568040","huatuo_prison_review"),(79,"2568043","shangyong_refusal_trial"),(80,"7909161","abdication_seal_audit")] {
+        assert!(lines[n-1][4].contains(&format!("oldid={rev}")));
+        assert!(lines[n-1][5].contains(id));
+    }
+    assert!(lines[77][5].contains("jingzhou_mourning_counsel"));
+    assert!(lines[78][5].contains("ye_court_succession_review"));
+    assert!(lines[79][5].contains("chengdu_legitimacy_review"));
     assert_eq!(lines.iter().filter(|fields|fields[3]=="已完成全回正文审校").count(),0);
 }
