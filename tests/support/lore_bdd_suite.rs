@@ -24,10 +24,11 @@ fn every_literary_feature_is_executed_not_just_stored() {
         ("090_092", include_str!("../../features/lore_ch090_092.feature")),
         ("093_095", include_str!("../../features/lore_ch093_095.feature")),
         ("096_098", include_str!("../../features/lore_ch096_098.feature")),
+        ("099_101", include_str!("../../features/lore_ch099_101.feature")),
     ];
     let mut scenarios = 0;
     for (name, source) in documents {
         scenarios += run_feature(source, name).unwrap_or_else(|e| panic!("{name}: {e}"));
     }
-    assert!(scenarios >= 75, "literary BDD coverage regressed: {scenarios}");
+    assert!(scenarios >= 79, "literary BDD coverage regressed: {scenarios}");
 }
