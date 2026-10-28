@@ -1,6 +1,7 @@
 //! A compact, Unicode-cell-aware terminal HUD. The plain CLI and Game are untouched.
 //! Color is presentation-only and never enters persisted state or user commands.
 use super::{App, Stage, Theme, hud_reading};
+use three_kingdoms_spire_reborn::content::Hero;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 fn width(text: &str) -> usize { UnicodeWidthStr::width(text) }
@@ -29,24 +30,27 @@ fn window(total: usize, cursor: usize, available: usize) -> (usize, usize) {
 }
 
 #[derive(Clone, Copy)]
-enum Tone { Normal, Muted, Accent, Good, Warning, Danger, Focus }
+enum Tone { Normal, Muted, Accent, Good, Warning, Danger, Target, Focus }
 fn color(app: &App, text: &str, tone: Tone) -> String {
     if !app.use_ansi || matches!(tone, Tone::Normal) { return text.to_owned(); }
     let code = match app.theme {
         Theme::Dark => match tone {
             Tone::Normal => "97", Tone::Muted => "90", Tone::Accent => "1;96",
             Tone::Good => "1;92", Tone::Warning => "1;93",
-            Tone::Danger => "1;91", Tone::Focus => "1;30;106",
+            Tone::Danger => "1;91", Tone::Target => "1;38;5;215",
+            Tone::Focus => "1;30;106",
         },
         Theme::Light => match tone {
             Tone::Normal => "30", Tone::Muted => "90", Tone::Accent => "1;34",
             Tone::Good => "1;32", Tone::Warning => "1;33",
-            Tone::Danger => "1;31", Tone::Focus => "1;97;44",
+            Tone::Danger => "1;31", Tone::Target => "1;38;2;145;64;0",
+            Tone::Focus => "1;97;44",
         },
         Theme::HighContrast => match tone {
             Tone::Normal => "1;97", Tone::Muted => "1;37", Tone::Accent => "1;96",
             Tone::Good => "1;92", Tone::Warning => "1;93",
-            Tone::Danger => "1;91", Tone::Focus => "1;30;103",
+            Tone::Danger => "1;91", Tone::Target => "1;97;44",
+            Tone::Focus => "1;30;103",
         },
     };
     format!("\x1b[{code}m{text}{}", app.theme.style())
@@ -68,6 +72,43 @@ fn pieces(out: &mut Vec<String>, app: &App, columns: usize, spans: &[(&str, Tone
 fn heading(out: &mut Vec<String>, app: &App, title: &str, columns: usize) {
     let line_text = format!("─ {title} {}", "─".repeat(columns.saturating_sub(width(title) + 4)));
     line(out, app, &line_text, columns, Tone::Muted);
+}
+
+/// Always show the current hero's core resource, including zero.
+fn primary_resource(hero: Hero, momentum: i32, scheme: i32, combo: i32,
+    command: i32, fury: i32) -> (&'static str, i32) {
+    match hero {
+        Hero::GuanYu => ("战意", momentum),
+        Hero::ZhugeLiang => ("谋略", scheme),
+        Hero::SunShangxiang => ("连段", combo),
+        Hero::CaoCao => ("统御", command),
+        Hero::LuBu => ("怒气", fury),
+    }
+}
+
+/// Pack complete labeled values into Unicode-cell-aware rows before the foe list.
+/// Never let an inactive resource disappear merely because its value is zero.
+fn status_rows(out: &mut Vec<String>, app: &App, columns: usize,
+    tokens: &[(String, Tone)]) {
+    let mut spans: Vec<(&str, Tone)> = Vec::new();
+    let mut used = 0usize;
+    for (label, tone) in tokens {
+        let cells = width(label);
+        if !spans.is_empty() && used + 2 + cells > columns {
+            pieces(out, app, columns, &spans);
+            spans.clear();
+            used = 0;
+        }
+        if !spans.is_empty() {
+            spans.push(("  ", Tone::Normal));
+            used += 2;
+        }
+        spans.push((label.as_str(), *tone));
+        used += cells;
+    }
+    if !spans.is_empty() {
+        pieces(out, app, columns, &spans);
+    }
 }
 
 fn menu_label(label: &str, combat: bool, details: bool) -> &str {
@@ -123,13 +164,31 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
         }
         if let Some(b) = g.battle.as_ref().filter(|_| g.stage == Stage::Combat) {
             combat = true;
-            pieces(&mut out, app, columns, &[
-                (&format!("军令 {}  ", b.energy), Tone::Accent),
-                (&format!("护甲 {}  ", b.block), Tone::Good),
-                (&format!("回合 {}  ", b.turn), Tone::Normal),
-                (&format!("武勇 {}  虚弱 {}  易伤 {}", b.strength, b.weak, b.vulnerable),
-                    if b.weak > 0 || b.vulnerable > 0 { Tone::Warning } else { Tone::Muted }),
+            let (core_name, core_value) = primary_resource(g.hero,
+                b.momentum, b.scheme, b.combo, b.command, b.fury);
+            let mut stats = vec![
+                (format!("军令 {}", b.energy), Tone::Accent),
+                (format!("护甲 {}", b.block), Tone::Good),
+                (format!("{core_name} {core_value}"), Tone::Accent),
+            ];
+            // Show active cross-class resources as well, not just the hero's main meter.
+            for (name, value) in [
+                ("战意", b.momentum), ("谋略", b.scheme), ("连段", b.combo),
+                ("统御", b.command), ("怒气", b.fury), ("反击", b.thorns),
+            ] {
+                if name != core_name && value > 0 {
+                    stats.push((format!("{name} {value}"), Tone::Accent));
+                }
+            }
+            stats.extend([
+                (format!("回合 {}", b.turn), Tone::Muted),
+                (format!("武勇 {}", b.strength), Tone::Muted),
+                (format!("虚弱 {}", b.weak),
+                    if b.weak > 0 { Tone::Warning } else { Tone::Muted }),
+                (format!("易伤 {}", b.vulnerable),
+                    if b.vulnerable > 0 { Tone::Warning } else { Tone::Muted }),
             ]);
+            status_rows(&mut out, app, columns, &stats);
             heading(&mut out, app, "敌军（t 切换目标）", columns);
             for (i, enemy) in b.foes.iter().enumerate() {
                 if out.len() + 5 >= rows { break; }
@@ -141,17 +200,7 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
                     else if enemy.phase > 0 { " [二阶段]" } else { "" });
                 line(&mut out, app, &label, columns,
                     if enemy.hp == 0 { Tone::Muted }
-                    else if active { Tone::Warning } else { Tone::Danger });
-            }
-            // Surface only relevant resources by default; diagnostics live in detail mode.
-            let resources = [
-                ("战意", b.momentum), ("谋略", b.scheme), ("连段", b.combo),
-                ("统御", b.command), ("怒气", b.fury), ("反击", b.thorns),
-            ].into_iter().filter(|(_, value)| details || *value > 0)
-                .map(|(name, value)| format!("{name} {value}"))
-                .collect::<Vec<_>>();
-            if !resources.is_empty() {
-                line(&mut out, app, &resources.join("  "), columns, Tone::Accent);
+                    else if active { Tone::Target } else { Tone::Danger });
             }
             if b.thorns > 0 {
                 line(&mut out, app, &format!("反击 {} ·可中断后续战技", b.thorns),

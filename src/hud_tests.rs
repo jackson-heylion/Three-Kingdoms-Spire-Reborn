@@ -210,3 +210,81 @@ mod narrative_reading_tests {
         assert!(hostile.iter().all(|line| !line.contains('\x1b') && width(line) <= 7));
     }
 }
+
+#[cfg(test)]
+mod target_and_class_resource_tests {
+    use super::*;
+    use crate::{Profile, Theme, tui};
+    use three_kingdoms_spire_reborn::{Action, Game, content::Hero};
+
+    fn battle(hero: Hero) -> App {
+        let mut game = Game::new(hero, 20261028);
+        game.apply(Action::Choose { index: 1 }).unwrap();
+        App { game: Some(game), profile: Profile::new(), theme: Theme::Light,
+            dir: std::path::PathBuf::new(), use_ansi: false, message: String::new() }
+    }
+
+    #[test]
+    fn primary_resource_is_always_visible_even_at_zero_before_enemies() {
+        for (hero, label) in [
+            (Hero::GuanYu, "战意"), (Hero::ZhugeLiang, "谋略"),
+            (Hero::SunShangxiang, "连段"), (Hero::CaoCao, "统御"),
+            (Hero::LuBu, "怒气"),
+        ] {
+            let mut app = battle(hero);
+            let g = app.game.as_mut().unwrap();
+            let b = g.battle.as_mut().unwrap();
+            b.momentum = 0;
+            b.scheme = 0;
+            b.combo = 0;
+            b.command = 0;
+            b.fury = 0;
+            let choices = tui::choices(&app, 1);
+            let snapshot = app.game.as_ref().unwrap().to_json().unwrap();
+            for (columns, rows) in [(28, 16), (40, 20), (80, 24), (120, 38)] {
+                let output = render_mode(&app, columns, rows, 1, &choices, 0, false);
+                let resource = format!("{label} 0");
+                assert!(output.contains(&resource), "{hero:?}, {columns}x{rows}: {output}");
+                assert!(output.find(&resource) < output.find("敌军"), "{output}");
+                assert!(output.contains("军令") && output.contains("护甲"), "{output}");
+                assert!(output.lines().count() <= rows, "{output}");
+                assert!(output.lines().all(|line| width(line) <= columns), "{output}");
+                assert!(output.contains("▶"), "{output}");
+            }
+            assert_eq!(app.game.as_ref().unwrap().to_json().unwrap(), snapshot);
+        }
+    }
+
+    #[test]
+    fn active_secondary_meter_is_not_hidden_behind_foes() {
+        let mut app = battle(Hero::GuanYu);
+        let b = app.game.as_mut().unwrap().battle.as_mut().unwrap();
+        b.momentum = 0;
+        b.command = 2;
+        let choices = tui::choices(&app, 1);
+        let output = render_mode(&app, 40, 20, 1, &choices, 0, false);
+        assert!(output.contains("战意 0") && output.contains("统御 2"), "{output}");
+        assert!(output.find("统御 2") < output.find("敌军"), "{output}");
+    }
+
+    #[test]
+    fn selected_enemy_uses_dark_orange_in_light_theme_not_bright_yellow() {
+        let mut app = battle(Hero::GuanYu);
+        let options = tui::choices(&app, 1);
+        app.use_ansi = true;
+        for (theme, code) in [
+            (Theme::Light, "\x1b[1;38;2;145;64;0m"),
+            (Theme::Dark, "\x1b[1;38;5;215m"),
+            (Theme::HighContrast, "\x1b[1;97;44m"),
+        ] {
+            app.theme = theme;
+            let screen = render_mode(&app, 80, 28, 1, &options, 0, false);
+            let selected = screen.lines().find(|line| line.contains('▶') && line.contains("HP"))
+                .expect("selected living enemy must be on screen");
+            assert!(selected.starts_with(&format!("{code}▶")), "{theme:?} {selected}");
+            if matches!(theme, Theme::Light) {
+                assert!(!selected.contains("\x1b[1;33m"), "{selected}");
+            }
+        }
+    }
+}
