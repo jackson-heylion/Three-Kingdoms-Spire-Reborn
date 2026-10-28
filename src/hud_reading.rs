@@ -118,7 +118,14 @@ fn render_body(title: &str, subtitle: &str, body: Vec<String>,
     let visible = rows - 3;
     let start = offset.min(body.len().saturating_sub(visible));
     let end = (start + visible).min(body.len());
-    let mut screen = vec![title.to_owned(), subtitle.to_owned()];
+    // The reading header occupies exactly two rows even in a 28-column TTY.
+    // Long titles are replaced by short labels; narrative body remains lossless.
+    let heading = if columns < 36 {
+        if title.contains("帮助") { "三国登塔录 · 帮助" }
+        else { "三国登塔录 · 阅读" }
+    } else { title };
+    let hint = if columns < 36 { "只读 · jk滚动 n/p翻页" } else { subtitle };
+    let mut screen = vec![heading.to_owned(), hint.to_owned()];
     screen.extend(body[start..end].iter().cloned());
     let footer = if columns < 50 {
         format!("i/q返回 jk滚动 n/p翻页 {}/{}", end, body.len())
