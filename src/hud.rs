@@ -246,8 +246,7 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
     }
     // Always keep actionable, real post-settlement results in sight. The
     // complete 80-event journal is readable with 'l', with no HUD clipping.
-    if combat && rows >= 24 && out.len() + 9 <= rows
-        && let Some(game) = &app.game {
+    if combat && rows >= 24 && out.len() + 9 <= rows {
         heading(&mut out, app, "双方行动（l 查看完整战报）", columns);
         for entry in combat_report::recent_for_app(app) {
             line(&mut out, app, &entry, columns, Tone::Normal);
