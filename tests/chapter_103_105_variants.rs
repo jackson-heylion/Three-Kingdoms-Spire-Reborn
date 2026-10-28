@@ -26,7 +26,7 @@ fn fixed_ch103_105_variants_keep_playable_contracts() {
         assert_eq!(scene.reward_gold, gold);
         assert_eq!(scene.reward_heal, heal);
     }
-    for token in ["皆要燒死", "杖馬岱四十", "禮義廉恥", "鐵矢長八寸",
+    for token in ["皆要燒死", "杖背四十", "夏侯霸、夏侯威", "夏侯惠、夏侯和", "禮義廉恥", "鐵矢長八寸",
         "王平、廖化、張嶷、張翼、吳懿", "馬岱、王平、廖化、張翼、張嶷",
         "逆從魏寇", "謀為不軌", "非逐字异文", "仍0/120"] {
         assert!(evidence.contains(token), "missing anchored distinction: {token}");
