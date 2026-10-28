@@ -1,6 +1,6 @@
 //! A compact, Unicode-cell-aware terminal HUD. The plain CLI and Game are untouched.
 //! Color is presentation-only and never enters persisted state or user commands.
-use super::{App, Stage, Theme};
+use super::{App, Stage, Theme, hud_reading};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 fn width(text: &str) -> usize { UnicodeWidthStr::width(text) }
@@ -181,17 +181,36 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
                 Stage::Combat => "战斗中",
             };
             line(&mut out, app, scene, columns, Tone::Accent);
+            if g.stage == Stage::Story {
+                // Preserve the scene title and premise, even when the menu is compact.
+                // The full narrative and choices remain scrollable with 'i'.
+                let opening = g.lore_hint();
+                let premise = opening.lines().next().unwrap_or_default();
+                let limit = if rows >= 28 { 4 } else if rows >= 21 { 3 } else { 2 };
+                for paragraph in hud_reading::preview(premise, columns, limit) {
+                    line(&mut out, app, &paragraph, columns, Tone::Normal);
+                }
+            }
         }
     } else {
         line(&mut out, app, "尚未出征 · 选择武将开始征程", columns, Tone::Muted);
     }
     let selected = options.get(cursor);
-    let description = selected.and_then(|(label, _)| focus_description(label, combat));
+    let description = selected.and_then(|(label, _)| {
+        if combat {
+            focus_description(label, true).map(|text| format!("选中说明 · {text}"))
+        } else if width(label) > columns.saturating_sub(8) {
+            Some(format!("当前选择 · {label}"))
+        } else {
+            None
+        }
+    });
     let show_desc = !details && description.is_some() && rows >= 23;
     let show_log = rows >= 28 && app.game.as_ref().is_some();
     let show_feedback = !app.message.is_empty();
-    let reserved = 1 + usize::from(show_desc) + usize::from(show_log)
-        + usize::from(show_feedback);
+    let desc_rows = if show_desc { if rows >= 30 { 2 } else { 1 } } else { 0 };
+    let feedback_rows = if show_feedback { if rows >= 30 { 2 } else { 1 } } else { 0 };
+    let reserved = 1 + desc_rows + usize::from(show_log) + feedback_rows;
     // Keep at least one decision on-screen, including at 28×16.
     let space = rows.saturating_sub(out.len() + reserved + 1);
     let (start, end) = window(options.len(), cursor, space);
@@ -227,9 +246,10 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
             }
         }
     }
-    if show_desc {
-        line(&mut out, app, &format!("选中说明 · {}", description.unwrap_or_default()),
-            columns, Tone::Muted);
+    if let Some(description) = description.filter(|_| show_desc) {
+        for text in hud_reading::preview(&description, columns, desc_rows) {
+            line(&mut out, app, &text, columns, Tone::Muted);
+        }
     }
     if show_log && let Some(g) = &app.game {
         line(&mut out, app, &format!("最近战报 · {}", g.log.last()
@@ -239,159 +259,21 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
         let tone = if app.message.starts_with("错误") || app.message.starts_with("存档未能") {
             Tone::Danger
         } else { Tone::Good };
-        line(&mut out, app, &format!("操作反馈 · {}", app.message), columns, tone);
+        for text in hud_reading::preview(&format!("操作反馈 · {}", app.message),
+            columns, feedback_rows) {
+            line(&mut out, app, &text, columns, tone);
+        }
     }
     if out.len() >= rows { out.truncate(rows - 1); }
     let shortcuts = if columns < 52 {
-        "↑↓ 选择  Enter确认  v详情  :命令"
+        "↑↓选择 Enter确认 i全文 :命令"
     } else {
-        "↑↓/jk 选  Enter确认  1-9快捷  t目标  v详情  :命令  ?帮助  q退出"
+        "↑↓/jk选 Enter确认 1-9快捷 i全文 t目标 v详情 :命令 ?帮助 q退出"
     };
     line(&mut out, app, shortcuts, columns, Tone::Muted);
     format!("{}\n", out.join("\n"))
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{Profile,Theme,tui};
-    use three_kingdoms_spire_reborn::{Game,Action,content::Hero};
-    fn app(game:Option<Game>)->App {
-        App{game,profile:Profile::new(),theme:Theme::Dark,
-            dir:std::path::PathBuf::new(),use_ansi:false,message:String::new()}
-    }
-    #[test]
-    fn lethal_counterplay_is_visible_without_affecting_commands() {
-        let mut game = Game::new(Hero::GuanYu, 93204);
-        game.apply(Action::Choose { index: 1 }).unwrap();
-        game.battle.as_mut().unwrap().thorns = 5;
-        let app = app(Some(game));
-        let commands = tui::choices(&app, 1);
-        let screen = render(&app, 80, 34, 1, &commands, 0);
-        assert!(screen.contains("反击 5 ·可中断后续战技"));
-        assert!(commands.iter().any(|(_, action)| action == "end"));
-    }
-    #[test]
-    fn constrained_screens_fit_both_dimensions_and_scroll_to_selected_action(){
-        let mut game=Game::new(Hero::GuanYu,83);
-        game.apply(Action::Choose{index:1}).unwrap();
-        let app=app(Some(game));
-        let choices=tui::choices(&app,1);
-        for (cols,rows) in [(28,16),(40,24),(80,24),(120,38)] {
-            let content=render(&app,cols,rows,1,&choices,choices.len()-1);
-            assert!(content.lines().count()<=rows,"{cols}x{rows}: {content}");
-            assert!(content.lines().all(|s|width(s)<=cols),"{cols}x{rows}: {content}");
-            // New utility entries can follow End Turn; validate focus/scroll for both.
-            assert!(content.contains("查看战斗事件审计"),"{content}");
-            let end_index = choices.iter().position(|(_,cmd)|cmd == "end").unwrap();
-            let end_content = render(&app,cols,rows,1,&choices,end_index);
-            assert!(end_content.contains("结束本回合"),"{end_content}");
-            assert!(content.contains("敌军")&&content.contains("军令"),"{content}");
-        }
-    }
-    #[test]
-    fn secondary_card_submenu_has_a_distinct_keyboard_focus_heading() {
-        let mut game = Game::new(Hero::ZhugeLiang, 983);
-        game.apply(Action::Choose { index: 1 }).unwrap();
-        let app = app(Some(game));
-        let menu = vec![
-            ("牌堆第2张：突刺".into(), "play 1 1 2".into()),
-            ("取消选牌".into(), "@cancel".into()),
-        ];
-        let screen = render(&app,80,34,1,&menu,0);
-        assert!(screen.contains("指定副选牌"),"{screen}");
-        assert!(screen.contains("取消选牌"),"{screen}");
-    }
-    #[test]
-    fn action_menu_is_only_hand_and_no_duplicate_targets(){
-        let mut game=Game::new(Hero::GuanYu,16);
-        game.apply(Action::Choose{index:1}).unwrap();
-        let app=app(Some(game));
-        let menu=tui::choices(&app,1);
-        assert!(menu.iter().any(|(label,_)|label.starts_with('[')&&label.contains("突刺")));
-        assert!(!menu.iter().any(|(label,_)|label.contains("目标敌军")));
-        let screen=render(&app,80,34,1,&menu,0);
-        assert!(screen.contains("手牌与行动"));
-        assert_eq!(screen.matches("突刺").count(),menu.iter().filter(|(label,_)|label.contains("突刺")).count());
-    }
-    #[test]
-    fn save_feedback_has_distinct_panel(){
-        let mut game=Game::new(Hero::CaoCao,16);
-        game.apply(Action::Choose{index:1}).unwrap();
-        let mut app=app(Some(game));
-        app.message="存档读取成功".into();
-        let menu=tui::choices(&app,1);
-        let screen=render(&app,80,34,1,&menu,0);
-        assert!(screen.contains("最近战报"));
-        assert!(screen.contains("操作反馈"));
-        assert!(screen.contains("存档读取成功"));
-    }
-    #[test]
-    fn scroll_window_keeps_cursor_visible(){
-        for cursor in 0..30 {
-            let (a,b)=window(30,cursor,5);
-            assert!(a<=cursor&&cursor<b);
-            assert_eq!(b-a,5);
-        }
-    }
-    #[test]
-    fn log_control_characters_are_sanitized(){
-        let line=fit("张角\x1b[2J诡术\n奇谋",8);
-        assert!(!line.contains('\x1b')&&!line.contains('\n'));
-        assert!(width(&line)<=8);
-    }
-}
-
-#[cfg(test)]
-mod compact_hud_tests {
-    use super::*;
-    use crate::{Profile, Theme, tui};
-    use three_kingdoms_spire_reborn::{Action, Game, content::Hero};
-    fn app() -> App {
-        let mut game = Game::new(Hero::GuanYu, 83);
-        game.apply(Action::Choose { index: 1 }).unwrap();
-        App { game: Some(game), profile: Profile::new(), theme: Theme::Dark,
-            dir: std::path::PathBuf::new(), use_ansi: false, message: String::new() }
-    }
-    #[test]
-    fn compact_defers_descriptions_and_keeps_menu_focus() {
-        let app = app();
-        let choices = tui::choices(&app, 1);
-        let description = choices[0].0.split_once(" · ").unwrap().1;
-        let compact = render_mode(&app, 80, 24, 1, &choices, 0, false);
-        let expanded = render_mode(&app, 80, 34, 1, &choices, 0, true);
-        assert!(compact.contains("选中说明"));
-        assert_eq!(compact.matches(description).count(), 1);
-        assert!(expanded.contains(description));
-        assert!(compact.contains("▶"));
-        assert!(compact.contains("军令"));
-    }
-    #[test]
-    fn ansi_roles_are_optional_and_theme_aware() {
-        let mut app = app();
-        let options = tui::choices(&app, 1);
-        let plain = render(&app, 80, 24, 1, &options, 0);
-        assert!(!plain.contains("\x1b["));
-        app.use_ansi = true;
-        for theme in [Theme::Dark, Theme::Light, Theme::HighContrast] {
-            app.theme = theme;
-            let screen = render(&app, 80, 24, 1, &options, 0);
-            assert!(screen.contains("\x1b["));
-            assert!(screen.contains("▶"));
-            assert!(screen.contains("生命"));
-        }
-    }
-    #[test]
-    fn narrow_and_short_viewports_keep_active_choice_visible() {
-        let app = app();
-        let choices = tui::choices(&app, 1);
-        for (cols, rows) in [(28, 16), (40, 20), (80, 24), (120, 38)] {
-            for details in [false, true] {
-                let screen = render_mode(&app, cols, rows, 1, &choices, choices.len()-1, details);
-                assert!(screen.lines().count() <= rows, "{cols}x{rows} {screen}");
-                assert!(screen.lines().all(|line| width(line) <= cols), "{screen}");
-                assert!(screen.contains("查看战斗事件审计"), "{screen}");
-            }
-        }
-    }
-}
+#[path = "hud_tests.rs"]
+mod hud_tests;

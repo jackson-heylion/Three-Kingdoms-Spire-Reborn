@@ -1,6 +1,6 @@
 //! Optional full-keyboard terminal menu for macOS/Linux without platform crates.
 //! Raw mode is scoped by RAII, and the existing plain line CLI remains supported.
-use super::{App, Stage, Card, card_label, card_spec, hud, potion_name};
+use super::{App, Stage, Card, card_label, card_spec, hud, hud_reading, potion_name};
 use three_kingdoms_spire_reborn::{challenges::ChallengeModifier, content::Effect};
 use unicode_width::UnicodeWidthChar;
 #[cfg(test)] use unicode_width::UnicodeWidthStr;
@@ -95,11 +95,22 @@ pub(super) fn choices(app:&App,target:usize)->Vec<(String,String)> {
             ]);
             offers
         }
-        Stage::Story=>vec![
-            ("选择奇遇结果1".into(),"choose 1".into()),
-            ("选择奇遇结果2".into(),"choose 2".into()),
-            ("选择奇遇结果3".into(),"choose 3".into()),
-        ],
+        Stage::Story=>{
+            if let Some(beat) = game.lore_current.as_deref()
+                .and_then(three_kingdoms_spire_reborn::lore::beat) {
+                vec![
+                    (format!("立约：{}", beat.vow), "choose 1".into()),
+                    (format!("取利：{}", beat.bargain), "choose 2".into()),
+                    ("不介入（保留现状）".into(), "choose 3".into()),
+                ]
+            } else {
+                vec![
+                    ("奇遇选择1（查看全文）".into(),"choose 1".into()),
+                    ("奇遇选择2（查看全文）".into(),"choose 2".into()),
+                    ("奇遇选择3（查看全文）".into(),"choose 3".into()),
+                ]
+            }
+        },
         Stage::Ancient=>game.boon_choices.iter().enumerate()
             .map(|(idx,id)|(format!("先贤赐福：{}",three_kingdoms_spire_reborn::items::boon_name(id)),
                 format!("choose {}",idx+1))).collect(),
@@ -225,6 +236,8 @@ pub(super) fn run(app:&mut App)->Result<(),String> {
     let mut target=1usize;
     let mut selecting_card: Option<usize> = None;
     let mut details = false;
+    let mut reading = false;
+    let mut reading_offset = 0usize;
     loop {
         let options = if let Some(index) = selecting_card {
             secondary_menu(app,index,target)
@@ -234,14 +247,42 @@ pub(super) fn run(app:&mut App)->Result<(),String> {
         if options.is_empty() {cursor=0;}
         else {cursor=cursor.min(options.len()-1);}
         let (rows,columns)=terminal_size();
-        print!("\x1b[2J\x1b[H{}{}\x1b[0m",app.theme.style(),
-            hud::render_mode(app,columns,rows,target,&options,cursor,details));
+        let frame = if reading {
+            hud_reading::render(app, columns, rows, &options, cursor, reading_offset)
+        } else {
+            hud::render_mode(app, columns, rows, target, &options, cursor, details)
+        };
+        print!("\x1b[2J\x1b[H{}{}\x1b[0m", app.theme.style(), frame);
         io::stdout().flush().map_err(|e|e.to_string())?;
-        let key=read_byte().map_err(|e|e.to_string())?;
+        let key = read_byte().map_err(|e|e.to_string())?;
+        if reading {
+            let max = hud_reading::max_offset(app, columns, rows, &options, cursor);
+            let page = rows.saturating_sub(3).max(1);
+            match key {
+                b'i' | b'q' | b'\r' | b'\n' => reading = false,
+                b'j' | b'n' => {
+                    reading_offset = reading_offset.saturating_add(if key == b'n' {page} else {1}).min(max);
+                }
+                b'k' | b'p' => {
+                    reading_offset = reading_offset.saturating_sub(if key == b'p' {page} else {1});
+                }
+                27 => {
+                    let second = read_byte().map_err(|e|e.to_string())?;
+                    if second == b'[' {
+                        let third = read_byte().map_err(|e|e.to_string())?;
+                        if third == b'A' { reading_offset = reading_offset.saturating_sub(1); }
+                        if third == b'B' { reading_offset = reading_offset.saturating_add(1).min(max); }
+                    }
+                }
+                _ => {}
+            }
+            continue; // Reading never mutates Game or invokes a gameplay command.
+        }
         let decision=match key {
             b'j'=>{cursor=cursor.saturating_add(1).min(options.len().saturating_sub(1));None}
             b'k'=>{cursor=cursor.saturating_sub(1);None}
             b'v'=>{details=!details;None}
+            b'i'=>{reading=true;reading_offset=0;None}
             b'\r'|b'\n'=>options.get(cursor).map(|(_,cmd)|cmd.clone()),
             b'1'..=b'9'=>options.get(usize::from(key-b'1')).map(|(_,cmd)|cmd.clone()),
             b't'=>{
@@ -293,106 +334,5 @@ pub(super) fn run(app:&mut App)->Result<(),String> {
     }
 }
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{Profile,Theme};
-    use three_kingdoms_spire_reborn::{Game,content::Hero};
-    fn app(game:Option<Game>)->App {
-        App{game,profile:Profile::new(),theme:Theme::Dark,
-            dir:std::path::PathBuf::new(),use_ansi:false,message:String::new()}
-    }
-    #[test]
-    fn market_keyboard_menu_identifies_permanent_card_acquisition() {
-        let mut game = Game::new(Hero::GuanYu, 93403);
-        game.stage = Stage::Market;
-        game.market = vec![Card::new("huogong")];
-        let choices = choices(&app(Some(game)), 1);
-        assert!(choices.iter().any(|(label, command)|
-            label.contains("购入牌组") && label.contains("火攻")
-                && command == "choose 1"));
-    }
-    #[test]
-    fn secondary_keyboard_menu_uses_top_first_numbers_and_can_cancel_without_mutation() {
-        let mut game = Game::new(Hero::ZhugeLiang, 983);
-        game.apply(three_kingdoms_spire_reborn::Action::Choose { index: 1 }).unwrap();
-        {
-            let battle = game.battle.as_mut().unwrap();
-            battle.hand = vec![Card::new("xingpan_tutor")];
-            battle.draw = vec![Card::new("defend"), Card::new("strike"), Card::new("qinglong")];
-        }
-        let before = game.to_json().unwrap();
-        let app = app(Some(game));
-        let command = "play 1 2";
-        assert_eq!(selected_hand(&app,command), Some(1));
-        let menu = secondary_menu(&app,1,2);
-        assert_eq!(menu[0].1, "play 1 2 1");
-        assert_eq!(menu[1].1, "play 1 2 2");
-        assert!(menu.iter().all(|(_,command)|command != "play 1 2 3"));
-        assert!(menu.iter().any(|(_,command)|command == "@cancel"));
-        assert!(menu.iter().any(|(_,command)|command == "play 1 2"));
-        assert_eq!(app.game.as_ref().unwrap().to_json().unwrap(),before);
-    }
-
-    #[test]
-    fn keyboard_menu_is_stage_aware_and_targeted() {
-        let no_game=app(None);
-        assert_eq!(choices(&no_game,1).len(),5);
-        let mut game=Game::new(Hero::SunShangxiang,814);
-        let menu=choices(&app(Some(game.clone())),1);
-        assert_eq!(menu.len(),game.route.len());
-        assert!(menu[0].1.starts_with("choose "));
-        game.apply(three_kingdoms_spire_reborn::Action::Choose{index:1}).unwrap();
-        let battle=choices(&app(Some(game)),2);
-        assert!(battle.iter().any(|(_,cmd)|cmd=="end"));
-        assert!(battle.iter().any(|(_,cmd)|cmd=="events"));
-        assert!(battle.iter().any(|(_,cmd)|cmd=="play 1 2"));
-    }
-}
-
-#[cfg(test)]
-mod p1_accessibility_tests {
-    use super::*;
-    use crate::{Profile, Theme};
-    use three_kingdoms_spire_reborn::{Action, Game, RunMode, content::Hero};
-
-    #[test]
-    fn potion_menu_exposes_single_target_and_all_foe_scope() {
-        let mut game = Game::new(Hero::GuanYu, 8184);
-        game.apply(Action::Choose { index: 1 }).unwrap();
-        game.potion_bag = vec!["poison".into(), "weak".into()];
-        game.potions = 2;
-        let menu = choices(&App { game: Some(game), profile: Profile::new(),
-            theme: Theme::Dark, dir: std::path::PathBuf::new(),
-            use_ansi: false, message: String::new() }, 2);
-        assert!(menu.iter().any(|(label, command)|
-            label.contains("→目标2") && command == "use 1 2"));
-        assert!(menu.iter().any(|(label, command)|
-            label.contains("→敌方全体") && command == "use 2 2"));
-    }
-    #[test]
-    fn narrow_tty_clips_cjk_without_splitting_codepoints() {
-        let label = "大战·孙尚香出征";
-        let short = fitting_label(label, 8);
-        assert!(UnicodeWidthStr::width(short.as_str()) <= 8);
-        assert!(short.ends_with('…'));
-        assert_eq!(fitting_label(label, 80), label);
-    }
-
-    #[test]
-    fn disabled_camp_rest_is_not_selectable_by_keyboard() {
-        let mut game = Game::new_with_mode(Hero::GuanYu, 77, 0, RunMode::Custom);
-        game.apply(Action::SetModifier { id: "no_rest".into(), enabled: true }).unwrap();
-        game.stage = Stage::Camp;
-        let app = App {
-            game: Some(game),
-            profile: crate::Profile::new(),
-            theme: crate::Theme::Dark,
-            dir: std::path::PathBuf::new(),
-            use_ansi: false,
-            message: String::new(),
-        };
-        let options = choices(&app, 1);
-        assert!(!options.iter().any(|(_, action)|action == "choose 1"));
-        assert!(options.iter().any(|(_, action)|action == "choose 2"));
-    }
-}
+#[path = "tui_tests.rs"]
+mod tui_tests;
