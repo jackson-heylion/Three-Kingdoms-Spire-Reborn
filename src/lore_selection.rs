@@ -60,6 +60,8 @@ pub fn next_beat(hero: Hero, act: u8, flags: &[String], seen: &[String]) -> Opti
             || (b.id == "wei_three_fronts_review" && flag("guandu_grain") && unseen("liaodong"))
             || (matches!(b.id, "nanzhong_yongchang_memorial" | "nanzhong_first_release_ledger" | "lushui_ferry_care" | "xier_spring_civilian_water")
                 && flag("redcliff_wind") && unseen("wuzhang"))
+            || (matches!(b.id, "nanzhong_vine_fire_account" | "nanzhong_local_governance" | "lushui_memorial_rites" | "chushi_memorial_supply" | "ziwu_route_risk_hearing" | "tianshui_false_dispatch_review")
+                && flag("redcliff_wind") && unseen("wuzhang"))
             || (b.id == "wu_nanzhong_border_archive" && flag("jiangdong_covenant") && unseen("yiling"))
             || (b.id == "wei_wu_tribute_review" && flag("guandu_grain") && unseen("liaodong"));
         (if protect_legacy { 4 } else if is_hero && is_payoff { 0 } else if is_hero { 1 } else if is_payoff { 2 } else { 3 }, b.chapter)
