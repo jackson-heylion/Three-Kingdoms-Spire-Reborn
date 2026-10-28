@@ -158,7 +158,7 @@ pub(super) fn recent(game: &Game) -> Vec<String> {
     // Guard and rally are only described in EndTurn's committed narrative,
     // not as damage/status events. Keep them visible without creating a
     // synthetic authoritative combat event or altering listener semantics.
-    if enemy.is_none()
+    if enemy.is_none() && battle.turn > 1
         && let Some(turn) = game.log.iter().rev()
             .find(|message| message.starts_with("回合结束：")) {
         enemy = Some(format!("敌方回合：{}",
@@ -252,6 +252,15 @@ mod report_tests {
             message: format!("使用了【护阵】。\\n实际变化：{delta}") };
         let row = recent_for_app(&app);
         assert!(row[0].contains("我方护甲+8"), "{row:?}");
+    }
+
+    #[test]
+    fn new_battle_does_not_display_previous_battles_enemy_actions() {
+        let mut game=Game::new(Hero::GuanYu, 942);
+        game.log.push("回合结束：旧敌聚势+99。".into());
+        game.apply(Action::Choose { index: 1 }).unwrap();
+        assert_eq!(game.battle.as_ref().unwrap().turn, 1);
+        assert_eq!(recent(&game)[1], "敌方尚未行动");
     }
 
     #[test]
