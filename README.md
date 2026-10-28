@@ -155,4 +155,4 @@ cargo run --release --bin tks-sim -- 1000
 
 ### 终端兼容性与辅助操作
 
-TUI 菜单宽度按当前 TTY 列数裁剪，裁剪按 Unicode 显示单元计算（不截断汉字字节）；`:` 高级命令允许直接输入中文附魔名称，退格按字符列宽擦除。终端提供 `theme highcontrast` 高对比主题；在屏幕阅读器或自动化下推荐 `--plain`，不会清屏。Linux 默认使用 `$XDG_DATA_HOME/ThreeKingdomsSpireReborn` 或 `~/.local/share/ThreeKingdomsSpireReborn`，首次升级仍能找到旧版 macOS 风格目录中的现有存档；macOS 继续使用 Application Support。该改进并不构成完整人工无障碍与双语验收。
+Boss及精英敌军切换第二阶段时生命恢复至该敌军生命上限（仅一次），原有护甲、召援、战技效果继续生效。TUI战斗时显示双方最近实际行动与伤害，按 `l` 打开可滚动的双方战斗结算与事件流水，j/k 或方向键逐行滚动、n/p翻页、l/q/Enter返回。战斗反馈提供实际生命、护甲、状态及职业资源增减，不以预告伤害冒充实际伤害。TUI 浅色主题将当前敌军目标使用深橙色高亮（保留 ▶ 光标，不再使用低对比亮黄），战斗 HUD 将当前武将核心资源（关羽战意、诸葛谋略、孙尚香连段、曹操统御、吕布怒气）始终显示在敌军列表前，包括数值为0时；其他非零资源仍会显示，窄屏按 Unicode 字符宽度分行。TUI 遇到「驿道奇遇」会显示剧情前提和具体选择；按 `?` 直接打开完整可滚动操作帮助（`:help` 同样可用），按 `i` 可打开只读全文视图，`j/k` 或方向键滚动、`n/p` 翻页、`i`/回车/`q` 返回主界面。长菜单选项、战报和命令反馈都能在全文视图完整阅读，窄屏省略会提示 `i全文`。全文视图不会执行选择或写入存档。TUI 菜单宽度按当前 TTY 列数裁剪，裁剪按 Unicode 显示单元计算（不截断汉字字节）；`:` 高级命令允许直接输入中文附魔名称，退格按字符列宽擦除。终端提供 `theme highcontrast` 高对比主题；在屏幕阅读器或自动化下推荐 `--plain`，不会清屏。Linux 默认使用 `$XDG_DATA_HOME/ThreeKingdomsSpireReborn` 或 `~/.local/share/ThreeKingdomsSpireReborn`，首次升级仍能找到旧版 macOS 风格目录中的现有存档；macOS 继续使用 Application Support。该改进并不构成完整人工无障碍与双语验收。
