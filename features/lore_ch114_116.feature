@@ -30,6 +30,8 @@ Feature: Chapters 114-116 successor responsibility and inherited debts
   Scenario: Tazhong and Yangping pay the Qishan warning
     Given a "zhuge" campaign with seed 114119
     And the flag "qishan_retreat_courier_record" was earned earlier
+    And the lore scene "tanshan_grain_fire_audit"
+    When I choose 1
     And the lore scene "taoyang_xiahouba_casualty"
     When I choose 1
     And the lore scene "tazhong_farming_dispatch"
