@@ -21,6 +21,7 @@ pub use telemetry::{CombatCounters, CombatTelemetry, TurnTelemetry, MAX_RECENT_T
 mod boss_reward_regression_tests;
 mod game_setup;
 mod game_validation;
+mod boss_phase;
 pub mod battle_runtime_events;
 mod action_commit;
 mod replay;
@@ -1503,103 +1504,6 @@ impl Game {
         }
     }
 
-    fn boss_phase_transitions(&mut self) -> Vec<String> {
-        let changes: Vec<(usize,String)> = self.battle.as_ref().expect("battle").foes
-            .iter().enumerate().filter(|(_,foe)|
-                foe.hp > 0 && foe.phase == 0 && foe.hp * 2 <= foe.max_hp
-                && matches!(foe.id.as_str(),"zhangjiao"|"sunjian"|"dongzhuo"|"yuanshao"|"simayi"|"zuoci"
-                    |"elite"|"war_elephant"|"royal_guard"|"tiger_general"|"sacred_beast"))
-            .map(|(i,foe)| (i,foe.id.clone())).collect();
-        let mut messages = vec![];
-        for (idx,id) in changes {
-            let b = self.battle.as_mut().expect("battle");
-            let mut summoned: Option<(&'static str, usize)> = None;
-            b.foes[idx].phase = 1;
-            match id.as_str() {
-                "zhangjiao" | "yuanshao" | "zuoci" => {
-                    let ally = match id.as_str() {
-                        "zhangjiao" => "yellow_turban",
-                        "yuanshao" => "officer", _ => "shaman",
-                    };
-                    if b.foes.len() < 4 {
-                        let hp = enemy_hp(ally);
-                        let new_index = b.foes.len();
-                        b.foes.push(Foe {
-                            id: ally.into(), hp, max_hp: hp, block: 0, strength: 0,
-                            poison: 0, vulnerable: 0, weak: 0,
-                            intent: Intent::Guard(4), phase: 0,
-                        });
-                        summoned = Some((ally, new_index));
-                    }
-                    if id == "zuoci" {
-                        let foe = &mut b.foes[idx];
-                        foe.hp = (foe.hp + 18).min(foe.max_hp);
-                    }
-                    messages.push(format!("{}进入第二阶段{}",
-                        enemy_name(&id),
-                        if summoned.is_some() {"并呼叫援军（援军下回合开始行动）"}
-                        else {"，但战场编制已满，无法增援"}));
-                }
-                "sunjian" => {
-                    b.foes[idx].strength += 4;
-                    b.foes[idx].block += 8;
-                    messages.push("孙坚激发虎威，获得4武勇和8护甲".into());
-                }
-                "dongzhuo" => {
-                    b.foes[idx].strength += 3;
-                    b.weak += 2;
-                    self.gold = (self.gold - 30).max(0);
-                    messages.push("董卓暴虐：我军虚弱两回合并损失最多30金".into());
-                }
-                "simayi" => {
-                    b.discard.push(Card::new("cursed"));
-                    b.discard.push(Card::new("cursed"));
-                    b.vulnerable += 2;
-                    messages.push("司马懿奇袭：两张军心涣散混入弃牌堆，我军易伤两回合".into());
-                }
-                "elite" => {
-                    b.foes[idx].strength += 2;
-                    b.foes[idx].block += 6;
-                    messages.push("精锐校尉下令死战：武勇+2、护甲+6".into());
-                }
-                "war_elephant" => {
-                    b.foes[idx].strength += 2;
-                    b.foes[idx].block += 14;
-                    messages.push("战象披甲冲阵：武勇+2、护甲+14".into());
-                }
-                "royal_guard" => {
-                    b.foes[idx].strength += 1;
-                    b.foes[idx].block += 10;
-                    for (ally_index, ally) in b.foes.iter_mut().enumerate() {
-                        if ally_index != idx && ally.hp > 0 { ally.block += 5; }
-                    }
-                    messages.push("禁卫整备铁壁：自身护甲+10，存活友军护甲+5".into());
-                }
-                "tiger_general" => {
-                    b.foes[idx].strength += 3;
-                    b.foes[idx].block += 5;
-                    messages.push("虎将奋威：武勇+3、护甲+5，后续预告三连虎袭".into());
-                }
-                "sacred_beast" => {
-                    let foe = &mut b.foes[idx];
-                    let heal = (foe.max_hp - foe.hp).min(12);
-                    foe.hp += heal;
-                    foe.block += 6;
-                    messages.push(format!("灵兽回生：恢复{heal}生命、护甲+6，后续加强诡术"));
-                }
-                _ => {}
-            }
-            if let Some((ally, new_index)) = summoned {
-                self.combat_event(EventKind::FoeSummoned, ally, 1,
-                    Some(format!("foe:{new_index}")));
-            }
-            if matches!(id.as_str(), "elite"|"war_elephant"|"royal_guard"|"tiger_general"|"sacred_beast") {
-                self.combat_event(EventKind::EnemyTechnique, &format!("{id}_phase_two"), 1,
-                    Some(format!("foe:{idx}")));
-            }
-        }
-        messages
-    }
     fn end_turn(&mut self) -> Result<String, String> {
         if self.stage != Stage::Combat { return Err("当前不在战斗中".into()); }
         self.combat_event(EventKind::TurnEnded, "hero", 0, None);
