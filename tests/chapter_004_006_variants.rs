@@ -28,7 +28,8 @@ fn fixed_novels_and_pei_commentary_remain_partial_collation() {
     assert!(lore::beat("wenjiu").unwrap().premise.contains("孙坚军"));
     assert!(lore::beat("wenjiu").unwrap().premise.contains("陈寿正文"));
     assert!(lore::beat("imperial_jade").unwrap().premise.contains("裴注"));
-    assert!(lore::beat("imperial_jade").unwrap().premise.contains("争议"));
+    assert!(lore::beat("imperial_jade").unwrap().premise.contains("裴松之反驳"));
+    assert!(lore::beat("imperial_jade").unwrap().vow.contains("裴注争议"));
 }
 
 #[test]
