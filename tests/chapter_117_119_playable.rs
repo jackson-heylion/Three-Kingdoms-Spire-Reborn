@@ -18,6 +18,12 @@ fn pinned_readings_are_not_mistaken_for_complete_variant_collation() {
     for (n,oldid,span,doc) in [(117,"2568080","L119–162",include_str!("../docs/CHAPTER_117_READING.md")),(118,"2568082","L119–171",include_str!("../docs/CHAPTER_118_READING.md")),(119,"2568081","L119–179",include_str!("../docs/CHAPTER_119_READING.md"))] {
         assert!(doc.contains(&format!("oldid={oldid}")) && doc.contains(&format!("正文 {span}")) && doc.contains("回末") && doc.contains("单底本全文通读"),"{n}");
     }
+    let variants=include_str!("../docs/CHAPTERS_117_119_VARIANT_SPOTCHECK.md");
+    assert!(variants.contains("oldid=2473250") && variants.contains("2568080")
+        && variants.contains("2568082") && variants.contains("2568081")
+        && variants.contains("中箭落馬而死") && variants.contains("荊州牧")
+        && variants.contains("益州牧") && variants.contains("二千斤")
+        && variants.contains("三千斤") && variants.contains("非全回异本校勘"));
     let history=include_str!("../docs/CHAPTERS_117_119_HISTORY_SPOTCHECK.md");
     assert!(history.contains("裴注") && history.contains("0/120") && history.contains("姜维自刎"));
     let rows:Vec<_>=include_str!("../data/chapter_body_audit.tsv").lines().collect();
@@ -27,7 +33,7 @@ fn pinned_readings_are_not_mistaken_for_complete_variant_collation() {
         assert!(row.contains(&format!("CHAPTER_{chapter:03}_READING.md")));
         assert!(row.contains("正文通读/未完成异本对校"));
     }
-    for (n,id) in [(117,"jiange_yinping_detour_warning"),(117,"mianzhu_family_casualties"),(117,"wei_yinping_march_log"),(117,"wu_mianzhu_relief_dispatch"),(118,"chengdu_surrender_household"),(118,"wei_chengdu_occupation_receipt"),(118,"wu_relief_arrival_dispute"),(119,"zhonghui_false_edict_inquest"),(119,"jiangwei_last_courier_roll"),(119,"wei_jin_abdication_court")] {assert_eq!(beat(id).unwrap().chapter,n);}
+    for (n,id) in [(117,"jiange_yinping_detour_warning"),(117,"mianzhu_family_casualties"),(117,"wei_yinping_march_log"),(117,"wu_mianzhu_relief_dispatch"),(118,"chengdu_surrender_household"),(118,"wei_chengdu_occupation_receipt"),(118,"wu_relief_arrival_dispute"),(119,"zhonghui_false_edict_inquest"),(119,"jiangwei_last_courier_roll"),(119,"wei_jin_abdication_court"),(119,"wu_post_shu_frontier_register")] {assert_eq!(beat(id).unwrap().chapter,n);}
 }
 
 #[test]
@@ -91,6 +97,9 @@ fn successor_rewards_require_every_accepted_link_and_are_once_only() {
         (Hero::SunShangxiang, "wu_mianzhu_relief_debt",
             &["wu_relief_warning_record", "wu_mianzhu_relief_dispatch_record",
               "wu_relief_arrival_dispute_record"]),
+        (Hero::SunShangxiang, "wu_after_shu_frontier_debt",
+            &["wu_relief_warning_record", "wu_mianzhu_relief_dispatch_record",
+              "wu_relief_arrival_dispute_record", "wu_post_shu_frontier_record"]),
     ];
     for (hero, egg, required) in cases {
         let complete: Vec<String> = required.iter().map(|s| (*s).into()).collect();
@@ -107,4 +116,30 @@ fn successor_rewards_require_every_accepted_link_and_are_once_only() {
         assert!(!newly_completed_eggs(*hero, &complete, &[(*egg).into()])
             .iter().any(|item| item.id == *egg), "{egg}: duplicate payout");
     }
+}
+
+#[test]
+fn wu_post_shu_frontier_is_a_real_exclusive_v2_choice_with_once_only_payoff() {
+    let inherited = &["wu_relief_warning_record", "wu_mianzhu_relief_dispatch_record",
+        "wu_relief_arrival_dispute_record"];
+    let mut accepted = scene(Hero::SunShangxiang, "wu_post_shu_frontier_register", inherited);
+    let snapshot = accepted.to_json().unwrap();
+    assert!(accepted.apply(Action::Choose { index: 0 }).is_err());
+    assert_eq!(accepted.to_json().unwrap(), snapshot, "invalid choice must not mutate RNG or revision");
+    accepted = Game::from_json(&snapshot).unwrap();
+    accepted.apply(Action::Choose { index: 1 }).unwrap();
+    assert!(accepted.lore_flags.iter().any(|flag| flag == "wu_post_shu_frontier_record"));
+    assert_eq!(count(&accepted, "wu_after_shu_frontier_debt"), 1);
+    let persisted = accepted.to_json().unwrap();
+    let mut restored = Game::from_json(&persisted).unwrap();
+    assert_eq!(restored.to_json().unwrap(), persisted);
+    enter(&mut restored, "wu_post_shu_frontier_register");
+    restored.apply(Action::Choose { index: 1 }).unwrap();
+    assert_eq!(count(&restored, "wu_after_shu_frontier_debt"), 1, "no duplicate hidden reward");
+
+    let mut refused = scene(Hero::SunShangxiang, "wu_post_shu_frontier_register", inherited);
+    refused.apply(Action::Choose { index: 2 }).unwrap();
+    assert!(!refused.lore_flags.iter().any(|flag| flag == "wu_post_shu_frontier_record"));
+    assert_eq!(count(&refused, "wu_after_shu_frontier_debt"), 0);
+    assert!(refused.lore_seen.iter().any(|id| id == "wu_post_shu_frontier_register"));
 }
