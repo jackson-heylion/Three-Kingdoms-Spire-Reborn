@@ -2,6 +2,7 @@
 mod tui;
 mod hud;
 mod hud_reading;
+mod combat_report;
 use serde::{Deserialize, Serialize};
 use std::{
     env, fs,
@@ -793,6 +794,7 @@ impl App {
                         .map(|target| Action::UsePotionAt { slot, target })),
                 };
                 action.and_then(|action| {
+                    let before = self.game.as_ref().and_then(combat_report::snapshot);
                     // Do not publish a new revision/RNG/action log to the live
                     // session until the same candidate has reached save.json.
                     let path = save_path(&self.dir);
@@ -805,7 +807,12 @@ impl App {
                         },
                     )?;
                     self.track_action()?;
-                    Ok(messages.join("\n"))
+                    let message = messages.join("\n");
+                    let delta = before.as_ref()
+                        .and_then(|before|self.game.as_ref()
+                            .map(|game|combat_report::impact(before,game)))
+                        .unwrap_or_default();
+                    Ok(if delta.is_empty() {message} else {format!("{message}\n实际变化：{delta}")})
                 })
             }
             _ => Err("未知指令。输入 help 查看操作。".into()),

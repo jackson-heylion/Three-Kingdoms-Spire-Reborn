@@ -252,6 +252,7 @@ pub(super) fn run(app:&mut App)->Result<(),String> {
     let mut details = false;
     let mut reading = false;
     let mut reading_help = false;
+    let mut reading_battle = false;
     let mut reading_offset = 0usize;
     loop {
         let options = if let Some(index) = selecting_card {
@@ -262,7 +263,9 @@ pub(super) fn run(app:&mut App)->Result<(),String> {
         if options.is_empty() {cursor=0;}
         else {cursor=cursor.min(options.len()-1);}
         let (rows,columns)=terminal_size();
-        let frame = if reading && reading_help {
+        let frame = if reading && reading_battle {
+            hud_reading::render_battle(app, columns, rows, reading_offset)
+        } else if reading && reading_help {
             hud_reading::render_help(app, columns, rows, reading_offset)
         } else if reading {
             hud_reading::render(app, columns, rows, &options, cursor, reading_offset)
@@ -273,7 +276,9 @@ pub(super) fn run(app:&mut App)->Result<(),String> {
         io::stdout().flush().map_err(|e|e.to_string())?;
         let key = read_byte().map_err(|e|e.to_string())?;
         if reading {
-            let max = if reading_help {
+            let max = if reading_battle {
+                hud_reading::battle_max_offset(app, columns, rows)
+            } else if reading_help {
                 hud_reading::help_max_offset(app, columns, rows)
             } else {
                 hud_reading::max_offset(app, columns, rows, &options, cursor)
@@ -281,11 +286,22 @@ pub(super) fn run(app:&mut App)->Result<(),String> {
             let page = rows.saturating_sub(3).max(1);
             match key {
                 b'i' | b'q' | b'\r' | b'\n' => reading = false,
+                b'l' => {
+                    if reading_battle {
+                        reading = false;
+                    } else if app.game.as_ref().is_some_and(|game|game.battle.is_some()) {
+                        reading = true;
+                        reading_battle = true;
+                        reading_help = false;
+                        reading_offset = 0;
+                    }
+                }
                 b'?' => {
                     if reading_help {
                         reading = false;
                     } else {
                         show_help(app, &mut reading, &mut reading_help, &mut reading_offset);
+                        reading_battle = false;
                     }
                 },
                 b'j' | b'n' => {
@@ -310,7 +326,13 @@ pub(super) fn run(app:&mut App)->Result<(),String> {
             b'j'=>{cursor=cursor.saturating_add(1).min(options.len().saturating_sub(1));None}
             b'k'=>{cursor=cursor.saturating_sub(1);None}
             b'v'=>{details=!details;None}
-            b'i'=>{reading=true;reading_help=false;reading_offset=0;None}
+            b'i'=>{reading=true;reading_help=false;reading_battle=false;reading_offset=0;None}
+            b'l'=>{
+                if app.game.as_ref().is_some_and(|game|game.battle.is_some()) {
+                    reading=true;reading_battle=true;reading_help=false;reading_offset=0;
+                }
+                None
+            }
             b'\r'|b'\n'=>options.get(cursor).map(|(_,cmd)|cmd.clone()),
             b'1'..=b'9'=>options.get(usize::from(key-b'1')).map(|(_,cmd)|cmd.clone()),
             b't'=>{
@@ -324,6 +346,7 @@ pub(super) fn run(app:&mut App)->Result<(),String> {
             }
             b'?'=>{
                 show_help(app, &mut reading, &mut reading_help, &mut reading_offset);
+                reading_battle=false;
                 None
             },
             b':' => {
@@ -360,6 +383,7 @@ pub(super) fn run(app:&mut App)->Result<(),String> {
             if is_help_command(&command) {
                 reading = true;
                 reading_help = true;
+                reading_battle = false;
                 reading_offset = 0;
                 continue;
             }

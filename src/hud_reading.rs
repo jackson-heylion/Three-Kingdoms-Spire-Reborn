@@ -1,6 +1,6 @@
 //! A read-only, scrollable full-text view for long TUI content.
 //! Wrap at Unicode display-cell boundaries; never truncate the underlying narrative.
-use super::{App, Stage};
+use super::{App, Stage, combat_report};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 fn width(text: &str) -> usize { UnicodeWidthStr::width(text) }
@@ -84,7 +84,7 @@ pub(super) fn max_offset(app: &App, columns: usize, rows: usize,
 pub(super) fn help_document(app: &App) -> String {
     format!(
         "【键盘操作】\n↑↓ / j k：移动选择  Enter：确认  1—9：快捷行动\n\
-         t：切换敌军目标  v：详细视图  i：阅读全文\n\
+         t：切换敌军目标  v：详细视图  i：阅读全文  l：双方战报\n\
          ?：打开或关闭帮助  :：输入命令  q：退出（帮助页内为返回）\n\n\
          【完整命令列表】\n按 : 输入以下命令；可随时按 ? 查看本页。\n\n{}",
         app.message.replace('；', "；\n")
@@ -98,6 +98,19 @@ pub(super) fn help_lines(app: &App, columns: usize) -> Vec<String> {
 pub(super) fn help_max_offset(app: &App, columns: usize, rows: usize) -> usize {
     help_lines(app, columns).len()
         .saturating_sub(rows.max(16).saturating_sub(3))
+}
+
+pub(super) fn battle_lines(app: &App, columns: usize) -> Vec<String> {
+    wrapped(&combat_report::document(app), columns.clamp(28,120))
+}
+
+pub(super) fn battle_max_offset(app: &App, columns: usize, rows: usize) -> usize {
+    battle_lines(app,columns).len().saturating_sub(rows.max(16).saturating_sub(3))
+}
+
+pub(super) fn render_battle(app: &App, columns: usize, rows: usize, offset: usize) -> String {
+    render_body("三国登塔录 · 双方行动战报", "实时结算 · 只读 · l/q返回",
+        battle_lines(app,columns),columns,rows,offset)
 }
 
 pub(super) fn render_help(app: &App, columns: usize, rows: usize, offset: usize) -> String {
@@ -122,15 +135,16 @@ fn render_body(title: &str, subtitle: &str, body: Vec<String>,
     // Long titles are replaced by short labels; narrative body remains lossless.
     let heading = if columns < 36 {
         if title.contains("帮助") { "三国登塔录 · 帮助" }
+        else if title.contains("战报") { "三国登塔录 · 战报" }
         else { "三国登塔录 · 阅读" }
     } else { title };
     let hint = if columns < 36 { "只读 · jk滚动 n/p翻页" } else { subtitle };
     let mut screen = vec![heading.to_owned(), hint.to_owned()];
     screen.extend(body[start..end].iter().cloned());
     let footer = if columns < 50 {
-        format!("i/q返回 jk滚动 n/p翻页 {}/{}", end, body.len())
+        format!("i/l/q返回 jk滚动 n/p翻页 {}/{}", end, body.len())
     } else {
-        format!("i/Enter/q返回 ↑↓/jk滚动 n/p翻页 · 第{}—{}行 / 共{}行",
+        format!("i/l/Enter/q返回 ↑↓/jk滚动 n/p翻页 · 第{}—{}行 / 共{}行",
             if body.is_empty() {0} else {start + 1}, end, body.len())
     };
     screen.push(wrapped(&footer, columns).into_iter().next().unwrap_or_default());

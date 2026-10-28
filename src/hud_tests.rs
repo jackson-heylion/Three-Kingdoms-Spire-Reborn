@@ -288,3 +288,46 @@ mod target_and_class_resource_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod player_enemy_report_tests {
+    use super::*;
+    use crate::{Profile,Theme,tui,combat_report,hud_reading};
+    use three_kingdoms_spire_reborn::{Action,Game,content::Hero};
+
+    #[test]
+    fn visible_combat_panel_identifies_both_sides_and_readable_journal_is_lossless() {
+        let mut game = Game::new(Hero::GuanYu, 123);
+        game.apply(Action::Choose{index:1}).unwrap();
+        {
+            let b=game.battle.as_mut().unwrap();
+            b.foes[0].phase=1;
+            b.foes[0].intent=three_kingdoms_spire_reborn::Intent::Attack(5);
+            b.troops_hp=0;
+            b.troops_attack=0;
+        }
+        game.apply(Action::EndTurn).unwrap();
+        let app=App{game:Some(game),profile:Profile::new(),theme:Theme::Dark,
+            dir:std::path::PathBuf::new(),use_ansi:false,message:"回合结束".into()};
+        let options=tui::choices(&app,1);
+        let snapshot=app.game.as_ref().unwrap().to_json().unwrap();
+        let view=render_mode(&app,80,30,1,&options,0,false);
+        assert!(view.contains("双方行动"),"{view}");
+        assert!(view.contains("敌方") || view.contains("实际损失"),"{view}");
+        assert!(view.contains("l战报"),"{view}");
+        let document=combat_report::document(&app);
+        assert!(document.contains("双方事件流水"));
+        assert!(document.contains("实际损失"),"{document}");
+        let all=hud_reading::battle_lines(&app,28);
+        assert_eq!(all.join(""),document.replace('\n',""));
+        for (columns,rows) in [(28,16),(40,20),(80,30)] {
+            let max=hud_reading::battle_max_offset(&app,columns,rows);
+            for offset in [0,max,usize::MAX] {
+                let screen=hud_reading::render_battle(&app,columns,rows,offset);
+                assert!(screen.lines().count()<=rows,"{screen}");
+                assert!(screen.lines().all(|line|width(line)<=columns),"{screen}");
+            }
+        }
+        assert_eq!(app.game.as_ref().unwrap().to_json().unwrap(),snapshot);
+    }
+}

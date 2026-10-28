@@ -1,6 +1,6 @@
 //! A compact, Unicode-cell-aware terminal HUD. The plain CLI and Game are untouched.
 //! Color is presentation-only and never enters persisted state or user commands.
-use super::{App, Stage, Theme, hud_reading};
+use super::{App, Stage, Theme, hud_reading, combat_report};
 use three_kingdoms_spire_reborn::content::Hero;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
@@ -244,6 +244,15 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
     } else {
         line(&mut out, app, "尚未出征 · 选择武将开始征程", columns, Tone::Muted);
     }
+    // Always keep actionable, real post-settlement results in sight. The
+    // complete 80-event journal is readable with 'l', with no HUD clipping.
+    if combat && rows >= 24 && out.len() + 9 <= rows
+        && let Some(game) = &app.game {
+        heading(&mut out, app, "双方行动（l 查看完整战报）", columns);
+        for entry in combat_report::recent(game) {
+            line(&mut out, app, &entry, columns, Tone::Normal);
+        }
+    }
     let selected = options.get(cursor);
     let description = selected.and_then(|(label, _)| {
         if combat {
@@ -315,9 +324,9 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
     }
     if out.len() >= rows { out.truncate(rows - 1); }
     let shortcuts = if columns < 52 {
-        "↑↓选择 Enter确认 i全文 :命令"
+        "↑↓选择 Enter确认 l战报 i全文"
     } else {
-        "↑↓/jk选 Enter确认 1-9快捷 i全文 t目标 v详情 :命令 ?帮助 q退出"
+        "↑↓/jk选 Enter确认 l战报 i全文 t目标 v详情 :命令 ?帮助 q退出"
     };
     line(&mut out, app, shortcuts, columns, Tone::Muted);
     format!("{}\n", out.join("\n"))
