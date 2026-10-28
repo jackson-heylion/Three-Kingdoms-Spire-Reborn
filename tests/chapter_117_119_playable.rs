@@ -15,8 +15,8 @@ fn count(game:&Game,id:&str)->usize {game.easter_unlocked.iter().filter(|s|s.as_
 
 #[test]
 fn pinned_readings_are_not_mistaken_for_complete_variant_collation() {
-    for (n,oldid,doc) in [(117,"2568080",include_str!("../docs/CHAPTER_117_READING.md")),(118,"2568082",include_str!("../docs/CHAPTER_118_READING.md")),(119,"2568081",include_str!("../docs/CHAPTER_119_READING.md"))] {
-        assert!(doc.contains(&format!("oldid={oldid}")) && doc.contains("回末") && doc.contains("单底本全文通读"),"{n}");
+    for (n,oldid,span,doc) in [(117,"2568080","L119–162",include_str!("../docs/CHAPTER_117_READING.md")),(118,"2568082","L119–171",include_str!("../docs/CHAPTER_118_READING.md")),(119,"2568081","L119–179",include_str!("../docs/CHAPTER_119_READING.md"))] {
+        assert!(doc.contains(&format!("oldid={oldid}")) && doc.contains(&format!("正文 {span}")) && doc.contains("回末") && doc.contains("单底本全文通读"),"{n}");
     }
     let history=include_str!("../docs/CHAPTERS_117_119_HISTORY_SPOTCHECK.md");
     assert!(history.contains("裴注") && history.contains("0/120") && history.contains("姜维自刎"));
