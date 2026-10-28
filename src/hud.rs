@@ -249,7 +249,7 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
     if combat && rows >= 24 && out.len() + 9 <= rows
         && let Some(game) = &app.game {
         heading(&mut out, app, "双方行动（l 查看完整战报）", columns);
-        for entry in combat_report::recent(game) {
+        for entry in combat_report::recent_for_app(app) {
             line(&mut out, app, &entry, columns, Tone::Normal);
         }
     }

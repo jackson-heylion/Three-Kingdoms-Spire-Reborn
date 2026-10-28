@@ -168,6 +168,23 @@ pub(super) fn recent(game: &Game) -> Vec<String> {
         enemy.unwrap_or_else(|| "敌方尚未行动".into())]
 }
 
+/// The compact battle HUD shows the *actual change* of the latest player
+/// action. Without this, non-damage cards only display "card played".
+pub(super) fn recent_for_app(app: &App) -> Vec<String> {
+    let Some(game) = &app.game else { return Vec::new() };
+    let mut lines = recent(game);
+    if !app.message.starts_with("回合结束")
+        && let Some((_, delta)) = app.message.split_once("实际变化：") {
+        let impactful = delta.split('；').filter(|entry|
+            !entry.starts_with("军令") && !entry.is_empty())
+            .take(2).collect::<Vec<_>>();
+        if !impactful.is_empty() {
+            lines[0] = format!("我方本次：{}", impactful.join("；"));
+        }
+    }
+    lines
+}
+
 /// Complete readable audit in a scrollable overlay. No claimed unlimited
 /// history: the battle journal deliberately retains only its newest 80 events.
 pub(super) fn document(app: &App) -> String {
@@ -220,6 +237,21 @@ mod report_tests {
         let after=game.to_json().unwrap();
         let _=recent(&game);
         assert_eq!(game.to_json().unwrap(),after);
+    }
+
+    #[test]
+    fn compact_player_feedback_includes_actual_block_or_health_change() {
+        use crate::{Profile, Theme};
+        let mut game = Game::new(Hero::GuanYu, 345);
+        game.apply(Action::Choose { index: 1 }).unwrap();
+        let before = snapshot(&game).unwrap();
+        game.battle.as_mut().unwrap().block += 8;
+        let delta = impact(&before, &game);
+        let app = App { game: Some(game), profile: Profile::new(), theme: Theme::Dark,
+            dir: std::path::PathBuf::new(), use_ansi: false,
+            message: format!("使用了【护阵】。\\n实际变化：{delta}") };
+        let row = recent_for_app(&app);
+        assert!(row[0].contains("我方护甲+8"), "{row:?}");
     }
 
     #[test]
