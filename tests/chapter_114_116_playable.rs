@@ -20,14 +20,22 @@ fn count(game: &Game, id: &str) -> usize {
 
 #[test]
 fn pinned_readings_and_partial_history_are_explicit() {
-    for (chapter, oldid, doc) in [
-        (114, "2568077", include_str!("../docs/CHAPTER_114_READING.md")),
-        (115, "2568078", include_str!("../docs/CHAPTER_115_READING.md")),
-        (116, "2568079", include_str!("../docs/CHAPTER_116_READING.md")),
+    for (chapter, oldid, doc, body_range, consequence) in [
+        (114, "2568077", include_str!("../docs/CHAPTER_114_READING.md"),
+            "L119–164", "坑杀"),
+        (115, "2568078", include_str!("../docs/CHAPTER_115_READING.md"),
+            "L119–144", "刘琰"),
+        (116, "2568079", include_str!("../docs/CHAPTER_116_READING.md"),
+            "L119–147", "王含、蒋斌"),
     ] {
         assert!(doc.contains(&format!("oldid={oldid}")), "{chapter}");
         assert!(doc.contains("单底本全文通读") && doc.contains("回末"), "{chapter}");
+        assert!(doc.contains(body_range) && doc.contains(consequence),
+            "{chapter}: the pinned full-body boundary or a material consequence was lost");
     }
+    assert!(beat("tanshan_grain_fire_audit").unwrap().premise.contains("坑杀"));
+    assert!(beat("tazhong_farming_dispatch").unwrap().premise.contains("三诏"));
+    assert!(beat("yangping_gate_betrayal").unwrap().premise.contains("王含蒋斌"));
     let history = include_str!("../docs/CHAPTERS_114_116_HISTORY_SPOTCHECK.md");
     for id in ["8746774", "2583379", "2386518", "12068919"] {
         assert!(history.contains(id));
