@@ -1,7 +1,7 @@
 chapter	short_title	chapter_url	body_review_status	body_evidence	game_beats
-001	宴桃园豪杰三结义	https://zh.wikisource.org/wiki/三國演義/第001回	正文通读/未完成异本对校	维基文库固定版oldid=2583915；已按正文开篇至回末梳理因果；尚未对校毛评异本/正史	taoyuan
-002	张翼德怒鞭督邮	https://zh.wikisource.org/wiki/三國演義/第002回	正文通读/未完成异本对校	维基文库固定版oldid=8185068；已按正文开篇至回末梳理因果；尚未对校毛评异本/正史	anxi
-003	议温明董卓叱丁原	https://zh.wikisource.org/wiki/三國演義/第003回	正文通读/未完成异本对校	维基文库固定版oldid=2567965；已按正文开篇至袁绍拔剑停章梳理因果；尚未完成异本及正史对校	redhare
+001	宴桃园豪杰三结义	https://zh.wikisource.org/wiki/三國演義/第001回	正文通读/未完成异本对校	维基文库固定版oldid=2583915；已按正文开篇至回末梳理因果；尚未对校毛评异本/正史；已做嘉靖本第001-002回固定修订局部异文/分回对校（3207988、2554643），并对《三国志》卷32、36局部史传核证；详见 docs/CHAPTERS_001_003_VARIANT_HISTORY_SPOTCHECK.md；未完成全回异文校勘	taoyuan
+002	张翼德怒鞭督邮	https://zh.wikisource.org/wiki/三國演義/第002回	正文通读/未完成异本对校	维基文库固定版oldid=8185068；已按正文开篇至回末梳理因果；尚未对校毛评异本/正史；已做嘉靖本第003-004回固定修订局部异文/分回对校（2554667、2554699），并核对《三国志》卷32刘备杖督邮；详见 docs/CHAPTERS_001_003_VARIANT_HISTORY_SPOTCHECK.md；未完成全回异文校勘	anxi
+003	议温明董卓叱丁原	https://zh.wikisource.org/wiki/三國演義/第003回	正文通读/未完成异本对校	维基文库固定版oldid=2567965；已按正文开篇至袁绍拔剑停章梳理因果；尚未完成异本及正史对校；已做嘉靖本第005-006回固定修订局部异文/分回对校（2554663、2554697），并核对《三国志》卷07吕布杀丁原及赤兔；详见 docs/CHAPTERS_001_003_VARIANT_HISTORY_SPOTCHECK.md；未完成全回异文校勘	redhare
 004	废汉帝陈留践位	https://zh.wikisource.org/wiki/三國演義/第004回	正文通读/未完成异本对校	维基文库固定版oldid=2567966；已从袁绍出走至陈宫夜思刺曹完成全回情节核读；尚未逐字校异或史实对勘	sevenstar
 005	发矫诏诸镇应曹公	https://zh.wikisource.org/wiki/三國演義/第005回	正文通读/未完成异本对校	维基文库固定版oldid=7910939；自陈宫离曹至三英逐次围吕布及张飞欲擒董卓的回末通读；尚未异本文字或史料对校	wenjiu
 006	焚金阙董卓行凶	https://zh.wikisource.org/wiki/三國演義/第006回	正文通读/未完成异本对校	维基文库固定版oldid=2567969；自张飞受关矢退、迁都强驱及曹洪救曹至孙坚被刘表伏兵围困的回末全段核读；未对校异本史料	imperial_jade
