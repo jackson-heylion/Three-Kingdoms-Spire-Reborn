@@ -136,6 +136,37 @@ fn qishan_payoff_needs_all_accepted_114_to_116_responsibilities() {
     assert!(!refused.lore_flags.iter().any(|flag| flag == "yangping_gate_betrayal_record"));
 }
 
+
+#[test]
+fn pinned_jiajing_114_116_and_hu_victim_choice_are_enforced() {
+    let evidence = include_str!("../docs/CHAPTERS_114_116_HISTORY_SPOTCHECK.md");
+    for marker in ["2475396", "2473250", "2568077", "2568078", "2568079",
+        "曹髦之首", "二十萬", "三十萬", "胡氏", "未知傅僉性命如何", "非全回校勘"] {
+        assert!(evidence.contains(marker), "missing fixed local comparison {marker}");
+    }
+    let beat = beat("tazhong_farming_dispatch").unwrap();
+    assert_eq!(beat.chapter, 115);
+    assert_eq!(beat.prerequisite, Some("taoyang_xiahouba_casualty_record"));
+    assert!(beat.premise.contains("胡氏") && beat.premise.contains("不归责姜维"));
+    assert!(beat.vow.contains("胡氏受害证词"));
+    assert!(beat.bargain.contains("隐去胡氏受害"));
+    assert_eq!(beat.reward_gold, 26);
+
+    let mut accepted = scene(Hero::ZhugeLiang, beat.id, &["taoyang_xiahouba_casualty_record"]);
+    let before = accepted.to_json().unwrap();
+    assert!(accepted.apply(Action::Choose { index: 99 }).is_err());
+    assert_eq!(accepted.to_json().unwrap(), before);
+    accepted.apply(Action::Choose { index: 1 }).unwrap();
+    assert!(accepted.lore_flags.iter().any(|f| f == beat.flag));
+    let saved = accepted.to_json().unwrap();
+    let restored = Game::from_json(&saved).unwrap();
+    assert!(restored.lore_flags.iter().any(|f| f == beat.flag));
+    let mut refused = scene(Hero::ZhugeLiang, beat.id, &["taoyang_xiahouba_casualty_record"]);
+    refused.apply(Action::Choose { index: 2 }).unwrap();
+    assert!(!refused.lore_flags.iter().any(|f| f == beat.flag));
+    assert_eq!(count(&refused, "qishan_tazhong_yangping_debt"), 0);
+}
+
 #[test]
 fn old_main_story_wins_and_new_archives_remain_selectable() {
     assert_eq!(next_beat(Hero::ZhugeLiang,2,&["redcliff_wind".into(),"qishan_retreat_courier_record".into()],&[]).map(|b|b.id),Some("wuzhang"));
