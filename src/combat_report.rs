@@ -69,7 +69,7 @@ pub(super) fn impact(before: &Snapshot, game: &Game) -> String {
             changed(&mut out, label, old, new);
         }
         for (idx, foe) in b.foes.iter().enumerate() {
-            if let Some((id, hp, block, poison, weak, vulnerable, phase)) =
+            if let Some((_id, hp, block, poison, weak, vulnerable, phase)) =
                 before.foes.get(idx).filter(|(id, ..)| *id == foe.id) {
                 let prefix = format!("敌{}·{}", idx + 1, foe.name());
                 changed(&mut out, &format!("{prefix}生命"), *hp, foe.hp);
@@ -151,7 +151,7 @@ pub(super) fn recent(game: &Game) -> Vec<String> {
     for event in battle.events.iter().rev() {
         if let Some((ours, description)) = event_line(event, game) {
             if ours && player.is_none() { player = Some(description); }
-            if !ours && enemy.is_none() { enemy = Some(description); }
+            else if enemy.is_none() { enemy = Some(description); }
             if player.is_some() && enemy.is_some() { break; }
         }
     }
