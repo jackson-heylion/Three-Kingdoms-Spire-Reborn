@@ -175,8 +175,8 @@ pub(super) fn document(app: &App) -> String {
     if !app.message.is_empty() {
         sections.push(format!("【最近指令与实际结算】\n{}",app.message.replace('；', "；\n")));
     }
-    if let Some(game) = &app.game {
-        if let Some(b) = &game.battle {
+    if let Some(game) = &app.game
+        && let Some(b) = &game.battle {
             let events = b.events.iter()
                 .filter_map(|event|event_line(event,game)
                     .map(|(_,line)|format!("#{:04} {line}",event.seq)))
@@ -192,7 +192,6 @@ pub(super) fn document(app: &App) -> String {
                     .map(|(i,foe)|format!("敌{} {} {}/{} HP（第{}阶段）",
                         i+1,foe.name(),foe.hp,foe.max_hp,foe.phase+1))
                     .collect::<Vec<_>>().join("；")));
-        }
     }
     if sections.is_empty() { "暂无战斗记录".into() } else { sections.join("\n\n") }
 }
