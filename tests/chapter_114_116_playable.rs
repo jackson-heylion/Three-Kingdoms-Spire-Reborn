@@ -207,36 +207,33 @@ fn all_ten_successor_scenes_settle_accept_refuse_and_leave_alone() {
     ] {
         let b = beat(id).expect("chapter 114-116 scene must exist");
         let mut accepted = scene(hero, id, &[]);
-        accepted.hp = 20;
-        let (gold, deck_len) = (accepted.gold, accepted.deck.len());
+        let (gold, hp, deck_len) = (accepted.gold, accepted.hp, accepted.deck.len());
         accepted.apply(Action::Choose { index: 1 }).unwrap();
         assert!(accepted.lore_flags.iter().any(|f| f == b.flag), "{id}: acceptance flag");
         assert!(accepted.lore_seen.iter().any(|s| s == id), "{id}: seen");
         assert_eq!(accepted.gold, gold + b.reward_gold, "{id}: acceptance gold");
-        assert_eq!(accepted.hp, (20 + b.reward_heal).min(accepted.max_hp), "{id}: heal");
+        assert_eq!(accepted.hp, (hp + b.reward_heal).min(accepted.max_hp), "{id}: heal");
         assert_eq!(accepted.deck.len(), deck_len + 1, "{id}: reward card");
         let snapshot = accepted.to_json().unwrap();
         assert_eq!(Game::from_json(&snapshot).unwrap().to_json().unwrap(), snapshot,
             "{id}: V2 round trip");
 
         let mut refused = scene(hero, id, &[]);
-        refused.hp = 20;
-        let (gold, deck_len) = (refused.gold, refused.deck.len());
+        let (gold, hp, deck_len) = (refused.gold, refused.hp, refused.deck.len());
         refused.apply(Action::Choose { index: 2 }).unwrap();
         assert!(!refused.lore_flags.iter().any(|f| f == b.flag), "{id}: refusal flag");
         assert!(refused.lore_seen.iter().any(|s| s == id), "{id}: refusal seen");
         assert_eq!(refused.gold, gold + 30 + b.reward_gold, "{id}: refusal gold");
-        assert_eq!(refused.hp, 14, "{id}: refusal hp");
+        assert_eq!(refused.hp, (hp - 6).max(0), "{id}: refusal hp");
         assert_eq!(refused.deck.len(), deck_len, "{id}: refusal cannot grant card");
 
         let mut untouched = scene(hero, id, &[]);
-        untouched.hp = 20;
-        let (gold, deck_len) = (untouched.gold, untouched.deck.len());
+        let (gold, hp, deck_len) = (untouched.gold, untouched.hp, untouched.deck.len());
         untouched.apply(Action::Choose { index: 3 }).unwrap();
         assert!(!untouched.lore_flags.iter().any(|f| f == b.flag), "{id}: abstention flag");
         assert!(untouched.lore_seen.iter().any(|s| s == id), "{id}: abstention seen");
         assert_eq!(untouched.gold, gold, "{id}: abstention gold");
-        assert_eq!(untouched.hp, 20, "{id}: abstention hp");
+        assert_eq!(untouched.hp, hp, "{id}: abstention hp");
         assert_eq!(untouched.deck.len(), deck_len, "{id}: abstention card");
     }
 }
