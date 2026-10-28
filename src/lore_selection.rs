@@ -55,6 +55,9 @@ pub fn next_beat(hero: Hero, act: u8, flags: &[String], seen: &[String]) -> Opti
                 && flag("redcliff_wind") && unseen("wuzhang"))
             || (matches!(b.id, "langzhong_heads_receipt" | "wu_wei_envoy_audit" | "yiling_defense_memorial")
                 && flag("jiangdong_covenant") && unseen("yiling"))
+            || (matches!(b.id, "yiling_fire_refuge_ledger" | "guangling_river_defense") && flag("jiangdong_covenant") && unseen("yiling"))
+            || (matches!(b.id, "fishbelly_eightfold_report" | "yongan_regency_register" | "dengzhi_alliance_dispatch") && flag("redcliff_wind") && unseen("wuzhang"))
+            || (b.id == "wei_three_fronts_review" && flag("guandu_grain") && unseen("liaodong"))
             || (b.id == "wei_wu_tribute_review" && flag("guandu_grain") && unseen("liaodong"));
         (if protect_legacy { 4 } else if is_hero && is_payoff { 0 } else if is_hero { 1 } else if is_payoff { 2 } else { 3 }, b.chapter)
     })
