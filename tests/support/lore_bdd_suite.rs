@@ -4,6 +4,7 @@ use super::run_feature;
 #[test]
 fn every_literary_feature_is_executed_not_just_stored() {
     let documents: &[(&str, &str)] = &[
+        ("001_003", include_str!("../../features/lore_ch001_003.feature")),
         ("039_041", include_str!("../../features/lore_ch039_041.feature")),
         ("042_044", include_str!("../../features/lore_ch042_044.feature")),
         ("045_047", include_str!("../../features/lore_ch045_047.feature")),
