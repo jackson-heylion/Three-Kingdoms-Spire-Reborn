@@ -20,14 +20,22 @@ fn count(game: &Game, id: &str) -> usize {
 
 #[test]
 fn pinned_readings_and_partial_history_are_explicit() {
-    for (chapter, oldid, doc) in [
-        (114, "2568077", include_str!("../docs/CHAPTER_114_READING.md")),
-        (115, "2568078", include_str!("../docs/CHAPTER_115_READING.md")),
-        (116, "2568079", include_str!("../docs/CHAPTER_116_READING.md")),
+    for (chapter, oldid, doc, body_range, consequence) in [
+        (114, "2568077", include_str!("../docs/CHAPTER_114_READING.md"),
+            "L119–164", "坑杀"),
+        (115, "2568078", include_str!("../docs/CHAPTER_115_READING.md"),
+            "L119–144", "刘琰"),
+        (116, "2568079", include_str!("../docs/CHAPTER_116_READING.md"),
+            "L119–147", "王含、蒋斌"),
     ] {
         assert!(doc.contains(&format!("oldid={oldid}")), "{chapter}");
         assert!(doc.contains("单底本全文通读") && doc.contains("回末"), "{chapter}");
+        assert!(doc.contains(body_range) && doc.contains(consequence),
+            "{chapter}: the pinned full-body boundary or a material consequence was lost");
     }
+    assert!(beat("tanshan_grain_fire_audit").unwrap().premise.contains("坑杀"));
+    assert!(beat("tazhong_farming_dispatch").unwrap().premise.contains("三诏"));
+    assert!(beat("yangping_gate_betrayal").unwrap().premise.contains("王含蒋斌"));
     let history = include_str!("../docs/CHAPTERS_114_116_HISTORY_SPOTCHECK.md");
     for id in ["8746774", "2583379", "2386518", "12068919"] {
         assert!(history.contains(id));
@@ -89,6 +97,43 @@ fn accepted_shu_wei_wu_chains_pay_without_duplication() {
     let mut wu=scene(Hero::SunShangxiang,"wu_relief_warning_archive",&["sunxiu_court_review_record"]);
     wu.apply(Action::Choose{index:1}).unwrap();
     assert_eq!(count(&wu,"sunxiu_wu_relief_warning_debt"),1);
+}
+
+
+#[test]
+fn qishan_payoff_needs_all_accepted_114_to_116_responsibilities() {
+    let mut missing_tanshan = scene(Hero::ZhugeLiang, "yangping_gate_betrayal",
+        &["qishan_retreat_courier_record", "taoyang_xiahouba_casualty_record",
+          "tazhong_farming_dispatch_record"]);
+    missing_tanshan.apply(Action::Choose { index: 1 }).unwrap();
+    assert_eq!(count(&missing_tanshan, "qishan_tazhong_yangping_debt"), 0,
+        "the 114 grain-loss audit cannot be silently skipped");
+
+    let mut missing_taoyang = scene(Hero::ZhugeLiang, "yangping_gate_betrayal",
+        &["qishan_retreat_courier_record", "tanshan_grain_fire_record",
+          "tazhong_farming_dispatch_record"]);
+    missing_taoyang.apply(Action::Choose { index: 1 }).unwrap();
+    assert_eq!(count(&missing_taoyang, "qishan_tazhong_yangping_debt"), 0,
+        "the 115 civilian and casualty account cannot be silently skipped");
+
+    let mut complete = scene(Hero::ZhugeLiang, "yangping_gate_betrayal",
+        &["qishan_retreat_courier_record", "tanshan_grain_fire_record",
+          "taoyang_xiahouba_casualty_record", "tazhong_farming_dispatch_record"]);
+    complete.apply(Action::Choose { index: 1 }).unwrap();
+    assert_eq!(count(&complete, "qishan_tazhong_yangping_debt"), 1);
+    let snapshot = complete.to_json().unwrap();
+    let mut restored = Game::from_json(&snapshot).unwrap();
+    enter(&mut restored, "yangping_gate_betrayal");
+    restored.apply(Action::Choose { index: 1 }).unwrap();
+    assert_eq!(count(&restored, "qishan_tazhong_yangping_debt"), 1,
+        "restoring a V2 save must not pay the debt twice");
+
+    let mut refused = scene(Hero::ZhugeLiang, "yangping_gate_betrayal",
+        &["qishan_retreat_courier_record", "tanshan_grain_fire_record",
+          "taoyang_xiahouba_casualty_record", "tazhong_farming_dispatch_record"]);
+    refused.apply(Action::Choose { index: 2 }).unwrap();
+    assert_eq!(count(&refused, "qishan_tazhong_yangping_debt"), 0);
+    assert!(!refused.lore_flags.iter().any(|flag| flag == "yangping_gate_betrayal_record"));
 }
 
 #[test]

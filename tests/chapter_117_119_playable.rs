@@ -75,3 +75,36 @@ fn legacy_entries_remain_prioritized_and_new_archives_can_be_selected() {
     }
     for seed in 117119..117127 {let saved=Game::new(Hero::ZhugeLiang,seed).to_json().unwrap();assert!(Game::from_json(&saved).is_ok());}
 }
+
+#[test]
+fn successor_rewards_require_every_accepted_link_and_are_once_only() {
+    use three_kingdoms_spire_reborn::lore::newly_completed_eggs;
+    let cases: &[(Hero, &str, &[&str])] = &[
+        (Hero::ZhugeLiang, "jiange_mianzhu_chengdu_debt",
+            &["yinping_jiangge_defense_record", "jiange_detour_warning_record",
+              "mianzhu_family_casualties_record", "chengdu_surrender_household_record"]),
+        (Hero::ZhugeLiang, "chengdu_jiangwei_aftercare_debt",
+            &["chengdu_surrender_household_record", "jiangwei_last_courier_record"]),
+        (Hero::CaoCao, "yinping_zhonghui_court_debt",
+            &["wei_yinping_march_record", "wei_chengdu_occupation_record",
+              "zhonghui_false_edict_record", "wei_jin_abdication_record"]),
+        (Hero::SunShangxiang, "wu_mianzhu_relief_debt",
+            &["wu_relief_warning_record", "wu_mianzhu_relief_dispatch_record",
+              "wu_relief_arrival_dispute_record"]),
+    ];
+    for (hero, egg, required) in cases {
+        let complete: Vec<String> = required.iter().map(|s| (*s).into()).collect();
+        assert_eq!(newly_completed_eggs(*hero, &complete, &[])
+            .iter().filter(|item| item.id == *egg).count(), 1, "{egg}: full chain");
+        for missing in 0..required.len() {
+            let incomplete: Vec<String> = required.iter().enumerate()
+                .filter(|(i, _)| *i != missing)
+                .map(|(_, flag)| (*flag).into()).collect();
+            assert!(!newly_completed_eggs(*hero, &incomplete, &[])
+                .iter().any(|item| item.id == *egg),
+                "{egg}: missing {}", required[missing]);
+        }
+        assert!(!newly_completed_eggs(*hero, &complete, &[(*egg).into()])
+            .iter().any(|item| item.id == *egg), "{egg}: duplicate payout");
+    }
+}
