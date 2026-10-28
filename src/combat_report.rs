@@ -155,6 +155,15 @@ pub(super) fn recent(game: &Game) -> Vec<String> {
             if player.is_some() && enemy.is_some() { break; }
         }
     }
+    // Guard and rally are only described in EndTurn's committed narrative,
+    // not as damage/status events. Keep them visible without creating a
+    // synthetic authoritative combat event or altering listener semantics.
+    if enemy.is_none()
+        && let Some(turn) = game.log.iter().rev()
+            .find(|message| message.starts_with("回合结束：")) {
+        enemy = Some(format!("敌方回合：{}",
+            turn.trim_start_matches("回合结束：").trim_end_matches('。')));
+    }
     vec![player.unwrap_or_else(|| "我方尚未行动".into()),
         enemy.unwrap_or_else(|| "敌方尚未行动".into())]
 }
@@ -175,6 +184,9 @@ pub(super) fn document(app: &App) -> String {
             sections.push(format!("【双方事件流水 · 最近最多80条，按结算顺序】\n{}",
                 if events.is_empty() {"暂无已结算战斗事件".into()}
                 else { events.join("\n") }));
+            sections.push(format!("【最近实际操作记录 · 最多12条】\n{}",
+                game.log.iter().rev().take(12).rev().cloned()
+                    .collect::<Vec<_>>().join("\n")));
             sections.push(format!("【当前双方生命】\n我方 {}/{}；{}",
                 game.hp,game.max_hp,b.foes.iter().enumerate()
                     .map(|(i,foe)|format!("敌{} {} {}/{} HP（第{}阶段）",
@@ -209,6 +221,22 @@ mod report_tests {
         let after=game.to_json().unwrap();
         let _=recent(&game);
         assert_eq!(game.to_json().unwrap(),after);
+    }
+
+    #[test]
+    fn non_damage_enemy_guard_is_visible_from_committed_turn_log() {
+        let mut game=Game::new(Hero::GuanYu, 942);
+        game.apply(Action::Choose{index:1}).unwrap();
+        {
+            let battle=game.battle.as_mut().unwrap();
+            battle.foes[0].phase=1;
+            battle.foes[0].intent=three_kingdoms_spire_reborn::Intent::Guard(8);
+            battle.troops_hp=0;
+            battle.troops_attack=0;
+        }
+        game.apply(Action::EndTurn).unwrap();
+        let last=recent(&game);
+        assert!(last[1].contains("护甲"),"{last:?}");
     }
 
     #[test]
