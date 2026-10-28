@@ -36,3 +36,90 @@ fn fixed_ch103_105_variants_keep_playable_contracts() {
         assert!(evidence.contains(token), "missing anchored distinction: {token}");
     }
 }
+
+
+// These are real Game::apply story transitions with scripted entry conditions.
+// They do not claim a naturally generated seven-floor route reaches the chain.
+fn staged(hero: three_kingdoms_spire_reborn::content::Hero, id: &str, flags: &[&str]) -> three_kingdoms_spire_reborn::Game {
+    use three_kingdoms_spire_reborn::{Game, Stage};
+    let mut game = Game::new(hero, 103105);
+    game.stage = Stage::Story;
+    game.lore_current = Some(id.into());
+    game.lore_flags = flags.iter().map(|flag| (*flag).into()).collect();
+    game
+}
+
+fn enter(game: &mut three_kingdoms_spire_reborn::Game, id: &str) {
+    game.stage = three_kingdoms_spire_reborn::Stage::Story;
+    game.lore_current = Some(id.into());
+}
+
+fn unlocked(game: &three_kingdoms_spire_reborn::Game, id: &str) -> usize {
+    game.easter_unlocked.iter().filter(|egg| egg.as_str() == id).count()
+}
+
+#[test]
+fn variant_shangfang_wuzhang_chain_keeps_atomic_choice_v2_and_once_only_payoff() {
+    use three_kingdoms_spire_reborn::{Action, Game};
+    use three_kingdoms_spire_reborn::content::Hero;
+
+    let prerequisites = ["weinan_transport_record", "weibei_bridge_losses_record"];
+    let mut game = staged(Hero::ZhugeLiang, "shangfang_fire_account", &prerequisites);
+    let before = game.to_json().unwrap();
+    assert!(game.apply(Action::Choose { index: 99 }).is_err());
+    assert_eq!(game.to_json().unwrap(), before, "rejected choice must not change RNG or flags");
+    game.apply(Action::Choose { index: 1 }).unwrap();
+    assert!(game.lore_flags.iter().any(|flag| flag == "shangfang_fire_account_record"));
+    assert_eq!(unlocked(&game, "weibei_shangfang_withdrawal_debt"), 0);
+
+    let saved = game.to_json().unwrap();
+    let mut restored = Game::from_json(&saved).unwrap();
+    assert_eq!(restored.to_json().unwrap(), saved);
+    enter(&mut restored, "wuzhang_withdrawal_evidence");
+    restored.apply(Action::Choose { index: 1 }).unwrap();
+    assert_eq!(unlocked(&restored, "weibei_shangfang_withdrawal_debt"), 1);
+    enter(&mut restored, "wuzhang_withdrawal_evidence");
+    restored.apply(Action::Choose { index: 1 }).unwrap();
+    assert_eq!(unlocked(&restored, "weibei_shangfang_withdrawal_debt"), 1);
+
+    let mut declined = staged(Hero::ZhugeLiang, "shangfang_fire_account", &prerequisites);
+    declined.apply(Action::Choose { index: 2 }).unwrap();
+    assert!(!declined.lore_flags.iter().any(|flag| flag == "shangfang_fire_account_record"));
+    enter(&mut declined, "wuzhang_withdrawal_evidence");
+    declined.apply(Action::Choose { index: 1 }).unwrap();
+    assert_eq!(unlocked(&declined, "weibei_shangfang_withdrawal_debt"), 0);
+}
+
+#[test]
+fn variant_ch104_105_succession_and_double_memorial_remain_distinct_choices() {
+    use three_kingdoms_spire_reborn::{Action, Game};
+    use three_kingdoms_spire_reborn::content::Hero;
+
+    let mut game = staged(
+        Hero::ZhugeLiang,
+        "wuzhang_succession_register",
+        &["redcliff_wind", "weinan_transport_record"],
+    );
+    game.apply(Action::Choose { index: 1 }).unwrap();
+    assert_eq!(unlocked(&game, "redcliff_wuzhang_transport_debt"), 1);
+    enter(&mut game, "wuzhang_withdrawal_evidence");
+    game.apply(Action::Choose { index: 1 }).unwrap();
+    enter(&mut game, "weiyan_double_memorial_audit");
+    game.apply(Action::Choose { index: 1 }).unwrap();
+    assert!(game.lore_flags.iter().any(|flag| flag == "weiyan_double_memorial_record"));
+    assert_eq!(unlocked(&game, "wuzhang_qushan_supply_debt"), 0);
+    let saved = game.to_json().unwrap();
+    assert_eq!(Game::from_json(&saved).unwrap().to_json().unwrap(), saved);
+
+    let mut declined = staged(Hero::ZhugeLiang, "weiyan_double_memorial_audit", &["wuzhang_withdrawal_record"]);
+    declined.apply(Action::Choose { index: 2 }).unwrap();
+    assert!(!declined.lore_flags.iter().any(|flag| flag == "weiyan_double_memorial_record"));
+
+    let mut wu = staged(Hero::SunShangxiang, "zongyu_wu_border_receipt", &["jiangdong_covenant"]);
+    let before = wu.to_json().unwrap();
+    assert!(wu.apply(Action::Choose { index: 99 }).is_err());
+    assert_eq!(wu.to_json().unwrap(), before);
+    wu.apply(Action::Choose { index: 1 }).unwrap();
+    assert!(wu.lore_flags.iter().any(|flag| flag == "zongyu_border_reply_record"));
+    assert_eq!(Game::from_json(&wu.to_json().unwrap()).unwrap().easter_unlocked, wu.easter_unlocked);
+}
