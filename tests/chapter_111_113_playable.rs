@@ -20,12 +20,13 @@ fn count(game: &Game, id: &str) -> usize {
 
 #[test]
 fn three_readings_are_pinned_and_history_is_not_marked_complete() {
-    for (chapter, oldid, doc) in [
-        (111, "2568075", include_str!("../docs/CHAPTER_111_READING.md")),
-        (112, "2568074", include_str!("../docs/CHAPTER_112_READING.md")),
-        (113, "2568076", include_str!("../docs/CHAPTER_113_READING.md")),
+    for (chapter, oldid, lines, doc) in [
+        (111, "2568075", "L115–133", include_str!("../docs/CHAPTER_111_READING.md")),
+        (112, "2568074", "L116–156", include_str!("../docs/CHAPTER_112_READING.md")),
+        (113, "2568076", "L116–141", include_str!("../docs/CHAPTER_113_READING.md")),
     ] {
         assert!(doc.contains(&format!("oldid={oldid}")), "{chapter}");
+        assert!(doc.contains(&format!("正文 {lines}")), "wrong source span: {chapter}");
         assert!(doc.contains("单底本全文通读") && doc.contains("回末"), "{chapter}");
     }
     let history = include_str!("../docs/CHAPTERS_111_113_HISTORY_SPOTCHECK.md");
