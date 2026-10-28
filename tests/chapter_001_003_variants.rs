@@ -17,7 +17,7 @@ fn fixed_sources_keep_two_novels_and_history_separate() {
         assert!(evidence.contains(oldid), "missing pinned source {oldid}");
     }
     for chapter in ["001","002","003"] {
-        let row = audit.lines().find(|line| line.starts_with(&format!("{chapter}\\t")))
+        let row = audit.lines().find(|line| line.starts_with(&format!("{chapter}\t")))
             .expect("chapter ledger row");
         assert!(row.contains("正文通读/未完成异本对校"));
         assert!(row.contains("局部异文"));
