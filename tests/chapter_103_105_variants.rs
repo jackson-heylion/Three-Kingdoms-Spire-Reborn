@@ -102,6 +102,9 @@ fn variant_ch104_105_succession_and_double_memorial_remain_distinct_choices() {
     );
     game.apply(Action::Choose { index: 1 }).unwrap();
     assert_eq!(unlocked(&game, "redcliff_wuzhang_transport_debt"), 1);
+    // The withdrawal's actual prerequisite is accepting the Shangfang fire ledger.
+    enter(&mut game, "shangfang_fire_account");
+    game.apply(Action::Choose { index: 1 }).unwrap();
     enter(&mut game, "wuzhang_withdrawal_evidence");
     game.apply(Action::Choose { index: 1 }).unwrap();
     enter(&mut game, "weiyan_double_memorial_audit");
