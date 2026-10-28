@@ -26,6 +26,10 @@ fn fixed_ch103_105_variants_keep_playable_contracts() {
         assert_eq!(scene.reward_gold, gold);
         assert_eq!(scene.reward_heal, heal);
     }
+    let fire = beat("shangfang_fire_account").unwrap();
+    for name in ["夏侯霸", "夏侯威", "夏侯惠", "夏侯和", "杖背四十"] {
+        assert!(fire.premise.contains(name), "missing playable edition distinction: {name}");
+    }
     for token in ["皆要燒死", "杖背四十", "夏侯霸、夏侯威", "夏侯惠、夏侯和", "禮義廉恥", "鐵矢長八寸",
         "王平、廖化、張嶷、張翼、吳懿", "馬岱、王平、廖化、張翼、張嶷",
         "逆從魏寇", "謀為不軌", "非逐字异文", "仍0/120"] {
