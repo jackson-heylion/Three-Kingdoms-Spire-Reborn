@@ -148,6 +148,8 @@ fn pinned_jiajing_114_116_and_hu_victim_choice_are_enforced() {
     assert_eq!(beat.chapter, 115);
     assert_eq!(beat.prerequisite, Some("taoyang_xiahouba_casualty_record"));
     assert!(beat.premise.contains("胡氏") && beat.premise.contains("不归责姜维"));
+    assert!(beat.premise.contains("建兴十二年（234）") && beat.premise.contains("景耀五年（262）"));
+    assert!(evidence.contains("2583390") && evidence.contains("年代错置"));
     assert!(beat.vow.contains("胡氏受害证词"));
     assert!(beat.bargain.contains("隐去胡氏受害"));
     assert_eq!(beat.reward_gold, 26);
