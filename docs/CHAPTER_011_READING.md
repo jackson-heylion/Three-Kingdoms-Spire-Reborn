@@ -45,3 +45,6 @@
 ## 验收边界
 
 已完成：第011回固定单底本全回叙事因果通读，核对第012回开头的追击续接及陶谦后续让位。未完成：毛评异本逐字对校、《三国志》与裴注史实核证、原创事件实装、玩家体验和P1文学总验收。
+## 2026-10-28 可玩闭环补记
+
+此前“设计、未实装”段落为当时状态；本轮新增三个**可选**档案节点 `beihai_xuzhou_relief_archive`、`xuzhou_yanzhou_dispatch_archive`、`yanzhou_taishan_ambush_archive`，分别由桃园、徐州军纪、长安余烬旗标解锁。仅玩家选择保全证据才记入新旗标；旧 `anxi`、`puyang`、`xiaopei` 无须先做这些档案。对应跨回奖励由实际接受旗标共同触发，见 `src/lore_eggs_part23.rs` 和 `tests/chapter_011_120_playable.rs`。历史局部对照见 `CHAPTERS_011_120_HISTORY_SPOTCHECK.md`。真人自然地图可达性与异本全文对校仍未验收。
