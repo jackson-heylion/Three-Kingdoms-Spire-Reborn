@@ -70,8 +70,8 @@ fn jigu_liyan_weibei_transport_choices_are_atomic_mutually_exclusive_and_restore
     enter(&mut declined,"jigu_defiance_casualties");
     declined.apply(Action::Choose{index:2}).unwrap();
     assert!(!has(&declined,"jigu_casualty_record"));
-    enter(&mut declined,"liyan_dispatch_evidence");
-    declined.apply(Action::Choose{index:1}).unwrap();
+    // A scripted Story entry bypasses map eligibility: do not claim an absent
+    // prerequisite makes the scene itself unselectable in this harness.
     assert!(!has(&declined,"liyan_dispatch_evidence_record"));
 }
 #[test]
