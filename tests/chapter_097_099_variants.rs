@@ -28,7 +28,7 @@ fn ch097_099_fixed_sources_and_playable_contracts() {
         (98,"wu_han_enthronement_dispatch","wu_han_enthronement_record","jiangdong_covenant",22,8),
         (99,"wudu_yinping_civil_register","wudu_yinping_civil_record","redcliff_wind",22,9),
     ] {
-        let row = audit.lines().find(|line| line.starts_with(&format!("{chapter:03}\\t"))).unwrap();
+        let row = audit.lines().find(|line| line.starts_with(&format!("{chapter:03}\t"))).unwrap();
         assert!(row.contains("CHAPTERS_097_099_JIAJING_VARIANTS.md"));
         let b = beat(id).unwrap();
         assert_eq!(b.chapter, chapter);
