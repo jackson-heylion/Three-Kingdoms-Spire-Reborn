@@ -136,6 +136,39 @@ fn qishan_payoff_needs_all_accepted_114_to_116_responsibilities() {
     assert!(!refused.lore_flags.iter().any(|flag| flag == "yangping_gate_betrayal_record"));
 }
 
+
+#[test]
+fn pinned_jiajing_114_116_and_hu_victim_choice_are_enforced() {
+    let evidence = include_str!("../docs/CHAPTERS_114_116_HISTORY_SPOTCHECK.md");
+    for marker in ["2475396", "2473250", "2568077", "2568078", "2568079",
+        "曹髦之首", "二十萬", "三十萬", "胡氏", "未知傅僉性命如何", "非全回校勘"] {
+        assert!(evidence.contains(marker), "missing fixed local comparison {marker}");
+    }
+    let beat = beat("tazhong_farming_dispatch").unwrap();
+    assert_eq!(beat.chapter, 115);
+    assert_eq!(beat.prerequisite, Some("taoyang_xiahouba_casualty_record"));
+    assert!(beat.premise.contains("胡氏") && beat.premise.contains("不归责姜维"));
+    assert!(beat.premise.contains("建兴十二年（234）") && beat.premise.contains("景耀五年（262）"));
+    assert!(evidence.contains("2583390") && evidence.contains("年代错置"));
+    assert!(beat.vow.contains("胡氏受害证词"));
+    assert!(beat.bargain.contains("隐去胡氏受害"));
+    assert_eq!(beat.reward_gold, 26);
+
+    let mut accepted = scene(Hero::ZhugeLiang, beat.id, &["taoyang_xiahouba_casualty_record"]);
+    let before = accepted.to_json().unwrap();
+    assert!(accepted.apply(Action::Choose { index: 99 }).is_err());
+    assert_eq!(accepted.to_json().unwrap(), before);
+    accepted.apply(Action::Choose { index: 1 }).unwrap();
+    assert!(accepted.lore_flags.iter().any(|f| f == beat.flag));
+    let saved = accepted.to_json().unwrap();
+    let restored = Game::from_json(&saved).unwrap();
+    assert!(restored.lore_flags.iter().any(|f| f == beat.flag));
+    let mut refused = scene(Hero::ZhugeLiang, beat.id, &["taoyang_xiahouba_casualty_record"]);
+    refused.apply(Action::Choose { index: 2 }).unwrap();
+    assert!(!refused.lore_flags.iter().any(|f| f == beat.flag));
+    assert_eq!(count(&refused, "qishan_tazhong_yangping_debt"), 0);
+}
+
 #[test]
 fn old_main_story_wins_and_new_archives_remain_selectable() {
     assert_eq!(next_beat(Hero::ZhugeLiang,2,&["redcliff_wind".into(),"qishan_retreat_courier_record".into()],&[]).map(|b|b.id),Some("wuzhang"));
@@ -152,5 +185,55 @@ fn old_main_story_wins_and_new_archives_remain_selectable() {
     for seed in 114116..114124 {
         let saved=Game::new(Hero::ZhugeLiang,seed).to_json().unwrap();
         assert!(Game::from_json(&saved).is_ok());
+    }
+}
+
+
+/// Isolated Game::apply settlement checks. These deliberately inject a scene
+/// without walking the map; they are NOT natural-seed reachability evidence.
+#[test]
+fn all_ten_successor_scenes_settle_accept_refuse_and_leave_alone() {
+    for (hero, id) in [
+        (Hero::CaoCao, "wei_caomao_palace_evidence"),
+        (Hero::CaoCao, "wei_wangjing_family_relief"),
+        (Hero::ZhugeLiang, "tanshan_grain_fire_audit"),
+        (Hero::ZhugeLiang, "taoyang_xiahouba_casualty"),
+        (Hero::ZhugeLiang, "tazhong_farming_dispatch"),
+        (Hero::CaoCao, "wei_invasion_two_routes"),
+        (Hero::ZhugeLiang, "yangping_gate_betrayal"),
+        (Hero::CaoCao, "dingjun_civilian_protection"),
+        (Hero::ZhugeLiang, "yinping_jiangge_defense"),
+        (Hero::SunShangxiang, "wu_relief_warning_archive"),
+    ] {
+        let b = beat(id).expect("chapter 114-116 scene must exist");
+        let mut accepted = scene(hero, id, &[]);
+        let (gold, hp, deck_len) = (accepted.gold, accepted.hp, accepted.deck.len());
+        accepted.apply(Action::Choose { index: 1 }).unwrap();
+        assert!(accepted.lore_flags.iter().any(|f| f == b.flag), "{id}: acceptance flag");
+        assert!(accepted.lore_seen.iter().any(|s| s == id), "{id}: seen");
+        assert_eq!(accepted.gold, gold + b.reward_gold, "{id}: acceptance gold");
+        assert_eq!(accepted.hp, (hp + b.reward_heal).min(accepted.max_hp), "{id}: heal");
+        assert_eq!(accepted.deck.len(), deck_len + 1, "{id}: reward card");
+        let snapshot = accepted.to_json().unwrap();
+        assert_eq!(Game::from_json(&snapshot).unwrap().to_json().unwrap(), snapshot,
+            "{id}: V2 round trip");
+
+        let mut refused = scene(hero, id, &[]);
+        let (gold, hp, deck_len) = (refused.gold, refused.hp, refused.deck.len());
+        refused.apply(Action::Choose { index: 2 }).unwrap();
+        assert!(!refused.lore_flags.iter().any(|f| f == b.flag), "{id}: refusal flag");
+        assert!(refused.lore_seen.iter().any(|s| s == id), "{id}: refusal seen");
+        assert_eq!(refused.gold, gold + 30 + b.reward_gold, "{id}: refusal gold");
+        assert_eq!(refused.hp, (hp - 6).max(0), "{id}: refusal hp");
+        assert_eq!(refused.deck.len(), deck_len, "{id}: refusal cannot grant card");
+
+        let mut untouched = scene(hero, id, &[]);
+        let (gold, hp, deck_len) = (untouched.gold, untouched.hp, untouched.deck.len());
+        untouched.apply(Action::Choose { index: 3 }).unwrap();
+        assert!(!untouched.lore_flags.iter().any(|f| f == b.flag), "{id}: abstention flag");
+        assert!(untouched.lore_seen.iter().any(|s| s == id), "{id}: abstention seen");
+        assert_eq!(untouched.gold, gold, "{id}: abstention gold");
+        assert_eq!(untouched.hp, hp, "{id}: abstention hp");
+        assert_eq!(untouched.deck.len(), deck_len, "{id}: abstention card");
     }
 }
