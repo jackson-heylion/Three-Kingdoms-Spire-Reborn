@@ -93,7 +93,8 @@ const CHAPTER_102_104_EGGS: &[EasterEgg] = include!("lore_eggs_part17.rs");
 const CHAPTER_105_107_EGGS: &[EasterEgg] = include!("lore_eggs_part18.rs");
 const CHAPTER_108_110_EGGS: &[EasterEgg] = include!("lore_eggs_part19.rs");
 const CHAPTER_111_113_EGGS: &[EasterEgg] = include!("lore_eggs_part20.rs");
-const CHAPTER_004_006_EGGS: &[EasterEgg] = include!("lore_eggs_part21.rs");
+const CHAPTER_114_116_EGGS: &[EasterEgg] = include!("lore_eggs_part21.rs");
+const CHAPTER_004_006_EGGS: &[EasterEgg] = include!("lore_eggs_part004_006.rs");
 const fn collect_eggs<const N: usize>(parts: &[&[EasterEgg]]) -> [EasterEgg; N] {
     let mut out = [parts[0][0]; N];
     let mut pos = 0;
@@ -111,7 +112,7 @@ const fn collect_eggs<const N: usize>(parts: &[&[EasterEgg]]) -> [EasterEgg; N] 
     out
 }
 pub const EASTER_EGGS: &[EasterEgg] =
-    &collect_eggs::<{ LEGACY_EGGS.len() + NEW_EGGS.len() + CHAPTER_054_056_EGGS.len() + CHAPTER_057_059_EGGS.len() + CHAPTER_060_062_EGGS.len() + CHAPTER_063_065_EGGS.len() + CHAPTER_066_068_EGGS.len() + CHAPTER_069_071_EGGS.len() + CHAPTER_072_074_EGGS.len() + CHAPTER_075_077_EGGS.len() + CHAPTER_078_080_EGGS.len() + CHAPTER_081_083_EGGS.len() + CHAPTER_090_092_EGGS.len() + CHAPTER_093_095_EGGS.len() + CHAPTER_096_098_EGGS.len() + CHAPTER_099_101_EGGS.len() + CHAPTER_102_104_EGGS.len() + CHAPTER_105_107_EGGS.len() + CHAPTER_108_110_EGGS.len() + CHAPTER_111_113_EGGS.len() + CHAPTER_004_006_EGGS.len() }>(&[LEGACY_EGGS, NEW_EGGS, CHAPTER_054_056_EGGS, CHAPTER_057_059_EGGS, CHAPTER_060_062_EGGS, CHAPTER_063_065_EGGS, CHAPTER_066_068_EGGS, CHAPTER_069_071_EGGS, CHAPTER_072_074_EGGS, CHAPTER_075_077_EGGS, CHAPTER_078_080_EGGS, CHAPTER_081_083_EGGS, CHAPTER_090_092_EGGS, CHAPTER_093_095_EGGS, CHAPTER_096_098_EGGS, CHAPTER_099_101_EGGS, CHAPTER_102_104_EGGS, CHAPTER_105_107_EGGS, CHAPTER_108_110_EGGS, CHAPTER_111_113_EGGS, CHAPTER_004_006_EGGS]);
+    &collect_eggs::<{ LEGACY_EGGS.len() + NEW_EGGS.len() + CHAPTER_054_056_EGGS.len() + CHAPTER_057_059_EGGS.len() + CHAPTER_060_062_EGGS.len() + CHAPTER_063_065_EGGS.len() + CHAPTER_066_068_EGGS.len() + CHAPTER_069_071_EGGS.len() + CHAPTER_072_074_EGGS.len() + CHAPTER_075_077_EGGS.len() + CHAPTER_078_080_EGGS.len() + CHAPTER_081_083_EGGS.len() + CHAPTER_090_092_EGGS.len() + CHAPTER_093_095_EGGS.len() + CHAPTER_096_098_EGGS.len() + CHAPTER_099_101_EGGS.len() + CHAPTER_102_104_EGGS.len() + CHAPTER_105_107_EGGS.len() + CHAPTER_108_110_EGGS.len() + CHAPTER_111_113_EGGS.len() + CHAPTER_114_116_EGGS.len() + CHAPTER_004_006_EGGS.len() }>(&[LEGACY_EGGS, NEW_EGGS, CHAPTER_054_056_EGGS, CHAPTER_057_059_EGGS, CHAPTER_060_062_EGGS, CHAPTER_063_065_EGGS, CHAPTER_066_068_EGGS, CHAPTER_069_071_EGGS, CHAPTER_072_074_EGGS, CHAPTER_075_077_EGGS, CHAPTER_078_080_EGGS, CHAPTER_081_083_EGGS, CHAPTER_090_092_EGGS, CHAPTER_093_095_EGGS, CHAPTER_096_098_EGGS, CHAPTER_099_101_EGGS, CHAPTER_102_104_EGGS, CHAPTER_105_107_EGGS, CHAPTER_108_110_EGGS, CHAPTER_111_113_EGGS, CHAPTER_114_116_EGGS, CHAPTER_004_006_EGGS]);
 
 pub fn newly_completed_eggs(
     hero: Hero, flags: &[String], already: &[String]
@@ -136,71 +137,4 @@ pub fn provenance_url(chapter: u8) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn all_beats_have_source_chapters_unique_ids_and_known_cards() {
-        let mut ids = std::collections::BTreeSet::new();
-        for beat in BEATS {
-            assert!((1..=120).contains(&beat.chapter), "{:?}",beat.id);
-            assert!(ids.insert(beat.id), "duplicate beat ID {}",beat.id);
-            assert!(crate::content::card_spec(beat.reward_card).is_some(), "{}",beat.reward_card);
-            assert!(beat.act <= 2);
-            assert!(!beat.title.is_empty() && !beat.premise.is_empty());
-            assert!(provenance_url(beat.chapter).contains("三國演義"));
-        }
-        for b in BEATS {
-            if let Some(required) = b.prerequisite {
-                assert!(BEATS.iter().any(|old| old.flag == required && old.chapter <= b.chapter),
-                    "orphan foreshadowing {}",b.id);
-            }
-        }
-    }
-    #[test]
-    fn chapter_links_and_relationships_have_provenance() {
-        assert!(BONDS.len() >= 25);
-        for bond in BONDS {
-            assert!((1..=120).contains(&bond.chapter));
-            assert!(BEATS.iter().any(|b| b.flag == bond.flag),
-                "bond missing storyline: {}",bond.companion);
-        }
-    }
-    #[test]
-    fn all_easter_eggs_have_real_and_reachable_source_chains() {
-        let mut ids = std::collections::BTreeSet::new();
-        for egg in EASTER_EGGS {
-            assert!(ids.insert(egg.id), "duplicate easter egg");
-            assert!(egg.chapters.iter().all(|ch| (1..=120).contains(ch)));
-            for flag in egg.flags {
-                assert!(BEATS.iter().any(|beat| beat.flag == *flag), "unreachable {}",egg.id);
-            }
-        }
-        let flags = vec!["baima_debt".into(),"huarong_mercy".into()];
-        assert_eq!(newly_completed_eggs(Hero::GuanYu,&flags,&[])[0].id, "sword_debt");
-        assert!(newly_completed_eggs(Hero::ZhugeLiang,&flags,&[]).is_empty());
-        assert!(newly_completed_eggs(Hero::GuanYu,&flags,&["sword_debt".into()]).is_empty());
-    }
-    #[test]
-    fn early_pledge_and_public_office_create_a_cross_act_debt() {
-        let seen=vec!["taoyuan".into()];
-        assert_eq!(next_beat(Hero::GuanYu,0,&["taoyuan_oath".into()],&seen)
-            .map(|b|b.id),Some("anxi"));
-        assert_ne!(next_beat(Hero::GuanYu,2,&["taoyuan_oath".into()],&[])
-            .map(|b|b.id),Some("jingzhou"),
-            "an oath without the anti-bribery choice cannot unlock Jingzhou");
-        assert_eq!(next_beat(Hero::GuanYu,2,
-            &["taoyuan_oath".into(),"anxi_seal".into()],&[])
-            .map(|b|b.id),Some("jingzhou"));
-        assert_eq!(next_beat(Hero::GuanYu,2,
-            &["taoyuan_oath".into(),"anxi_seal".into(),"jingzhou_warning".into()],
-            &["jingzhou".into()]).map(|b|b.id),Some("maicheng"));
-    }
-    #[test]
-    fn without_an_earlier_choice_its_payoff_is_not_selected() {
-        let no_flags = Vec::new();
-        let seen = Vec::new();
-        assert_eq!(next_beat(Hero::GuanYu, 0, &no_flags, &seen).unwrap().id,"taoyuan");
-        assert!(next_beat(Hero::GuanYu, 1, &no_flags, &seen).is_none());
-        assert_eq!(next_beat(Hero::GuanYu, 1, &["baima_debt".into()], &seen).unwrap().id,"huarong");
-    }
-}
+include!("lore_tests.rs");
