@@ -82,6 +82,12 @@ fn ch106_107_wei_liaodong_gaoping_debt_is_atomic_once_only_and_restorable() {
     enter_archive(&mut restored, "gaoping_oath_court_review");
     restored.apply(Action::Choose { index: 1 }).unwrap();
     assert_eq!(egg_count(&restored, "wei_palace_gaoping_oath_debt"), 1);
+    // Re-entering the optional archive after a V2 reload must not pay the same egg twice.
+    let settled = restored.to_json().unwrap();
+    let mut replayed = Game::from_json(&settled).unwrap();
+    enter_archive(&mut replayed, "gaoping_oath_court_review");
+    replayed.apply(Action::Choose { index: 1 }).unwrap();
+    assert_eq!(egg_count(&replayed, "wei_palace_gaoping_oath_debt"), 1);
     assert!(three_kingdoms_spire_reborn::lore::newly_completed_eggs(
         restored.hero, &restored.lore_flags, &restored.easter_unlocked
     ).iter().all(|egg| egg.id != "wei_palace_gaoping_oath_debt"));
@@ -124,6 +130,10 @@ fn ch107_108_shu_water_chain_and_wu_dongxing_debt_keep_exclusive_rewards() {
     enter_archive(&mut restored, "xincheng_siege_sickness");
     restored.apply(Action::Choose { index: 1 }).unwrap();
     enter_archive(&mut restored, "sun_jun_banquet_inquest");
+    restored.apply(Action::Choose { index: 1 }).unwrap();
+    assert_eq!(egg_count(&restored, "yiling_dongxing_snow_debt"), 1);
+    // A restored campaign may revisit the same optional archive, but its hidden payoff is once-only.
+    enter_archive(&mut restored, "dongxing_snow_bridge_ledger");
     restored.apply(Action::Choose { index: 1 }).unwrap();
     assert_eq!(egg_count(&restored, "yiling_dongxing_snow_debt"), 1);
 
