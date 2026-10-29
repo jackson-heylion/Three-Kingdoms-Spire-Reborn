@@ -21,7 +21,7 @@ fn fixed_volume_sources_are_distinct_from_displaced_section_190() {
     for id in ["2568057","2568058","2568062","2475479","2475422","2555875","2555879","2555892"] {
         assert!(doc.contains(id), "missing fixed source {id}");
     }
-    for term in ["華陽巾","綸巾","拔西縣","初拔四縣","西城","王平","月米","周鲂","分則190"] {
+    for term in ["華陽巾","綸巾","拔西縣","初拔四縣","西城","王平","月米","周鲂","分则190"] {
         assert!(doc.contains(term), "missing textual distinction {term}");
     }
     assert_eq!(audit.lines().skip(1).filter(|line| !line.is_empty()).count(),120);

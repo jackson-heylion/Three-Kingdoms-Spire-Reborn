@@ -265,3 +265,40 @@ Scenario: Guan Yu's debt and mercy reveal a once-only hidden ending
     When I choose 2
     Then the flag "xiaopei_courier_guard" is absent
     And act 2 offers the lore scene "whitegate"
+
+  Scenario: Jieting water warning pays off at Xicheng and Masu family review
+    Given a "zhuge" campaign with seed 94096
+    And the flag "redcliff_wind" was earned earlier
+    And the lore scene "jieting_water_order"
+    When I choose 1
+    Then the flag "jieting_water_record" is present
+    And the hidden conclusion "redcliff_jieting_supply_debt" is unlocked
+    When I save and restore
+    Then the flag "jieting_water_record" is present
+    And the lore scene "xicheng_civilian_retreat"
+    When I choose 1
+    Then the flag "xicheng_civilian_record" is present
+    And the lore scene "masu_family_account"
+    When I choose 1
+    Then the hidden conclusion "jieting_masu_family_debt" is unlocked
+    When I save and restore
+    Then the hidden conclusion "jieting_masu_family_debt" is unlocked
+
+  Scenario: Pocketing Jieting evidence cannot forge the warning but old Masu archive stays optional
+    Given a "zhuge" campaign with seed 94097
+    And the flag "redcliff_wind" was earned earlier
+    And the lore scene "jieting_water_order"
+    When I choose 2
+    Then the flag "jieting_water_record" is absent
+    And the lore scene "masu_family_account"
+    When I choose 1
+    Then the flag "masu_family_record" is present
+
+  Scenario: Shiting's Sun family retrospective keeps a real flag through a V2 save
+    Given a "sun" campaign with seed 96094
+    And the flag "jiangdong_covenant" was earned earlier
+    And the lore scene "shiting_false_defection_audit"
+    When I choose 1
+    Then the flag "shiting_spy_record" is present
+    When I save and restore
+    Then the flag "shiting_spy_record" is present
