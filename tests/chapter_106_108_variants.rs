@@ -32,3 +32,103 @@ fn fixed_jiajing_106_108_variants_preserve_existing_playable_contracts() {
     assert_eq!(beat("wei_regency_sickbed_register").unwrap().prerequisite, Some("liaodong_rain_siege_record"));
     assert_eq!(beat("xincheng_siege_sickness").unwrap().prerequisite, Some("dongxing_snow_bridge_record"));
 }
+
+
+// These tests enter optional archives through scripted Story stages. They
+// exercise real Game::apply, not natural-map discovery or human play.
+fn staged_archive(
+    hero: three_kingdoms_spire_reborn::content::Hero,
+    id: &str,
+    flags: &[&str],
+) -> three_kingdoms_spire_reborn::Game {
+    use three_kingdoms_spire_reborn::{Game, Stage};
+    let mut game = Game::new(hero, 106108);
+    game.stage = Stage::Story;
+    game.lore_current = Some(id.into());
+    game.lore_flags = flags.iter().map(|flag| (*flag).into()).collect();
+    game
+}
+
+fn enter_archive(game: &mut three_kingdoms_spire_reborn::Game, id: &str) {
+    game.stage = three_kingdoms_spire_reborn::Stage::Story;
+    game.lore_current = Some(id.into());
+}
+
+fn egg_count(game: &three_kingdoms_spire_reborn::Game, id: &str) -> usize {
+    game.easter_unlocked.iter().filter(|egg| egg.as_str() == id).count()
+}
+
+#[test]
+fn ch106_107_wei_liaodong_gaoping_debt_is_atomic_once_only_and_restorable() {
+    use three_kingdoms_spire_reborn::{Action, Game};
+    use three_kingdoms_spire_reborn::content::Hero;
+
+    let mut game = staged_archive(Hero::CaoCao, "wei_palace_labor_register", &["guandu_grain"]);
+    let before = game.to_json().unwrap();
+    assert!(game.apply(Action::Choose { index: 99 }).is_err());
+    assert_eq!(game.to_json().unwrap(), before, "invalid choice must roll back everything");
+
+    game.apply(Action::Choose { index: 1 }).unwrap();
+    enter_archive(&mut game, "liaodong_rain_siege_ledger");
+    game.apply(Action::Choose { index: 1 }).unwrap();
+    assert!(game.lore_flags.iter().any(|f| f == "liaodong_rain_siege_record"));
+    assert_eq!(egg_count(&game, "wei_palace_gaoping_oath_debt"), 0);
+
+    let saved = game.to_json().unwrap();
+    let mut restored = Game::from_json(&saved).unwrap();
+    assert_eq!(restored.to_json().unwrap(), saved);
+    enter_archive(&mut restored, "wei_regency_sickbed_register");
+    restored.apply(Action::Choose { index: 1 }).unwrap();
+    enter_archive(&mut restored, "gaoping_oath_court_review");
+    restored.apply(Action::Choose { index: 1 }).unwrap();
+    assert_eq!(egg_count(&restored, "wei_palace_gaoping_oath_debt"), 1);
+    assert!(three_kingdoms_spire_reborn::lore::newly_completed_eggs(
+        restored.hero, &restored.lore_flags, &restored.easter_unlocked
+    ).iter().all(|egg| egg.id != "wei_palace_gaoping_oath_debt"));
+
+    let mut declined = staged_archive(Hero::CaoCao, "wei_palace_labor_register", &["guandu_grain"]);
+    declined.apply(Action::Choose { index: 2 }).unwrap();
+    assert!(!declined.lore_flags.iter().any(|f| f == "wei_palace_labor_record"));
+    enter_archive(&mut declined, "liaodong_rain_siege_ledger");
+    declined.apply(Action::Choose { index: 1 }).unwrap();
+    enter_archive(&mut declined, "wei_regency_sickbed_register");
+    declined.apply(Action::Choose { index: 1 }).unwrap();
+    enter_archive(&mut declined, "gaoping_oath_court_review");
+    declined.apply(Action::Choose { index: 1 }).unwrap();
+    assert_eq!(egg_count(&declined, "wei_palace_gaoping_oath_debt"), 0);
+}
+
+#[test]
+fn ch107_108_shu_water_chain_and_wu_dongxing_debt_keep_exclusive_rewards() {
+    use three_kingdoms_spire_reborn::{Action, Game};
+    use three_kingdoms_spire_reborn::content::Hero;
+
+    let mut shu = staged_archive(
+        Hero::ZhugeLiang, "qushan_water_rescue_dispatch",
+        &["wuzhang_withdrawal_record", "weiyan_double_memorial_record"],
+    );
+    shu.apply(Action::Choose { index: 1 }).unwrap();
+    assert_eq!(egg_count(&shu, "wuzhang_qushan_supply_debt"), 1);
+    enter_archive(&mut shu, "qushan_crossbow_aftercare");
+    let before = shu.to_json().unwrap();
+    assert!(shu.apply(Action::Choose { index: 0 }).is_err());
+    assert_eq!(shu.to_json().unwrap(), before);
+    shu.apply(Action::Choose { index: 1 }).unwrap();
+    assert_eq!(egg_count(&shu, "wuzhang_qushan_supply_debt"), 1);
+
+    let mut wu = staged_archive(Hero::SunShangxiang, "dongxing_snow_bridge_ledger", &["yiling_ashes"]);
+    wu.apply(Action::Choose { index: 1 }).unwrap();
+    assert_eq!(egg_count(&wu, "yiling_dongxing_snow_debt"), 1);
+    let saved = wu.to_json().unwrap();
+    let mut restored = Game::from_json(&saved).unwrap();
+    enter_archive(&mut restored, "xincheng_siege_sickness");
+    restored.apply(Action::Choose { index: 1 }).unwrap();
+    enter_archive(&mut restored, "sun_jun_banquet_inquest");
+    restored.apply(Action::Choose { index: 1 }).unwrap();
+    assert_eq!(egg_count(&restored, "yiling_dongxing_snow_debt"), 1);
+
+    let mut declined = staged_archive(Hero::SunShangxiang, "dongxing_snow_bridge_ledger", &["yiling_ashes"]);
+    declined.apply(Action::Choose { index: 2 }).unwrap();
+    assert!(!declined.lore_flags.iter().any(|f| f == "dongxing_snow_bridge_record"));
+    assert_eq!(egg_count(&declined, "yiling_dongxing_snow_debt"), 0);
+}
