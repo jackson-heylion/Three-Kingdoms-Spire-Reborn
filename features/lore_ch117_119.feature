@@ -41,3 +41,25 @@ Feature: Chapters 117-119 successor archives and inherited responsibility
     And the lore scene "wu_relief_arrival_dispute"
     When I choose 1
     Then the hidden conclusion "wu_mianzhu_relief_debt" is unlocked
+
+  Scenario: Wu post-Shu frontier audit records textual variants and settles the successor debt
+    Given a "sun" campaign with seed 117123
+    And the flag "wu_relief_warning_record" was earned earlier
+    And the lore scene "wu_mianzhu_relief_dispatch"
+    When I choose 1
+    And the lore scene "wu_relief_arrival_dispute"
+    When I choose 1
+    And the lore scene "wu_post_shu_frontier_register"
+    When I choose 1
+    Then the hidden conclusion "wu_after_shu_frontier_debt" is unlocked
+    When I save and restore
+    Then the flag "wu_post_shu_frontier_record" is present
+
+  Scenario: Refusing the post-Shu record never completes the Wu frontier debt
+    Given a "sun" campaign with seed 117124
+    And the flag "wu_relief_warning_record" was earned earlier
+    And the flag "wu_mianzhu_relief_dispatch_record" was earned earlier
+    And the flag "wu_relief_arrival_dispute_record" was earned earlier
+    And the lore scene "wu_post_shu_frontier_register"
+    When I choose 2
+    Then the flag "wu_post_shu_frontier_record" is absent

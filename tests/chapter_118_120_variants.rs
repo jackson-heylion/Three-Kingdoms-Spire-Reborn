@@ -28,3 +28,26 @@ fn three_late_chapters_keep_two_novel_sources_and_partial_status_separate() {
     assert!(evidence.contains("未") && evidence.contains("影印"));
     assert!(evidence.contains("累计仍0/120"));
 }
+
+#[test]
+fn late_variant_overlay_keeps_existing_wu_frontier_and_jin_epilogue_links() {
+    let audit = include_str!("../data/chapter_body_audit.tsv");
+    let row = |chapter: &str| {
+        audit.lines()
+            .find(|line| line.starts_with(&format!("{chapter}\t")))
+            .expect("chapter audit must exist")
+    };
+    assert!(row("118").contains("2473250"));
+    assert!(row("119").contains("wu_post_shu_frontier_register"));
+    for id in [
+        "jin_unification",
+        "sunhao_lukang_memorial",
+        "wu_stonecity_surrender_roll",
+        "jin_yanghu_border_ledger",
+        "jin_duyu_campaign_ledger",
+        "jin_wangjun_chain_ledger",
+        "jin_wu_family_settlement",
+    ] {
+        assert!(row("120").contains(id), "missing chapter 120 beat: {id}");
+    }
+}
