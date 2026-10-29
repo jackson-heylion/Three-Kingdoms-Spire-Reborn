@@ -30,6 +30,8 @@ Feature: Chapters 114-116 successor responsibility and inherited debts
   Scenario: Tazhong and Yangping pay the Qishan warning
     Given a "zhuge" campaign with seed 114119
     And the flag "qishan_retreat_courier_record" was earned earlier
+    And the lore scene "tanshan_grain_fire_audit"
+    When I choose 1
     And the lore scene "taoyang_xiahouba_casualty"
     When I choose 1
     And the lore scene "tazhong_farming_dispatch"
@@ -45,3 +47,11 @@ Feature: Chapters 114-116 successor responsibility and inherited debts
     When I choose 1
     Then the flag "wu_relief_warning_record" is present
     And the hidden conclusion "sunxiu_wu_relief_warning_debt" is unlocked
+  Scenario: The Hu household account survives the Tazhong choice and V2 restoration
+    Given a "zhuge" campaign with seed 114121
+    And the flag "taoyang_xiahouba_casualty_record" was earned earlier
+    And the lore scene "tazhong_farming_dispatch"
+    When I choose 1
+    Then the flag "tazhong_farming_dispatch_record" is present
+    When I save and restore
+    Then the flag "tazhong_farming_dispatch_record" is present

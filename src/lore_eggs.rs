@@ -1,6 +1,9 @@
 // Hidden conclusions data, included as a single expression from lore.rs.
 // Keep existing IDs stable for V2 saves; new optional chains never alter legacy prerequisites.
 &[
+    EasterEgg {id:"taoyuan_anxi_source_debt",name:"桃园安喜·两本责任簿",hero:Some(Hero::GuanYu),chapters:&[1,2],
+        flags:&["taoyuan_oath","anxi_seal"],reward_gold:13,reward_heal:5,
+        hint:"桃园义旗有商资与护民之责，安喜断印更须分清小说张飞与史传刘备；两份接受记录齐备才有这笔旧账回响。"},
     EasterEgg {id:"xutian_xuzhou_debt",name:"许田收刀·徐州军簿",hero:Some(Hero::GuanYu),chapters:&[20,21,75],
         flags:&["xutian_guarded_emperor","xuzhou_gate_account","jingzhou_warning"],reward_gold:21,reward_heal:6,
         hint:"许田收刀护天子、徐州记下车胄伏杀与家属死难、荆州审势防变，三份军簿都拒绝只记一时刀功。"},
