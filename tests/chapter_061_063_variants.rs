@@ -23,7 +23,7 @@ fn local_variants_have_fixed_witnesses_and_preserve_existing_rewards() {
         assert!(doc.contains(oldid), "missing source revision {oldid}");
     }
     for anchor in ["張紘", "彩段五千疋", "字永年", "字永言", "癸巳",
-                   "癸亥", "原刻影印", "0/120"] {
+                   "癸亥", "2583390", "原刻影印", "0/120"] {
         assert!(doc.contains(anchor), "missing variant anchor {anchor}");
     }
     let rows: Vec<_> = audit.lines().skip(1).filter(|s| !s.is_empty()).collect();
