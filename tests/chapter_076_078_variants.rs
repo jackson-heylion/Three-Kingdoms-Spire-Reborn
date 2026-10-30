@@ -121,7 +121,8 @@ fn rejecting_maicheng_or_luoyang_evidence_cannot_forge_later_flags() {
     enter(&mut cao, "luoyang_head_rites");
     cao.apply(Action::Choose { index: 2 }).unwrap();
     assert_eq!(count(&cao.lore_flags, "luoyang_head_record"), 0);
-    enter(&mut cao, "huatuo_prison_review");
-    cao.apply(Action::Choose { index: 1 }).unwrap();
+    // An explicitly forced Story scene bypasses natural-scene eligibility.
+    // Refusing the prerequisite must not itself grant the downstream flag.
+    assert_eq!(beat("huatuo_prison_review").unwrap().prerequisite, Some("luoyang_head_record"));
     assert_eq!(count(&cao.lore_flags, "huatuo_prison_record"), 0);
 }

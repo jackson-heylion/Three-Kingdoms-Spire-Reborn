@@ -33,6 +33,5 @@ Feature: 076-078 fixed JiaJing/Mao textual contrasts and irreversible story resp
     And the lore scene "luoyang_head_rites"
     When I choose 2
     Then the flag "luoyang_head_record" is absent
-    And the lore scene "huatuo_prison_review"
-    When I choose 1
-    Then the flag "huatuo_prison_record" is absent
+    And act 2 does not offer the lore scene "huatuo_prison_review"
+    And the flag "huatuo_prison_record" is absent
