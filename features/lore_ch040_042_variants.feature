@@ -8,6 +8,9 @@ Feature: Chapters 040-042 preserve civilian and ferry accountability across edit
     And the lore scene "dangyang_ledger"
     When I choose 1
     Then the flag "dangyang_refuge_account" is present
+    And the lore scene "redcliff"
+    When I choose 1
+    Then the flag "redcliff_wind" is present
     And the hidden conclusion "xinye_dangyang_debt" is unlocked
     When I save and restore
     Then the flag "dangyang_refuge_account" is present
