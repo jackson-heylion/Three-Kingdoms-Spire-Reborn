@@ -14,13 +14,13 @@ fn pinned_sources_and_reward_contracts_are_unchanged() {
                 "2554799", "2554775", "2554811", "2554760"] {
         assert!(doc.contains(rev), "missing revision {rev}");
     }
-    for phrase in ["甜言美語", "兩情歡洽", "身中數箭", "王朗", "鍾繇",
-                   "兩面紅旗", "麒麟閣", "三百餘口", "原刻影印", "0/120"] {
+    for phrase in ["甜言美語", "兩情歡洽", "身中數箭", "王朗", "钟繇",
+                   "兩面紅旗", "麒麟阁", "三百餘口", "原刻影印", "0/120"] {
         assert!(doc.contains(phrase), "missing compared witness {phrase}");
     }
     assert_eq!(audit.lines().skip(1).filter(|row| !row.is_empty()).count(), 120);
     for ch in 55..=57 {
-        assert!(audit.lines().any(|row| row.starts_with(&format!("{ch:03}\\t"))
+        assert!(audit.lines().any(|row| row.starts_with(&format!("{ch:03}\t"))
             && row.contains("CHAPTERS_055_057_JIAJING_VARIANTS.md")));
     }
     for (id, chapter, flag, gold, heal, anchor) in [
