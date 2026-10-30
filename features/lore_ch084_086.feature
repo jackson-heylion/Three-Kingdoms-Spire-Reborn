@@ -44,3 +44,27 @@ Feature: Chapters 084-086 Yiling losses, Yong'an regency and Deng Zhi alliance
     When I choose 1
     Then the flag "wei_three_fronts_record" is present
     And the hidden conclusion "guandu_wei_three_fronts_debt" is unlocked
+
+  Scenario: Sun keeps the 082-084 envoy, defensive and fire relief ledgers
+    Given a "sun" campaign with seed 82084
+    And the flag "jiangdong_covenant" was earned earlier
+    And the flag "langzhong_heads_record" was earned earlier
+    And the lore scene "wu_wei_envoy_audit"
+    When I choose 1
+    Then the flag "wu_wei_envoy_record" is present
+    And the lore scene "yiling_defense_memorial"
+    When I choose 1
+    Then the flag "yiling_defense_record" is present
+    And the lore scene "yiling_fire_refuge_ledger"
+    When I choose 1
+    Then the flag "yiling_fire_refuge_record" is present
+    And the hidden conclusion "yiling_envoy_fire_civilian_debt" is unlocked
+    When I save and restore
+    Then the flag "yiling_fire_refuge_record" is present
+
+  Scenario: Sun refuses the fire relief account and receives no record
+    Given a "sun" campaign with seed 83084
+    And the flag "yiling_defense_record" was earned earlier
+    And the lore scene "yiling_fire_refuge_ledger"
+    When I choose 2
+    Then the flag "yiling_fire_refuge_record" is absent
