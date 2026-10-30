@@ -24,7 +24,7 @@ fn fixed_dual_edition_evidence_and_six_playable_contracts() {
     ] {
         assert!(evidence.contains(revision), "missing fixed revision {revision}");
     }
-    for token in ["數百", "千餘", "事物紀源", "馬超", "五千", "三千", "王朗"] {
+    for token in ["數百", "千餘", "事物紀源", "马超", "五千", "三千", "王朗"] {
         assert!(evidence.contains(token), "missing anchored variant {token}");
     }
     assert_eq!(audit.lines().skip(1).filter(|row| !row.is_empty()).count(), 120);
