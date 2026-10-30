@@ -22,7 +22,7 @@ fn local_variants_have_fixed_witnesses_and_preserve_existing_rewards() {
                   "2554767", "2554812", "2554742", "2554718"] {
         assert!(doc.contains(oldid), "missing source revision {oldid}");
     }
-    for anchor in ["張紘", "彩段五千疋", "字永年", "字永言", "癸巳",
+    for anchor in ["张紘", "彩段五千疋", "字永年", "字永言", "癸巳",
                    "癸亥", "2583390", "原刻影印", "0/120"] {
         assert!(doc.contains(anchor), "missing variant anchor {anchor}");
     }
