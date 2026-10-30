@@ -44,3 +44,17 @@ Feature: Chapters 048-050 distinguish novel Red Cliffs from history and keep ori
     And the lore scene "huarong"
     When I choose 1
     Then the flag "huarong_mercy" is present
+
+  Scenario: The existing Cao chained-ship warning pays once after banquet review
+    Given a "cao" campaign with seed 46049
+    And the flag "guandu_grain" was earned earlier
+    And the lore scene "jiangkou_inquest"
+    When I choose 1
+    Then the flag "jiangkou_inquest_record" is present
+    And the lore scene "chain_ship_ledger"
+    When I choose 1
+    Then the flag "chain_ship_risk_record" is present
+    And the lore scene "river_banquet_inquest"
+    When I choose 1
+    Then the flag "river_banquet_record" is present
+    And the hidden conclusion "redcliff_warning_ledger" is unlocked
