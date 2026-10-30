@@ -21,3 +21,12 @@ Feature: Chapters 045-047 preserve Cao's failed intelligence and chained-ship re
     When I choose 2
     Then the flag "jiangkou_inquest_record" is absent
     And act 2 offers the lore scene "liaodong"
+
+  Scenario: Forged letter refusal remains independent of edition troop counts
+    Given a "cao" campaign with seed 45045
+    And the flag "guandu_grain" was earned earlier
+    And the lore scene "jiangkou_inquest"
+    When I choose 2
+    Then the flag "jiangkou_inquest_record" is absent
+    When I save and restore
+    Then the flag "jiangkou_inquest_record" is absent
