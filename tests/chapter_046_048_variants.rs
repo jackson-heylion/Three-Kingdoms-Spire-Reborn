@@ -28,7 +28,7 @@ fn fixed_witnesses_have_distinct_counts_years_and_no_reward_change() {
     }
     assert_eq!(audit.lines().skip(1).filter(|l| !l.is_empty()).count(), 120);
     for ch in 46..=48 {
-        let line = audit.lines().find(|l| l.starts_with(&format!("{ch:03}\\t")))
+        let line = audit.lines().find(|l| l.starts_with(&format!("{ch:03}\t")))
             .expect("chapter missing from 120-row ledger");
         assert!(line.contains("CHAPTERS_046_048_JIAJING_VARIANTS.md"));
         assert!(line.contains("正文通读/未完成异本对校"));
@@ -86,6 +86,7 @@ fn cao_false_letter_to_banquet_pays_once_without_forcing_old_saves() {
     saved.apply(Action::Choose { index: 1 }).unwrap();
     assert_eq!(egg_count(&saved, "redcliff_warning_ledger"), 1);
     let mut old = Game::new(Hero::CaoCao, 46051);
+    old.lore_flags.push("guandu_grain".into());
     enter(&mut old, "liaodong");
     old.apply(Action::Choose { index: 1 }).unwrap();
     assert_eq!(flag_count(&old, "liaodong_letter"), 1);
