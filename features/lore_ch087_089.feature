@@ -42,3 +42,31 @@ Feature: Chapters 087-089 Yongchang, first five captures and water accountabilit
     And the lore scene "wu_nanzhong_border_archive"
     When I choose 2
     Then the flag "wu_nanzhong_border_record" is absent
+
+  Scenario: Yong'an regency, Wu diplomacy and first release pay the civilian debt once
+    Given a "zhuge" campaign with seed 85087
+    And the flag "yiling_camp_map_record" was earned earlier
+    And the lore scene "fishbelly_eightfold_report"
+    When I choose 1
+    And the lore scene "yongan_regency_register"
+    When I choose 1
+    Then the flag "yongan_regency_record" is present
+    And the lore scene "dengzhi_alliance_dispatch"
+    When I choose 1
+    Then the flag "dengzhi_alliance_record" is present
+    And the lore scene "nanzhong_yongchang_memorial"
+    When I choose 1
+    And the lore scene "nanzhong_first_release_ledger"
+    When I choose 1
+    Then the hidden conclusion "yongan_nanzhong_civilian_debt" is unlocked
+    When I save and restore
+    Then the hidden conclusion "yongan_nanzhong_civilian_debt" is unlocked
+
+  Scenario: Taking only first-capture credit cannot forge the four-record debt
+    Given a "zhuge" campaign with seed 85088
+    And the flag "yongan_regency_record" was earned earlier
+    And the flag "dengzhi_alliance_record" was earned earlier
+    And the flag "nanzhong_yongchang_record" was earned earlier
+    And the lore scene "nanzhong_first_release_ledger"
+    When I choose 2
+    Then the flag "nanzhong_first_release_record" is absent
