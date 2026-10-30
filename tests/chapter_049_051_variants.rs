@@ -19,7 +19,7 @@ fn fixed_variants_and_existing_rewards() {
                 "2554761", "2554747", "2554720", "2554725"] {
         assert!(doc.contains(rev), "missing revision {rev}");
     }
-    for anchor in ["和曹", "归师勿掩", "庾公之斯", "杀了陈矫",
+    for anchor in ["与曹操连和", "归师勿掩", "庾公之斯", "杀了陈矫",
                    "右肋", "左肋", "原刻影印", "0回"] {
         assert!(doc.contains(anchor), "missing variant {anchor}");
     }
