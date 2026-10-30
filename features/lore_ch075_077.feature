@@ -53,3 +53,10 @@ Feature: Chapter 075-077 fixed novel outcomes and retrospective responsibility
     When I choose 1
     Then the flag "chengdu_mourning_record" is present
     And the hidden conclusion "redcliff_chengdu_mourning_debt" is unlocked
+
+  Scenario: Guan refusing the warning does not gain its evidence flag
+    Given a "guan" campaign with seed 75073
+    And the flag "lukou_terms_record" was earned earlier
+    And the lore scene "jingxiang_border_warning"
+    When I choose 2
+    Then the flag "jingxiang_border_record" is absent

@@ -51,3 +51,17 @@ Feature: Chapters 072-074 Xiegu, Hanzhong kingship and Fancheng flood responsibi
     And the lore scene "jingxiang_border_warning"
     When I choose 2
     Then the flag "jingxiang_border_record" is absent
+
+  Scenario: Guan records Jingxiang and Fancheng before later consequences
+    Given a "guan" campaign with seed 73074
+    And the flag "anxi_seal" was earned earlier
+    And the flag "lukou_terms_record" was earned earlier
+    And the lore scene "jingxiang_border_warning"
+    When I choose 1
+    Then the flag "jingxiang_border_record" is present
+    And the lore scene "fancheng_flood_witness"
+    When I choose 1
+    Then the flag "fancheng_flood_record" is present
+    And the hidden conclusion "jingzhou_flood_warning_debt" is unlocked
+    When I save and restore
+    Then the flag "fancheng_flood_record" is present
