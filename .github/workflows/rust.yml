@@ -7,7 +7,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, ubuntu-latest]
+        os: [macos-15, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -801,39 +801,39 @@ jobs:
           from pathlib import Path
           base=Path('balance')
           linux=base/'tks-balance-ubuntu-latest'/'tks-balance.json'
-          mac=base/'tks-balance-macos-14'/'tks-balance.json'
+          mac=base/'tks-balance-macos-15'/'tks-balance.json'
           assert linux.exists() and mac.exists(),(linux,mac)
           assert linux.read_bytes()==mac.read_bytes(), 'OS-specific RNG or rules divergence in balance report'
           sun_linux=base/'tks-balance-ubuntu-latest'/'tks-sun.json'
-          sun_mac=base/'tks-balance-macos-14'/'tks-sun.json'
+          sun_mac=base/'tks-balance-macos-15'/'tks-sun.json'
           assert sun_linux.exists() and sun_mac.exists()
           assert sun_linux.read_bytes()==sun_mac.read_bytes(), 'OS-specific Sun archetype divergence'
           natural_linux=base/'tks-balance-ubuntu-latest'/'tks-natural.json'
-          natural_mac=base/'tks-balance-macos-14'/'tks-natural.json'
+          natural_mac=base/'tks-balance-macos-15'/'tks-natural.json'
           assert natural_linux.exists() and natural_mac.exists()
           assert natural_linux.read_bytes()==natural_mac.read_bytes(), 'OS-specific natural drafting divergence'
           build_linux=base/'tks-balance-ubuntu-latest'/'tks-builds.json'
-          build_mac=base/'tks-balance-macos-14'/'tks-builds.json'
+          build_mac=base/'tks-balance-macos-15'/'tks-builds.json'
           assert build_linux.exists() and build_mac.exists()
           assert build_linux.read_bytes()==build_mac.read_bytes(), 'OS-specific 15-build divergence'
           nb_linux=base/'tks-balance-ubuntu-latest'/'tks-natural-builds.json'
-          nb_mac=base/'tks-balance-macos-14'/'tks-natural-builds.json'
+          nb_mac=base/'tks-balance-macos-15'/'tks-natural-builds.json'
           assert nb_linux.exists() and nb_mac.exists()
           assert nb_linux.read_bytes()==nb_mac.read_bytes(), 'OS-specific natural formation study divergence'
           boss_linux=base/'tks-balance-ubuntu-latest'/'tks-boss-duels.json'
-          boss_mac=base/'tks-balance-macos-14'/'tks-boss-duels.json'
+          boss_mac=base/'tks-balance-macos-15'/'tks-boss-duels.json'
           assert boss_linux.exists() and boss_mac.exists(), 'Missing Boss duel report'
           assert boss_linux.read_bytes()==boss_mac.read_bytes(), 'OS-specific Boss duel result divergence'
           analysis_linux=base/'tks-balance-ubuntu-latest'/'tks-boss-duel-analysis.json'
-          analysis_mac=base/'tks-balance-macos-14'/'tks-boss-duel-analysis.json'
+          analysis_mac=base/'tks-balance-macos-15'/'tks-boss-duel-analysis.json'
           assert analysis_linux.exists() and analysis_mac.exists(), 'Missing Boss duel analysis'
           assert analysis_linux.read_bytes()==analysis_mac.read_bytes(), 'OS-specific paired Boss analysis divergence'
           focus_linux=base/'tks-balance-ubuntu-latest'/'tks-sun-zuoci.json'
-          focus_mac=base/'tks-balance-macos-14'/'tks-sun-zuoci.json'
+          focus_mac=base/'tks-balance-macos-15'/'tks-sun-zuoci.json'
           assert focus_linux.exists() and focus_mac.exists(), 'Missing focused Sun/Zuoci report'
           assert focus_linux.read_bytes()==focus_mac.read_bytes(), 'OS-specific Sun/Zuoci focus divergence'
           policy_linux=base/'tks-balance-ubuntu-latest'/'tks-discard-policy.json'
-          policy_mac=base/'tks-balance-macos-14'/'tks-discard-policy.json'
+          policy_mac=base/'tks-balance-macos-15'/'tks-discard-policy.json'
           assert policy_linux.exists() and policy_mac.exists(), 'Missing discard policy report'
           assert policy_linux.read_bytes()==policy_mac.read_bytes(), 'OS-specific discard policy divergence'
           print('Balance, build, natural drafting and Boss duel reports match across OS')
