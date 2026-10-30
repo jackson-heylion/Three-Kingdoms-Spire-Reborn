@@ -32,6 +32,10 @@ fn zhuge_civilian_debt_is_atomic_optional_and_once_only(){
  }
  assert_eq!(count(&g.lore_flags,"xinye_civilians"),1);
  assert_eq!(count(&g.lore_flags,"dangyang_refuge_account"),1);
+ // The four-flag conclusion pays only after the later Red Cliffs wind record.
+ assert_eq!(count(&g.easter_unlocked,"xinye_dangyang_debt"),0);
+ enter(&mut g,"redcliff");g.apply(Action::Choose{index:1}).unwrap();
+ assert_eq!(count(&g.lore_flags,"redcliff_wind"),1);
  assert_eq!(count(&g.easter_unlocked,"xinye_dangyang_debt"),1);
  let saved=g.to_json().unwrap();let mut restored=Game::from_json(&saved).unwrap();
  assert_eq!(restored.to_json().unwrap(),saved);
