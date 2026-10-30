@@ -10,6 +10,9 @@ fn enter(game: &mut Game, id: &str) {
 fn count(flags: &[String], name: &str) -> usize {
     flags.iter().filter(|s| s.as_str() == name).count()
 }
+fn count_egg(game: &Game, id: &str) -> usize {
+    count(&game.easter_unlocked, id)
+}
 
 #[test]
 fn local_variants_have_fixed_witnesses_and_preserve_existing_rewards() {
@@ -46,6 +49,7 @@ fn local_variants_have_fixed_witnesses_and_preserve_existing_rewards() {
 fn zhuge_fu_pass_to_luofeng_is_atomic_optional_and_v2_compatible() {
     let mut game = Game::new(Hero::ZhugeLiang, 61063);
     game.lore_flags.push("yizhou_map_record".into());
+    game.lore_flags.push("leiyang_case_record".into());
     for id in ["fu_pass_review", "luofeng_mourning"] {
         enter(&mut game, id);
         let before = game.to_json().unwrap();
@@ -55,11 +59,13 @@ fn zhuge_fu_pass_to_luofeng_is_atomic_optional_and_v2_compatible() {
     }
     assert_eq!(count(&game.lore_flags, "fu_pass_record"), 1);
     assert_eq!(count(&game.lore_flags, "luofeng_mourning_record"), 1);
+    assert_eq!(count_egg(&game, "yizhou_fu_pass_debt"), 1);
     let saved = game.to_json().unwrap();
     let mut restored = Game::from_json(&saved).unwrap();
     enter(&mut restored, "luofeng_mourning");
     restored.apply(Action::Choose { index: 1 }).unwrap();
     assert_eq!(count(&restored.lore_flags, "luofeng_mourning_record"), 1);
+    assert_eq!(count_egg(&restored, "yizhou_fu_pass_debt"), 1);
 }
 
 #[test]
@@ -69,6 +75,7 @@ fn sun_refusal_cannot_forge_river_record_and_guan_handover_remains_optional() {
     enter(&mut sun, "river_child_witness");
     sun.apply(Action::Choose { index: 2 }).unwrap();
     assert_eq!(count(&sun.lore_flags, "river_child_witness_record"), 0);
+    assert_eq!(count_egg(&sun, "nanxu_river_witness"), 0);
     assert!(Game::from_json(&sun.to_json().unwrap()).is_ok());
 
     let mut guan = Game::new(Hero::GuanYu, 61065);
