@@ -18,7 +18,7 @@ fn pinned_editions_and_six_playable_contracts() {
     for revision in ["2568043","7909161","8730381","2554736","2554738","2554777","2554755","2554805","2554756"] {
         assert!(evidence.contains(revision), "missing fixed revision {revision}");
     }
-    for anchor in ["武祖","武王","于禁","劉封","曹皇后","吾父掃清海內","亂賊","朕且罷兵","心中稍回"] {
+    for anchor in ["武祖","武王","于禁","刘封","曹皇后","吾父掃清海內","亂賊","朕且罷兵","心中稍回"] {
         assert!(evidence.contains(anchor), "missing actual variant {anchor}");
     }
     let rows: Vec<_> = audit.lines().skip(1).filter(|row| !row.is_empty()).collect();
