@@ -30,7 +30,7 @@ fn pinned_two_editions_and_four_existing_playable_contracts() {
     }
     assert_eq!(audit.lines().skip(1).filter(|row| !row.is_empty()).count(), 120);
     for chapter in 88..=90 {
-        let row = audit.lines().find(|row| row.starts_with(&format!("{chapter:03}\\t"))).unwrap();
+        let row = audit.lines().find(|row| row.starts_with(&format!("{chapter:03}\t"))).unwrap();
         assert!(row.contains("CHAPTERS_088_090_JIAJING_VARIANTS.md"));
         assert!(row.contains("局部"));
     }
