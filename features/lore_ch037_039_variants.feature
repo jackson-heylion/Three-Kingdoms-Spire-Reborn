@@ -39,3 +39,20 @@ Feature: Chapters 037-039 keep pinned literary differences and cross-act debts
     Then the flag "jiangxia_pardon_record" is present
     When I save and restore
     Then the flag "jiangxia_pardon_record" is present
+
+  Scenario: Refusing Bowang must not block an older Longzhong payoff
+    Given a "zhuge" campaign with seed 37042
+    And the lore scene "longzhong"
+    When I choose 1
+    And the lore scene "longzhong_letter"
+    When I choose 1
+    And the lore scene "longzhong_conditions"
+    When I choose 1
+    And the lore scene "bowang_orders"
+    When I choose 2
+    Then the flag "bowang_orders_record" is absent
+    And the lore scene "redcliff"
+    When I choose 1
+    Then the hidden conclusion "longzhong_strategy_debt" is unlocked
+    When I save and restore
+    Then the hidden conclusion "longzhong_strategy_debt" is unlocked
