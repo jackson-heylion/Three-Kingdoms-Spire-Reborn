@@ -43,6 +43,7 @@ fn every_literary_feature_is_executed_not_just_stored() {
         ("117_119", include_str!("../../features/lore_ch117_119.feature")),
         ("011_120", include_str!("../../features/lore_ch011_120.feature")),
         ("013_015", include_str!("../../features/lore_ch013_015.feature")),
+        ("022_024_variants", include_str!("../../features/lore_ch022_024_variants.feature")),
     ];
     let mut scenarios = 0;
     for (name, source) in documents {
