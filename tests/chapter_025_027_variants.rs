@@ -26,7 +26,7 @@ fn fixed_witnesses_and_existing_rewards_are_preserved() {
     let rows: Vec<_> = audit.lines().skip(1).filter(|s| !s.is_empty()).collect();
     assert_eq!(rows.len(), 120);
     for chapter in 25..=27 {
-        assert!(rows.iter().any(|row| row.starts_with(&format!("{chapter:03}\\t"))
+        assert!(rows.iter().any(|row| row.starts_with(&format!("{chapter:03}\t"))
             && row.contains("CHAPTERS_025_027_JIAJING_VARIANTS.md")));
     }
     for (id, chapter, flag, gold, heal, anchor) in [
