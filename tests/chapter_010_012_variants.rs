@@ -63,7 +63,7 @@ fn cao_xuzhou_dispatch_puyang_is_optional_atomic_persistent_and_once_only() {
     let gold = restored.gold;
     choose(&mut restored,"puyang",1);
     assert_eq!(count(&restored.easter_unlocked,"xuzhou_yanzhou_ration_debt"),1);
-    assert_eq!(restored.gold,gold);
+    assert_eq!(restored.gold,gold + lore::beat("puyang").unwrap().reward_gold);
     let mut refused = scene(Hero::CaoCao,101202,"xuzhou");
     refused.apply(Action::Choose { index: 2 }).unwrap();
     choose(&mut refused,"xuzhou_yanzhou_dispatch_archive",1);
