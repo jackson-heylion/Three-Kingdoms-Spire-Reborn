@@ -43,3 +43,12 @@ Feature: Chapters 060-062 original literary accountability without rewriting his
     And the lore scene "fu_pass_review"
     When I choose 2
     Then the flag "fu_pass_record" is absent
+
+  Scenario: Fu pass refusal cannot claim the subsequent Luofeng responsibility
+    Given a "zhuge" campaign with seed 61062
+    And the flag "yizhou_map_record" was earned earlier
+    And the lore scene "fu_pass_review"
+    When I choose 2
+    Then the flag "fu_pass_record" is absent
+    When I save and restore
+    Then the flag "fu_pass_record" is absent

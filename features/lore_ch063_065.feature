@@ -40,3 +40,12 @@ Feature: Chapters 063-065 literary consequences without alternate deaths
     And the lore scene "ma_chao_letter"
     When I choose 2
     Then the flag "ma_chao_letter_record" is absent
+
+  Scenario: Luofeng record is an optional consequence and cannot undo the historical death
+    Given a "zhuge" campaign with seed 61063
+    And the flag "fu_pass_record" was earned earlier
+    And the lore scene "luofeng_mourning"
+    When I choose 1
+    Then the flag "luofeng_mourning_record" is present
+    When I save and restore
+    Then the flag "luofeng_mourning_record" is present
