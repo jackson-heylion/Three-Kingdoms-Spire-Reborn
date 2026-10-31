@@ -80,3 +80,33 @@ fn guan_refusal_and_sun_pardon_are_isolated() {
     restored.apply(Action::Choose { index: 1 }).unwrap();
     assert_eq!(count(&restored.lore_flags, "jiangxia_pardon_record"), 1);
 }
+
+#[test]
+fn bowang_is_optional_for_existing_redcliff_conclusion() {
+    // This conclusion predates the chapter-039 optional witness. Requiring the
+    // new Bowang flag would silently lock out existing V2 campaigns.
+    let mut game = Game::new(Hero::ZhugeLiang, 37042);
+    for id in ["longzhong", "longzhong_letter", "longzhong_conditions"] {
+        enter(&mut game, id);
+        game.apply(Action::Choose { index: 1 }).unwrap();
+    }
+    enter(&mut game, "bowang_orders");
+    game.apply(Action::Choose { index: 2 }).unwrap();
+    assert_eq!(count(&game.lore_flags, "bowang_orders_record"), 0);
+    enter(&mut game, "redcliff");
+    game.apply(Action::Choose { index: 1 }).unwrap();
+    assert_eq!(count(&game.easter_unlocked, "longzhong_strategy_debt"), 1);
+    let snapshot = game.to_json().unwrap();
+    let mut restored = Game::from_json(&snapshot).unwrap();
+    enter(&mut restored, "redcliff");
+    restored.apply(Action::Choose { index: 1 }).unwrap();
+    assert_eq!(count(&restored.easter_unlocked, "longzhong_strategy_debt"), 1);
+
+    // A missing required Longzhong witness must still block the conclusion.
+    let mut incomplete = Game::new(Hero::ZhugeLiang, 37043);
+    enter(&mut incomplete, "longzhong");
+    incomplete.apply(Action::Choose { index: 1 }).unwrap();
+    enter(&mut incomplete, "redcliff");
+    incomplete.apply(Action::Choose { index: 1 }).unwrap();
+    assert_eq!(count(&incomplete.easter_unlocked, "longzhong_strategy_debt"), 0);
+}
