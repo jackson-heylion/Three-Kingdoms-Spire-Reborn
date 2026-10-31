@@ -12,6 +12,7 @@ fn every_literary_feature_is_executed_not_just_stored() {
         ("045_047", include_str!("../../features/lore_ch045_047.feature")),
         ("048_050", include_str!("../../features/lore_ch048_050.feature")),
         ("051_053", include_str!("../../features/lore_ch051_053.feature")),
+        ("052_054_variants", include_str!("../../features/lore_ch052_054_variants.feature")),
         ("054_056", include_str!("../../features/lore_ch054_056.feature")),
         ("057_059", include_str!("../../features/lore_ch057_059.feature")),
         ("055_057_variants", include_str!("../../features/lore_ch055_057_variants.feature")),
