@@ -26,7 +26,7 @@ fn fixed_sources_and_playable_beat_contracts_are_pinned() {
     let rows: Vec<_> = audit.lines().skip(1).filter(|s| !s.is_empty()).collect();
     assert_eq!(rows.len(), 120);
     for ch in 22..=24 {
-        assert!(rows.iter().any(|r| r.starts_with(&format!("{ch:03}\\t"))
+        assert!(rows.iter().any(|r| r.starts_with(&format!("{ch:03}\t"))
             && r.contains("CHAPTERS_022_024_JIAJING_VARIANTS.md")));
     }
     for (id, ch, flag, gold, heal, anchor) in [
