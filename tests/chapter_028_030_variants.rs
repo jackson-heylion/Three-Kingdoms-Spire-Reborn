@@ -20,7 +20,7 @@ fn edition_sources_and_existing_reward_contracts_are_pinned() {
         assert!(doc.contains(id), "missing fixed witness {id}");
     }
     for phrase in ["二百餘騎", "三百餘騎", "二十餘合", "五十餘萬",
-                   "七十五萬", "陳壽", "裴松之", "原刻影印"] {
+                   "七十五萬", "陈寿", "裴松之", "原刻影印"] {
         assert!(doc.contains(phrase), "missing variant anchor {phrase}");
     }
     for chapter in ["028", "029", "030"] {
@@ -38,6 +38,7 @@ fn edition_sources_and_existing_reward_contracts_are_pinned() {
 #[test]
 fn guan_witness_is_atomic_persistent_and_old_huarong_stays_available() {
     let mut game = Game::new(Hero::GuanYu, 28030);
+    game.lore_flags.extend(["five_passes_record".into(), "baima_debt".into()]);
     enter(&mut game, "gucheng_witness");
     let original = game.to_json().unwrap();
     assert!(game.apply(Action::Choose { index: 99 }).is_err());
@@ -49,9 +50,13 @@ fn guan_witness_is_atomic_persistent_and_old_huarong_stays_available() {
     assert_eq!(restored.to_json().unwrap(), snapshot);
     enter(&mut restored, "huarong");
     restored.apply(Action::Choose { index: 1 }).unwrap();
-    assert_eq!(count(&restored, "five_passes_huarong"), 0,
-        "without earlier escort witness there must be no optional debt");
+    assert_eq!(count(&restored, "five_passes_huarong"), 1,
+        "both earlier escort and Gucheng witness should pay the optional debt once");
+    enter(&mut restored, "huarong");
+    restored.apply(Action::Choose { index: 1 }).unwrap();
+    assert_eq!(count(&restored, "five_passes_huarong"), 1);
     let mut legacy = Game::new(Hero::GuanYu, 28031);
+    legacy.lore_flags.extend(["five_passes_record".into(), "baima_debt".into()]);
     enter(&mut legacy, "gucheng_witness");
     legacy.apply(Action::Choose { index: 2 }).unwrap();
     assert!(!legacy.lore_flags.iter().any(|x| x == "gucheng_witness_ledger"));
@@ -63,6 +68,7 @@ fn guan_witness_is_atomic_persistent_and_old_huarong_stays_available() {
 #[test]
 fn sun_and_cao_choices_remain_mutually_exclusive_and_rewards_once() {
     let mut sun = Game::new(Hero::SunShangxiang, 29030);
+    sun.lore_flags.push("taishi_trust".into());
     enter(&mut sun, "sun_succession");
     let before = sun.to_json().unwrap();
     assert!(sun.apply(Action::Choose { index: 0 }).is_err());
@@ -81,6 +87,7 @@ fn sun_and_cao_choices_remain_mutually_exclusive_and_rewards_once() {
     assert_eq!(count(&sun, "jiangdong_succession_debt"), 1);
 
     let mut cao = Game::new(Hero::CaoCao, 30030);
+    cao.lore_flags.push("guandu_grain".into());
     enter(&mut cao, "guandu_letters");
     cao.apply(Action::Choose { index: 2 }).unwrap();
     assert!(!cao.lore_flags.iter().any(|x| x == "guandu_captured_letters"));
