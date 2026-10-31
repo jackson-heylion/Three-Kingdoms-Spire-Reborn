@@ -49,3 +49,24 @@ Feature: Chapters 042-044 record ferry, alliance and command responsibility
     And the lore scene "yiling"
     When I choose 1
     Then the hidden conclusion "jiangdong_muster_debt" is unlocked
+
+  Scenario: Chaisang edition notes preserve Zhuge's optional record after restore
+    Given a "zhuge" campaign with seed 43045
+    And the flag "dangyang_refuge_account" was earned earlier
+    And the lore scene "chaisang_envoy"
+    When I choose 1
+    Then the flag "chaisang_envoy_record" is present
+    When I save and restore
+    Then the flag "chaisang_envoy_record" is present
+    And the lore scene "jiangdong_council"
+    When I choose 1
+    Then the flag "jiangdong_council_record" is present
+
+  Scenario: Refusing the council report does not create a command record
+    Given a "zhuge" campaign with seed 44045
+    And the flag "chaisang_envoy_record" was earned earlier
+    And the lore scene "jiangdong_council"
+    When I choose 2
+    Then the flag "jiangdong_council_record" is absent
+    When I save and restore
+    Then the flag "jiangdong_council_record" is absent
