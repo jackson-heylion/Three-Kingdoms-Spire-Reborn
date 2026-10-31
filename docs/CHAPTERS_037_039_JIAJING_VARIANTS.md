@@ -41,6 +41,6 @@
 
 ## 可玩因果与未验收
 
-`longzhong`（旧ID）→`longzhong_letter`（037）→`longzhong_conditions`（038）→`bowang_orders`（039）→`xinye_evacuation`（040）→`dangyang_ledger`（041）→`redcliff`（049）形成可追踪的选择与责任链；`longzhong_strategy_debt` 须四旗齐备且到赤壁才兑现，不在第039回提前发奖。关羽 `xushu_departure`、孙尚香 `jiangxia_pardon` 均为职业独立的档案选择。拒绝选择不得造旗，奖励只兑现一次；旧V2存档无需补做新事件。现有测试使用真实 `Game::apply`，但通过直接进入剧情验证交互，**不等于**自然地图多种子可达或真人终端试玩。
+`longzhong`（旧ID）→`longzhong_letter`（037）→`longzhong_conditions`（038）→`bowang_orders`（039）→`xinye_evacuation`（040）→`dangyang_ledger`（041）→`redcliff`（049）形成可追踪的选择与责任链；`longzhong_strategy_debt` 的既有四个必要旗标是 `longzhong_plan`、`longzhong_visit_record`、`longzhong_conditions_record`、`redcliff_wind`；第039回 `bowang_orders_record` 是独立可选留证，**不是**旧隐藏结局的新前置。即使第039回选择简报、旧V2档未做博望留证，只要原有四旗齐备，赤壁后仍应兑现一次，不能新增软锁。另有 `xinye_dangyang_debt` 以博望旗标为条件，须与旧结局分开验收。关羽 `xushu_departure`、孙尚香 `jiangxia_pardon` 均为职业独立的档案选择。拒绝选择不得造旗，奖励只兑现一次；旧V2存档无需补做新事件。现有测试使用真实 `Game::apply`，但通过直接进入剧情验证交互，**不等于**自然地图多种子可达或真人终端试玩。
 
 本轮新增单底本全文独立通读：0回；全回异本加史料校勘：0回；固定双本局部文字抽检：037—039共3回。原刻、完整异本、`《三国志》` 史料对勘与真人可达性均待后续。
