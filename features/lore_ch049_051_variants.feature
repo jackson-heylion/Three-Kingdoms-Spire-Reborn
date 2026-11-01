@@ -26,3 +26,11 @@ Feature: Chapters 049-051 electronic witnesses preserve the existing playable ch
     And the lore scene "jingxiang_lease_ledger"
     When I choose 1
     Then the flag "jingxiang_lease_record" is present
+  Scenario: Refusing Nanjun record never mints the responsibility flag
+    Given a "zhuge" campaign with seed 51054
+    And the flag "jiangdong_council_record" was earned earlier
+    And the lore scene "nanjun_claim_ledger"
+    When I choose 2
+    Then the flag "nanjun_claim_record" is absent
+    When I save and restore
+    Then the flag "nanjun_claim_record" is absent

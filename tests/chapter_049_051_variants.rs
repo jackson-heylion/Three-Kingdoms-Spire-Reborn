@@ -78,3 +78,44 @@ fn huarong_refusal_and_mercy_are_hero_isolated() {
     assert_eq!(count(&restored.lore_flags, "huarong_mercy"), 1);
     assert_eq!(count(&restored.lore_flags, "nanjun_claim_record"), 0);
 }
+
+#[test]
+fn mao_049_051_independent_full_reread_and_nanjun_order() {
+    let doc = include_str!("../docs/CHAPTERS_049_051_JIAJING_VARIANTS.md");
+    let audit = include_str!("../data/chapter_body_audit.tsv");
+    for (ch, oldid, anchor) in [
+        ("049", "2568012", "互立军令状"),
+        ("050", "2568013", "亲选险路"),
+        ("051", "2568014", "程普称其拿住陈矫"),
+    ] {
+        let rows: Vec<_> = audit.lines().filter(|r| r.starts_with(&format!("{ch}\t"))).collect();
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].contains(&format!("2026-11-02独立复核毛评固定oldid={oldid}")));
+        assert!(doc.contains(&format!("oldid={oldid}")));
+        assert!(doc.contains(anchor), "{anchor}");
+    }
+    let b = beat("nanjun_claim_ledger").unwrap();
+    for anchor in ["曹仁按曹操遗计", "周瑜诈死", "赵云奉孔明军令先占南郡",
+                   "程普据报称赵云拿住陈矫", "孔明再以兵符诈调"] {
+        assert!(b.premise.contains(anchor), "{anchor}");
+    }
+    assert_eq!(b.reward_gold, 17);
+}
+#[test]
+fn nanjun_refusal_is_atomic_and_does_not_block_old_jingxiang_save() {
+    let mut g = Game::new(Hero::ZhugeLiang, 51054);
+    g.lore_flags.push("jiangdong_council_record".into());
+    enter(&mut g, "nanjun_claim_ledger");
+    let before = g.to_json().unwrap();
+    assert!(g.apply(Action::Choose { index: 99 }).is_err());
+    assert_eq!(g.to_json().unwrap(), before);
+    g.apply(Action::Choose { index: 2 }).unwrap();
+    assert_eq!(count(&g.lore_flags, "nanjun_claim_record"), 0);
+    let restored = Game::from_json(&g.to_json().unwrap()).unwrap();
+    assert_eq!(count(&restored.lore_flags, "nanjun_claim_record"), 0);
+    let mut old = Game::new(Hero::ZhugeLiang, 51055);
+    old.lore_flags.push("nanjun_claim_record".into());
+    enter(&mut old, "jingxiang_lease_ledger");
+    old.apply(Action::Choose { index: 1 }).unwrap();
+    assert_eq!(count(&old.lore_flags, "jingxiang_lease_record"), 1);
+}
