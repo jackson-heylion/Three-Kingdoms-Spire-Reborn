@@ -42,3 +42,21 @@ Feature: Chapters 025-027 fixed Mao and Jiajing variants, optional Guan ledgers
     And the lore scene "seal_return"
     When I choose 2
     Then the flag "seal_return_record" is absent
+
+  Scenario: Declining the five-pass escort record cannot earn its later Huarong conclusion
+    Given a "guan" campaign with seed 250270
+    And the flag "wenjiu_oath" was earned earlier
+    And the flag "baima_debt" was earned earlier
+    And the flag "three_terms_record" was earned earlier
+    And the flag "seal_return_record" was earned earlier
+    And the lore scene "five_passes"
+    When I choose 2
+    Then the flag "five_passes_record" is absent
+    When I save and restore
+    Then the flag "five_passes_record" is absent
+    And the lore scene "gucheng_witness"
+    When I choose 1
+    Then the flag "gucheng_witness_ledger" is present
+    And the lore scene "huarong"
+    When I choose 1
+    Then the flag "five_passes_record" is absent
