@@ -41,3 +41,16 @@ Feature: Chapters 034-036 pinned witnesses and optional Guan Yu responsibility c
     And the lore scene "jingzhou"
     When I choose 1
     Then the flag "jingzhou_warning" is present
+
+  Scenario: Guan refuses Fancheng evidence but old Jingzhou remains accessible
+    Given a "guan" campaign with seed 34039
+    And the flag "xinye_counsel_record" was earned earlier
+    And the flag "anxi_seal" was earned earlier
+    And the lore scene "fancheng_counsel"
+    When I choose 2
+    Then the flag "fancheng_counsel_record" is absent
+    When I save and restore
+    Then the flag "fancheng_counsel_record" is absent
+    And the lore scene "jingzhou"
+    When I choose 1
+    Then the flag "jingzhou_warning" is present
