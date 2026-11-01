@@ -31,3 +31,12 @@ Feature: Chapters 019-021 pinned edition distinctions and optional playable resp
     And the lore scene "xuzhou_gate"
     When I choose 2
     Then the flag "xuzhou_gate_account" is absent
+
+  Scenario: Declining Xiapi accountability survives save restore without inventing the flag
+    Given a "lubu" campaign with seed 19021
+    And the flag "xiaopei_courier_guard" was earned earlier
+    And the lore scene "xiapi_orders"
+    When I choose 3
+    Then the flag "xiapi_orders_account" is absent
+    When I save and restore
+    Then the flag "xiapi_orders_account" is absent

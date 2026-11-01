@@ -72,3 +72,39 @@ fn guanyu_xutian_xuzhou_flags_are_optional_and_future_debt_is_idempotent() {
     assert_eq!(count(&refused.lore_flags,"xuzhou_gate_account"),0);
     assert!(Game::from_json(&refused.to_json().unwrap()).is_ok());
 }
+
+#[test]
+fn independent_019_021_reading_keeps_chapter_endings_and_history_distinct() {
+    let doc = include_str!("../docs/CHAPTERS_019_021_JIAJING_VARIANTS.md");
+    let audit = include_str!("../data/chapter_body_audit.tsv");
+    for anchor in ["2026-11-01 毛评固定电子本019", "oldid=2567981", "oldid=8187289", "oldid=2567982",
+        "高顺张辽攻", "宋宪魏续", "陈登才说有退曹之计", "卷14《程昱传》",
+        "原刻影印仍未验收"] {
+        assert!(doc.contains(anchor), "missing evidence: {anchor}");
+    }
+    for (ch, oldid) in [("019", "2567981"), ("020", "8187289"), ("021", "2567982")] {
+        let row = audit.lines().find(|row| row.starts_with(&format!("{ch}\t")))
+            .expect("chapter audit row");
+        assert!(row.contains(&format!("2026-11-01独立复核毛评固定oldid={oldid}")));
+    }
+    assert!(beat("xuzhou_gate").unwrap().premise.contains("《三国志》卷14程昱传"));
+}
+
+#[test]
+fn refusing_xiapi_orders_cannot_unlock_whitegate_debt_after_restore() {
+    let mut game = Game::new(Hero::LuBu, 19021);
+    game.lore_flags.extend(["xiaopei_courier_guard", "halberd_shot"].map(str::to_string));
+    enter(&mut game, "xiapi_orders");
+    let before = game.to_json().unwrap();
+    assert!(game.apply(Action::Choose { index: 99 }).is_err());
+    assert_eq!(game.to_json().unwrap(), before);
+    game.apply(Action::Choose { index: 3 }).unwrap();
+    assert_eq!(count(&game.lore_flags, "xiapi_orders_account"), 0);
+    let mut restored = Game::from_json(&game.to_json().unwrap()).unwrap();
+    enter(&mut restored, "whitegate");
+    restored.apply(Action::Choose { index: 1 }).unwrap();
+    assert_eq!(count(&restored.lore_flags, "white_gate"), 1);
+    assert_eq!(count(&restored.easter_unlocked, "xiapi_orders_debt"), 0);
+    let second = Game::from_json(&restored.to_json().unwrap()).unwrap();
+    assert_eq!(count(&second.easter_unlocked, "xiapi_orders_debt"), 0);
+}
