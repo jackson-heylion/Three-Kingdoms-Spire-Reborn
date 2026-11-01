@@ -83,3 +83,70 @@ fn rejecting_any_required_ledger_blocks_the_conclusion() {
     assert!(lore::newly_completed_eggs(Hero::LuBu, &flags, &["changan_court_military_debt".into()])
         .iter().all(|x| x.id != "changan_court_military_debt"));
 }
+
+#[test]
+fn independent_mao_007_009_reading_preserves_three_chapter_boundaries() {
+    let evidence = include_str!("../docs/CHAPTERS_007_009_VARIANT_HISTORY_SPOTCHECK.md");
+    let ledger = include_str!("../data/chapter_body_audit.tsv");
+    for marker in [
+        "2026-11-01 毛评固定电子本007",
+        "oldid=2567970",
+        "oldid=5314829",
+        "oldid=2567971",
+        "oldid=2646264",
+        "oldid=2554651",
+        "oldid=2554683",
+        "桓楷",
+        "李儒",
+        "李蒙王方",
+        "献帝尚未被杀",
+        "未做原刻影印核字",
+    ] {
+        assert!(evidence.contains(marker), "missing chapter boundary evidence: {marker}");
+    }
+    for (chapter, oldid) in [("007", "2567970"), ("008", "5314829"), ("009", "2567971")] {
+        let row = ledger
+            .lines()
+            .find(|line| line.starts_with(&format!("{chapter}\\t")))
+            .expect("unique chapter row");
+        assert!(row.contains(&format!("2026-11-01独立复核毛评固定oldid={oldid}")));
+        assert!(row.contains("非全回异文校勘"));
+        assert!(row.contains("未完成全回史传核证"));
+    }
+}
+
+#[test]
+fn sun_and_lu_first_natural_story_choices_are_atomic_and_restorable() {
+    use three_kingdoms_spire_reborn::Node;
+
+    for (hero, first_id, accepted_flag) in [
+        (Hero::SunShangxiang, "sun_father_letter", "sun_father_dispatch"),
+        (Hero::LuBu, "redhare", "red_hare"),
+    ] {
+        let mut reached = 0;
+        for seed in 1..=512u64 {
+            let mut game = Game::new(hero, seed);
+            let Some(index) = game.route.iter().position(|node| *node == Node::Story) else {
+                continue;
+            };
+            game.apply(Action::Choose { index: index + 1 }).unwrap();
+            assert_eq!(game.lore_current.as_deref(), Some(first_id), "seed {seed}");
+            let before = game.to_json().unwrap();
+            assert!(game.apply(Action::Choose { index: 4 }).is_err());
+            assert_eq!(game.to_json().unwrap(), before, "rejected seed {seed}");
+            let accepted = reached % 2 == 0;
+            game.apply(Action::Choose { index: if accepted { 1 } else { 3 } }).unwrap();
+            assert_eq!(
+                game.lore_flags.iter().any(|flag| flag == accepted_flag),
+                accepted
+            );
+            let restored = Game::from_json(&game.to_json().unwrap()).unwrap();
+            assert_eq!(restored.lore_flags, game.lore_flags);
+            reached += 1;
+            if reached == 4 {
+                break;
+            }
+        }
+        assert!(reached >= 2, "no natural opening Story for {first_id} in 512 seeds");
+    }
+}

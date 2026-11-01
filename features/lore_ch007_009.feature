@@ -34,3 +34,11 @@ Feature: Chapters 007-009 fixed variant ledgers and Chang'an accountability
     And the lore scene "sun_father_letter"
     When I choose 2
     Then the flag "sun_father_dispatch" is absent
+
+  Scenario: Sun declines the father's report and restoration cannot invent the family flag
+    Given a "sun" campaign with seed 7013
+    And the lore scene "sun_father_letter"
+    When I choose 3
+    Then the flag "sun_father_dispatch" is absent
+    When I save and restore
+    Then the flag "sun_father_dispatch" is absent
