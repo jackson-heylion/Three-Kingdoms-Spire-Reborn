@@ -107,7 +107,7 @@ fn independent_mao_007_009_reading_preserves_three_chapter_boundaries() {
     for (chapter, oldid) in [("007", "2567970"), ("008", "5314829"), ("009", "2567971")] {
         let row = ledger
             .lines()
-            .find(|line| line.starts_with(&format!("{chapter}\\t")))
+            .find(|line| line.starts_with(&format!("{chapter}\t")))
             .expect("unique chapter row");
         assert!(row.contains(&format!("2026-11-01独立复核毛评固定oldid={oldid}")));
         assert!(row.contains("非全回异文校勘"));
