@@ -36,3 +36,13 @@ Feature: Chapters 013-015 fixed novel variants and source-graded responsibility
     And the lore scene "shenting"
     When I choose 2
     Then the flag "taishi_trust" is absent
+  
+  Scenario: Cao declines Xu Huang's record and restoration cannot invent the honor flag
+    Given a "cao" campaign with seed 14015
+    And the lore scene "xudu"
+    When I choose 1
+    And the lore scene "xuhuang"
+    When I choose 3
+    Then the flag "xuhuang_honor" is absent
+    When I save and restore
+    Then the flag "xuhuang_honor" is absent
