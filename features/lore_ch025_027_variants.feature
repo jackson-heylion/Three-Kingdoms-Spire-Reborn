@@ -59,4 +59,4 @@ Feature: Chapters 025-027 fixed Mao and Jiajing variants, optional Guan ledgers
     Then the flag "gucheng_witness_ledger" is present
     And the lore scene "huarong"
     When I choose 1
-    Then the hidden conclusion "five_passes_huarong" is not unlocked
+    Then the flag "five_passes_record" is absent
