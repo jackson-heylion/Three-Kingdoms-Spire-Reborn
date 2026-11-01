@@ -110,3 +110,44 @@ fn bowang_is_optional_for_existing_redcliff_conclusion() {
     incomplete.apply(Action::Choose { index: 1 }).unwrap();
     assert_eq!(count(&incomplete.easter_unlocked, "longzhong_strategy_debt"), 0);
 }
+
+
+#[test]
+fn independent_mao_037_039_pinned_full_review_and_distinct_responsibility() {
+    let doc = include_str!("../docs/CHAPTERS_037_039_JIAJING_VARIANTS.md");
+    let ledger = include_str!("../data/chapter_body_audit.tsv");
+    for (chapter, oldid) in [("037", "2567998"), ("038", "4256828"), ("039", "2567999")] {
+        let rows: Vec<_> = ledger.lines().filter(|line| line.starts_with(&format!("{chapter}\t"))).collect();
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].contains(&format!("2026-11-02独立复核毛评固定oldid={oldid}")));
+        assert!(rows[0].contains("非全回异本或史料校勘"));
+    }
+    for anchor in ["L119—226", "L119—194", "L119—175",
+                   "回末只择吉筹备第三顾", "回末黄祖仍未被杀",
+                   "李典在狭道识火险", "新野撤民与白河决水不属于039"] {
+        assert!(doc.contains(anchor), "missing fixed reading evidence: {anchor}");
+    }
+    assert!(beat("jiangxia_pardon").unwrap().premise.contains("以苏飞若逃则献己首级担保"));
+    assert!(beat("bowang_orders").unwrap().premise.contains("李典在狭道先识火险"));
+}
+
+#[test]
+fn bowang_civilians_dangyang_cross_act_reward_is_once_only() {
+    let mut game = Game::new(Hero::ZhugeLiang, 37044);
+    for id in ["longzhong", "longzhong_letter", "longzhong_conditions",
+               "bowang_orders", "xinye_evacuation", "dangyang_ledger", "redcliff"] {
+        enter(&mut game, id);
+        let before = game.to_json().unwrap();
+        assert!(game.apply(Action::Choose { index: 99 }).is_err());
+        assert_eq!(game.to_json().unwrap(), before);
+        game.apply(Action::Choose { index: 1 }).unwrap();
+    }
+    assert_eq!(count(&game.easter_unlocked, "xinye_dangyang_debt"), 1);
+    assert_eq!(count(&game.easter_unlocked, "longzhong_strategy_debt"), 1);
+    let saved = game.to_json().unwrap();
+    let mut restored = Game::from_json(&saved).unwrap();
+    enter(&mut restored, "redcliff");
+    restored.apply(Action::Choose { index: 1 }).unwrap();
+    assert_eq!(count(&restored.easter_unlocked, "xinye_dangyang_debt"), 1);
+    assert_eq!(count(&restored.easter_unlocked, "longzhong_strategy_debt"), 1);
+}
