@@ -101,7 +101,7 @@ fn independent_mao_028_030_pins_full_chapter_boundaries_without_full_variant_cla
     let doc = include_str!("../docs/CHAPTERS_028_030_JIAJING_VARIANTS.md");
     let audit = include_str!("../data/chapter_body_audit.tsv");
     for (chapter, oldid) in [("028", "2567993"), ("029", "2567991"), ("030", "2567996")] {
-        let rows: Vec<_> = audit.lines().filter(|line| line.starts_with(&format!("{chapter}\\t"))).collect();
+        let rows: Vec<_> = audit.lines().filter(|line| line.starts_with(&format!("{chapter}\t"))).collect();
         assert_eq!(rows.len(), 1);
         assert!(rows[0].contains(&format!("2026-11-02独立复核毛评固定oldid={oldid}")));
         assert!(rows[0].contains("非全回异本或史料校勘"));
