@@ -92,7 +92,7 @@ fn independent_full_read_boundaries_and_refusal_keep_old_jingzhou_open() {
     let rows:Vec<_>=audit.lines().skip(1).filter(|s|!s.is_empty()).collect();
     assert_eq!(rows.len(),120);
     for ch in 34..=36 {
-        let prefix=format!("{ch:03}\\t");
+        let prefix=format!("{ch:03}\t");
         let matches:Vec<_>=rows.iter().filter(|s|s.starts_with(&prefix)).collect();
         assert_eq!(matches.len(),1);
         assert!(matches[0].contains("2026-11-02独立固定单底本复核"));
