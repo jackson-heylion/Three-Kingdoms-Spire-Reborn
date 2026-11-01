@@ -35,3 +35,11 @@ Feature: Chapters 001-003 early literary variants and historical accountability
     And the lore scene "redhare"
     When I choose 3
     Then the flag "red_hare" is absent
+
+  Scenario: Lu Bu refuses the Red Hare archive and V2 restore cannot fabricate the oath
+    Given a "lu" campaign with seed 1005
+    And the lore scene "redhare"
+    When I choose 2
+    Then the flag "red_hare" is absent
+    When I save and restore
+    Then the flag "red_hare" is absent
