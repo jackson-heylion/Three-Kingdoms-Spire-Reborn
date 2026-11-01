@@ -104,7 +104,7 @@ fn independent_mao_025_027_full_reading_and_responsibility_boundaries_are_pinned
     let doc = include_str!("../docs/CHAPTERS_025_027_JIAJING_VARIANTS.md");
     let ledger = include_str!("../data/chapter_body_audit.tsv");
     for (chapter, oldid) in [("025", "2567988"), ("026", "8185862"), ("027", "8186000")] {
-        let rows: Vec<_> = ledger.lines().filter(|row| row.starts_with(&format!("{chapter}\\t"))).collect();
+        let rows: Vec<_> = ledger.lines().filter(|row| row.starts_with(&format!("{chapter}\t"))).collect();
         assert_eq!(rows.len(), 1);
         assert!(rows[0].contains(&format!("2026-11-01独立复核毛评固定oldid={oldid}")));
         assert!(rows[0].contains("非全回异本或史料校勘"));
