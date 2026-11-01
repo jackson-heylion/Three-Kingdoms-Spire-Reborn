@@ -80,3 +80,42 @@ fn cao_refusal_cannot_forge_purge_and_legacy_guandu_stays_available() {
     restored.apply(Action::Choose { index: 1 }).unwrap();
     assert_eq!(count(&restored.lore_flags, "guandu_grain"), 1);
 }
+
+#[test]
+fn independent_mao_022_024_review_pins_fixed_whole_chapter_boundaries() {
+    let doc = include_str!("../docs/CHAPTERS_022_024_JIAJING_VARIANTS.md");
+    let ledger = include_str!("../data/chapter_body_audit.tsv");
+    for (chapter, oldid) in [("022", "2567985"), ("023", "2567986"), ("024", "2567987")] {
+        let rows: Vec<_> = ledger.lines().filter(|line| line.starts_with(&format!("{chapter}\t"))).collect();
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].contains(&format!("2026-11-01独立复核毛评固定oldid={oldid}")));
+        assert!(rows[0].contains("非全回异本或史料校勘"));
+        assert!(doc.contains(&format!("oldid={oldid}")));
+    }
+    for marker in ["L119—187", "L119—174", "L119—164", "孔融才谏止",
+        "吉平撞阶而死", "曹洪统领监视宫门", "尚未施行", "嘉靖原刻影印",
+        "正常战役完整跨幕多种子自然可达"] {
+        assert!(doc.contains(marker), "missing evidence: {marker}");
+    }
+    assert!(beat("jiping_testimony").unwrap().premise.contains("吉平受酷刑后撞阶而死"));
+    assert!(beat("palace_ledger").unwrap().premise.contains("由曹洪统领监视宫门"));
+}
+
+#[test]
+fn rejecting_jiping_record_does_not_invent_purge_or_block_existing_guandu() {
+    let mut game = Game::new(Hero::CaoCao, 220240);
+    game.lore_flags.push("xuhuang_honor".into());
+    enter(&mut game, "jiping_testimony");
+    let before = game.to_json().unwrap();
+    assert!(game.apply(Action::Choose { index: 99 }).is_err());
+    assert_eq!(game.to_json().unwrap(), before);
+    game.apply(Action::Choose { index: 2 }).unwrap();
+    assert_eq!(count(&game.lore_flags, "jiping_case_record"), 0);
+    let mut restored = Game::from_json(&game.to_json().unwrap()).unwrap();
+    assert_eq!(count(&restored.lore_flags, "palace_purge_record"), 0);
+    restored.lore_flags.push("xu_capital".into());
+    enter(&mut restored, "guandu");
+    restored.apply(Action::Choose { index: 1 }).unwrap();
+    assert_eq!(count(&restored.lore_flags, "guandu_grain"), 1);
+    assert_eq!(count(&restored.lore_flags, "palace_purge_record"), 0);
+}
