@@ -33,3 +33,11 @@ Feature: Chapters 004-006 pinned literary variants and optional source debt
     And the lore scene "wenjiu"
     When I choose 3
     Then the flag "wenjiu_oath" is absent
+
+  Scenario: Cao refuses the sevenstar archive and V2 restore cannot fabricate its oath
+    Given a "cao" campaign with seed 4010
+    And the lore scene "sevenstar"
+    When I choose 3
+    Then the flag "sevenstar_vow" is absent
+    When I save and restore
+    Then the flag "sevenstar_vow" is absent
