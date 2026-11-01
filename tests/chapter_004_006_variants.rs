@@ -1,5 +1,5 @@
 //! Chapter 004-006 pinned source differences and executable optional consequences.
-use three_kingdoms_spire_reborn::{Action, Game, Stage, content::Hero, lore};
+use three_kingdoms_spire_reborn::{Action, Game, Node, Stage, content::Hero, lore};
 
 fn scene(hero: Hero, id: &str, seed: u64) -> Game {
     let mut game = Game::new(hero, seed);
@@ -84,4 +84,49 @@ fn guan_wenjiu_acceptance_preserves_novel_and_history_without_changing_outcome()
         let restored = Game::from_json(&game.to_json().unwrap()).unwrap();
         assert_eq!(restored.lore_flags, game.lore_flags);
     }
+}
+
+#[test]
+fn independently_read_fixed_mao_004_006_and_distinguish_yingyang_reinforcements() {
+    let evidence = include_str!("../docs/CHAPTERS_004_006_VARIANT_HISTORY_SPOTCHECK.md");
+    for marker in ["2026-11-01 毛评固定电子本004", "oldid=2567966",
+        "oldid=7910939", "oldid=2567969", "oldid=2554658",
+        "吕伯奢", "陈宫弃曹", "祖茂", "曹洪", "十數騎", "數十騎",
+        "回末孙坚被困尚未脱困", "裴松之"] {
+        assert!(evidence.contains(marker), "missing verified narrative evidence {marker}");
+    }
+    let ledger = include_str!("../data/chapter_body_audit.tsv");
+    for chapter in ["004", "005", "006"] {
+        let row = ledger.lines().find(|line| line.starts_with(&format!("{chapter}\t")))
+            .expect("chapter row");
+        assert!(row.contains("2026-11-01独立复核毛评固定oldid="));
+        assert!(row.contains("未完成全回异文校勘"));
+    }
+    let cao = lore::beat("sevenstar").unwrap();
+    assert!(cao.premise.contains("伍孚") && cao.premise.contains("明知故杀"));
+    let jade = lore::beat("imperial_jade").unwrap();
+    assert!(jade.premise.contains("曹洪") && jade.premise.contains("十数骑"));
+    assert!(jade.premise.contains("数十骑") && jade.premise.contains("裴注"));
+}
+
+#[test]
+fn cao_first_natural_story_is_optional_atomic_and_restorable() {
+    let mut reached = 0;
+    for seed in 1..=512u64 {
+        let mut game = Game::new(Hero::CaoCao, seed);
+        let Some(index) = game.route.iter().position(|node| *node == Node::Story) else { continue; };
+        game.apply(Action::Choose { index: index + 1 }).unwrap();
+        assert_eq!(game.lore_current.as_deref(), Some("sevenstar"), "seed {seed}");
+        let before = game.to_json().unwrap();
+        assert!(game.apply(Action::Choose { index: 4 }).is_err());
+        assert_eq!(game.to_json().unwrap(), before, "rejected action changed seed {seed}");
+        let accept = reached % 2 == 0;
+        game.apply(Action::Choose { index: if accept { 1 } else { 3 } }).unwrap();
+        assert_eq!(game.lore_flags.iter().any(|flag| flag == "sevenstar_vow"), accept);
+        let restored = Game::from_json(&game.to_json().unwrap()).unwrap();
+        assert_eq!(restored.lore_flags, game.lore_flags);
+        reached += 1;
+        if reached == 4 { break; }
+    }
+    assert!(reached >= 2, "no natural Cao first-story route in 512 seeds");
 }
