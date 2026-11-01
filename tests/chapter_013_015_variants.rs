@@ -90,7 +90,7 @@ fn independent_mao_013_015_reading_pins_interchapter_boundaries_without_upgradin
     let evidence = include_str!("../docs/CHAPTERS_013_015_VARIANT_HISTORY_SPOTCHECK.md");
     let ledger = include_str!("../data/chapter_body_audit.tsv");
     for (chapter, oldid) in [("013", "8185567"), ("014", "2613836"), ("015", "8729938")] {
-        let row = ledger.lines().find(|line| line.starts_with(&format!("{chapter}\\t")))
+        let row = ledger.lines().find(|line| line.starts_with(&format!("{chapter}\t")))
             .expect("chapter row");
         assert!(row.contains(&format!("2026-11-01独立复核毛评固定oldid={oldid}")));
         assert!(row.contains("非全回异本或史料校勘"));
