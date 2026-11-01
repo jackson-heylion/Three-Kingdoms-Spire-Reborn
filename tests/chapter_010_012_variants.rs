@@ -94,3 +94,41 @@ fn guan_and_lubu_cross_chapter_archives_are_exclusive_and_v2_safe() {
     accepted.apply(Action::Choose { index: 1 }).unwrap();
     assert_eq!(count(&accepted.easter_unlocked,"changan_yanzhou_xiaopei_debt"),1);
 }
+
+#[test]
+fn independent_mao_010_012_chapter_boundaries_are_not_conflated() {
+    let evidence = include_str!("../docs/CHAPTERS_010_012_JIAJING_VARIANTS.md");
+    let ledger = include_str!("../data/chapter_body_audit.tsv");
+    for marker in [
+        "2026-11-01 毛评固定电子本010",
+        "oldid=2567973", "oldid=2567975", "oldid=2567974",
+        "回末提出守城计策者尚未揭名",
+        "回末吕布仍在追击", "回末吕布未被擒",
+        "曹操原欲继续攻城", "未做嘉靖原刻影印核字",
+    ] {
+        assert!(evidence.contains(marker), "missing chapter evidence: {marker}");
+    }
+    for (chapter, oldid) in [("010", "2567973"), ("011", "2567975"), ("012", "2567974")] {
+        let row = ledger.lines().find(|s| s.starts_with(&format!("{chapter}\t")))
+            .expect("chapter row exists");
+        assert!(row.contains(&format!("2026-11-01独立复核毛评固定oldid={oldid}")));
+        assert!(row.contains("非全回异文校勘"));
+    }
+    let puyang = lore::beat("puyang").unwrap();
+    assert!(puyang.premise.contains("吕布仍与陈宫会合再引军"));
+    assert!(puyang.premise.contains("兖州急报"));
+}
+
+#[test]
+fn declining_xuzhou_dispatch_does_not_forge_the_cross_chapter_reward() {
+    let mut game = scene(Hero::CaoCao, 101209, "xuzhou_yanzhou_dispatch_archive");
+    game.lore_flags.push("xuzhou_debt".into());
+    let before = game.to_json().unwrap();
+    assert!(game.apply(Action::Choose { index: 99 }).is_err());
+    assert_eq!(game.to_json().unwrap(), before);
+    game.apply(Action::Choose { index: 3 }).unwrap();
+    assert!(!game.lore_flags.iter().any(|f| f == "xuzhou_yanzhou_dispatch_record"));
+    let restored = Game::from_json(&game.to_json().unwrap()).unwrap();
+    assert_eq!(restored.lore_flags, game.lore_flags);
+    assert!(!restored.easter_unlocked.iter().any(|x| x == "xuzhou_yanzhou_ration_debt"));
+}
