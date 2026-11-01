@@ -95,3 +95,41 @@ fn sun_and_cao_choices_remain_mutually_exclusive_and_rewards_once() {
     cao.apply(Action::Choose { index: 1 }).unwrap();
     assert_eq!(count(&cao, "guandu_ye_civilians"), 0);
 }
+
+#[test]
+fn independent_mao_028_030_pins_full_chapter_boundaries_without_full_variant_claim() {
+    let doc = include_str!("../docs/CHAPTERS_028_030_JIAJING_VARIANTS.md");
+    let audit = include_str!("../data/chapter_body_audit.tsv");
+    for (chapter, oldid) in [("028", "2567993"), ("029", "2567991"), ("030", "2567996")] {
+        let rows: Vec<_> = audit.lines().filter(|line| line.starts_with(&format!("{chapter}\t"))).collect();
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].contains(&format!("2026-11-02独立复核毛评固定oldid={oldid}")));
+        assert!(rows[0].contains("非全回异本或史料校勘"));
+    }
+    for marker in ["L119—177", "L117—190", "L116—188", "蔡阳本奉命攻汝南",
+                   "回末袁绍遣陈震", "于吉祈雨后", "沮授拒降", "田丰之死尚未发生",
+                   "自然战役跨幕多种子可达性"] {
+        assert!(doc.contains(marker), "missing independently read boundary: {marker}");
+    }
+    assert!(beat("gucheng").unwrap().premise.contains("蔡阳本奉命攻汝南"));
+    assert!(beat("guandu").unwrap().premise.contains("田丰之死须到031回"));
+}
+
+#[test]
+fn guandu_rejected_archive_is_atomic_and_persists_without_a_false_flag() {
+    let mut game = Game::new(Hero::CaoCao, 280302);
+    game.lore_flags.push("xu_capital".into());
+    enter(&mut game, "guandu");
+    let before = game.to_json().unwrap();
+    assert!(game.apply(Action::Choose { index: 4 }).is_err());
+    assert_eq!(game.to_json().unwrap(), before);
+    game.apply(Action::Choose { index: 3 }).unwrap();
+    assert!(!game.lore_flags.iter().any(|flag| flag == "guandu_grain"));
+    let saved = game.to_json().unwrap();
+    assert_eq!(Game::from_json(&saved).unwrap().to_json().unwrap(), saved);
+    let mut accepted = Game::new(Hero::CaoCao, 280303);
+    accepted.lore_flags.push("xu_capital".into());
+    enter(&mut accepted, "guandu");
+    accepted.apply(Action::Choose { index: 1 }).unwrap();
+    assert!(accepted.lore_flags.iter().any(|flag| flag == "guandu_grain"));
+}
