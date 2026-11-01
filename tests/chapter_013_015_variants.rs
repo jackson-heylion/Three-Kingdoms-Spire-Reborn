@@ -84,3 +84,26 @@ fn shenting_existing_cross_act_reward_requires_three_accepted_ledgers_and_pays_o
             .iter().any(|egg| egg.id == "taishi_return"), "unearned without {missing}");
     }
 }
+
+#[test]
+fn independent_mao_013_015_reading_pins_interchapter_boundaries_without_upgrading_variants() {
+    let evidence = include_str!("../docs/CHAPTERS_013_015_VARIANT_HISTORY_SPOTCHECK.md");
+    let ledger = include_str!("../data/chapter_body_audit.tsv");
+    for (chapter, oldid) in [("013", "8185567"), ("014", "2613836"), ("015", "8729938")] {
+        let row = ledger.lines().find(|line| line.starts_with(&format!("{chapter}\t")))
+            .expect("chapter row");
+        assert!(row.contains(&format!("2026-11-01独立复核毛评固定oldid={oldid}")));
+        assert!(row.contains("非全回异本或史料校勘"));
+    }
+    for marker in [
+        "L120—187", "L120—193", "L120—199", "李乐追至箕山",
+        "刘备夺剑阻止", "孙策尚未取回玉玺", "嘉靖原刻影印",
+        "六十日", "日中", "自然战役多种子",
+    ] {
+        assert!(evidence.contains(marker), "missing independent review evidence: {marker}");
+    }
+    assert!(lore::beat("xiaopei").unwrap().premise.contains("并行叙事"));
+    assert!(lore::beat("xudu").unwrap().premise.contains("015开篇刘备才夺剑"));
+    assert!(lore::beat("xuhuang").unwrap().premise.contains("不可写成徐晃献旧主首级"));
+    assert!(lore::beat("shenting").unwrap().premise.contains("孙策尚未收回玉玺"));
+}

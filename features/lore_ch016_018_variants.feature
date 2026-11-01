@@ -40,3 +40,12 @@ Feature: Chapters 016-018 pinned witnesses and optional three-chapter responsibi
     When I choose 2
     Then the flag "seven_armies_account" is absent
     And act 2 offers the lore scene "whitegate"
+
+  Scenario: Refusing the Xiaopei courier record survives V2 without inventing a guard flag
+    Given a "lubu" campaign with seed 160181
+    And the flag "seven_armies_account" was earned earlier
+    And the lore scene "xiaopei_courier"
+    When I choose 3
+    Then the flag "xiaopei_courier_guard" is absent
+    When I save and restore
+    Then the flag "xiaopei_courier_guard" is absent
