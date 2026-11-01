@@ -37,3 +37,13 @@ Feature: Chapters 031-033 fixed JiaJing contrasts and optional Cao Cao accountab
     Then the flag "ye_flood_record" is absent
     When I save and restore
     Then the flag "ye_flood_record" is absent
+
+  Scenario: Cao refuses the northern aftermath account without forged credit after restore
+    Given a "cao" campaign with seed 31036
+    And the flag "guandu_grain" was earned earlier
+    And the flag "liaodong_letter" was earned earlier
+    And the lore scene "northern_settlement"
+    When I choose 2
+    Then the flag "northern_settlement_account" is absent
+    When I save and restore
+    Then the flag "northern_settlement_account" is absent
