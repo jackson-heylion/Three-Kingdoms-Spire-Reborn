@@ -99,3 +99,42 @@ fn natural_map_fixed_seeds_include_a_two_story_guan_route() {
     }
     assert!(!reachable.is_empty(), "no natural first-two-floor seed exposed the optional accepted chain");
 }
+
+#[test]
+fn fixed_body_001_003_pins_causes_and_dingyuan_timing() {
+    let evidence = include_str!("../docs/CHAPTERS_001_003_VARIANT_HISTORY_SPOTCHECK.md");
+    for marker in ["oldid=2583915", "oldid=8185068", "oldid=2567965",
+        "oldid=3207988", "oldid=2554667", "oldid=2554697",
+        "杨赐", "韩忠", "当夜二更", "即提刀赴营"] {
+        assert!(evidence.contains(marker), "missing evidence {marker}");
+    }
+    let taoyuan = lore::BEATS.iter().find(|b| b.id == "taoyuan").unwrap();
+    let anxi = lore::BEATS.iter().find(|b| b.id == "anxi").unwrap();
+    let redhare = lore::BEATS.iter().find(|b| b.id == "redhare").unwrap();
+    assert!(taoyuan.premise.contains("唐周告变"));
+    assert!(anxi.premise.contains("开缺口") && anxi.premise.contains("刘备本人"));
+    assert!(redhare.premise.contains("约次日") && redhare.premise.contains("当夜二更"));
+    assert!(redhare.premise.contains("即提刀赴营") && redhare.premise.contains("不证赠马"));
+}
+
+#[test]
+fn natural_lubu_redhare_is_optional_atomic_and_v2_restorable() {
+    let mut reached = 0;
+    for seed in 1..=512u64 {
+        let mut game = Game::new(Hero::LuBu, seed);
+        let Some(node_index) = game.route.iter().position(|node| *node == Node::Story) else { continue; };
+        game.apply(Action::Choose { index: node_index + 1 }).unwrap();
+        assert_eq!(game.lore_current.as_deref(), Some("redhare"), "seed {seed}");
+        let before = game.to_json().unwrap();
+        assert!(game.apply(Action::Choose { index: 4 }).is_err());
+        assert_eq!(game.to_json().unwrap(), before, "invalid action mutated seed {seed}");
+        let take = reached % 2 == 0;
+        game.apply(Action::Choose { index: if take { 1 } else { 3 } }).unwrap();
+        assert_eq!(game.lore_flags.iter().any(|flag| flag == "red_hare"), take);
+        let restored = Game::from_json(&game.to_json().unwrap()).unwrap();
+        assert_eq!(restored.lore_flags, game.lore_flags);
+        reached += 1;
+        if reached == 4 { break; }
+    }
+    assert!(reached >= 2, "no natural Lu Bu first-floor story route in 512 seeds");
+}
