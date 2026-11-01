@@ -29,3 +29,17 @@ Feature: Chapters 022-024 fixed Mao and Jiajing variants with optional records
     And the lore scene "wangzhong_prisoners"
     When I choose 2
     Then the flag "wangzhong_release_record" is absent
+
+
+  Scenario: Rejecting Jiping testimony survives V2 and leaves the old Guandu route playable
+    Given a "cao" campaign with seed 220240
+    And the flag "xuhuang_honor" was earned earlier
+    And the lore scene "jiping_testimony"
+    When I choose 2
+    Then the flag "jiping_case_record" is absent
+    When I save and restore
+    Then the flag "jiping_case_record" is absent
+    And the flag "xu_capital" was earned earlier
+    And the lore scene "guandu"
+    When I choose 1
+    Then the flag "guandu_grain" is present
