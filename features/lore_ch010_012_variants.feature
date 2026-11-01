@@ -32,3 +32,12 @@ Feature: Chapters 010-012 pinned Mao and Jiajing local witnesses and optional pl
     And the lore scene "yanzhou_taishan_ambush_archive"
     When I choose 2
     Then the flag "yanzhou_taishan_ambush_record" is absent
+
+  Scenario: Cao declines the Yanzhou dispatch and restoration cannot invent the report
+    Given a "cao" campaign with seed 101209
+    And the flag "xuzhou_debt" was earned earlier
+    And the lore scene "xuzhou_yanzhou_dispatch_archive"
+    When I choose 3
+    Then the flag "xuzhou_yanzhou_dispatch_record" is absent
+    When I save and restore
+    Then the flag "xuzhou_yanzhou_dispatch_record" is absent
