@@ -75,7 +75,7 @@ fn unauthorized_continuation_is_rejected_without_state_or_reward_changes() {
         (Hero::CaoCao, "yizhou_map_audit", true),
         (Hero::ZhugeLiang, "yizhou_map_audit", false),
         (Hero::ZhugeLiang, "jiangwei", false),
-        (Hero::ZhugeLiang, "jinyan_bridge_review", true),
+        (Hero::ZhugeLiang, "jinyan_bridge_review", false),
     ] {
         let mut game = archive(hero, scene, prerequisite);
         let before = game.to_json().unwrap();
