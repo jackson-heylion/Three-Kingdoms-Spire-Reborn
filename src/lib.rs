@@ -1939,11 +1939,26 @@ impl Game {
     pub fn active_bonds(&self) -> Vec<&'static lore::Bond> {
         lore::bonds_for(self.hero, &self.lore_flags)
     }
+    // Optional, player-initiated alternative at a *real* third-act Story node.
+    // Never replace the default scene: existing V1/V2 action replays must retain
+    // their historical choice sequence, including Jiang Wei and Wuzhang.
+    fn can_open_yizhou_archive(&self) -> bool {
+        self.stage == Stage::Story && self.hero == Hero::ZhugeLiang
+            && self.lore_flags.iter().any(|flag| flag == "leiyang_case_record")
+            && !self.lore_seen.iter().any(|id| id == "yizhou_map_audit")
+            && self.lore_current.as_deref().is_some_and(|id| {
+                id != "yizhou_map_audit"
+                    && lore::beat(id).is_some_and(|beat| beat.act == 2)
+            })
+    }
     pub fn lore_hint(&self) -> String {
         if let Some(id) = &self.lore_current
             && let Some(b) = lore::beat(id) {
-            return format!("【演义残卷·第{}回】{}——{}：{}\n  1. {}（结缘并记下因果）\n  2. {}（获得金银，错过羁绊）\n  3. 不介入",
-                b.chapter,b.title,b.character,b.premise,b.vow,b.bargain);
+            let alternative = if self.can_open_yizhou_archive() {
+                "\n  4. 改查西川图责任案卷（先换卷，再独立选择1/2/3）"
+            } else { "" };
+            return format!("【演义残卷·第{}回】{}——{}：{}\n  1. {}（结缘并记下因果）\n  2. {}（获得金银，错过羁绊）\n  3. 不介入{}",
+                b.chapter,b.title,b.character,b.premise,b.vow,b.bargain,alternative);
         }
         self.story_options().to_string()
     }
@@ -1996,6 +2011,16 @@ impl Game {
         Ok(result)
     }
     fn choose_story(&mut self, index: usize) -> Result<String, String> {
+        if index == 4 {
+            if !self.can_open_yizhou_archive() {
+                return Err("当前没有可选的西川责任案卷".into());
+            }
+            // Explicit player choice, not a scene/flag injection or free reward.
+            // The original scene remains unseen; only the subsequent 1/2/3
+            // decision can award the Yizhou responsibility flag.
+            self.lore_current = Some("yizhou_map_audit".into());
+            return Ok("转查第060回西川图责任案卷；请独立选择1、2或3。".into());
+        }
         if self.lore_current.is_some() { return self.choose_lore(index); }
         if !(1..=3).contains(&index) { return Err("奇遇请选 choose 1、2 或 3".into()); }
         let event = self.event_id;
