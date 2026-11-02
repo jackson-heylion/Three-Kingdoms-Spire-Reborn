@@ -19,6 +19,14 @@ CASES = (
      ("longzhong_plan", "longzhong_conditions_record", "bowang_orders_record")),
     (46001, 87, 11, ("longzhong", "borrow_arrows", "redcliff"),
      ("longzhong_plan", "mist_arrows", "redcliff_wind")),
+    # PR #226: genuine floor-12 Fengchu -> Leiyang handoff, then a 21-floor win.
+    # Earlier Longzhong conditions are declined, so this is one feasible branch,
+    # not proof that every responsibility-preserving route is reachable.
+    (61068, 225, 21, ("longzhong", "longzhong_letter",
+                       "longzhong_conditions", "borrow_arrows", "redcliff",
+                       "fengchu", "leiyang_review", "jiangwei"),
+     ("longzhong_plan", "mist_arrows", "redcliff_wind",
+      "phoenix_letter", "leiyang_case_record")),
 )
 
 
@@ -42,14 +50,29 @@ def replay(binary: pathlib.Path, seed: int, expected_steps: int,
         assert marker in result.stdout, (seed, "CLI verify failed", result.stdout[-2000:])
         saved = json.loads((pathlib.Path(directory) / "save.json").read_text(encoding="utf-8"))
         assert saved["seed"] == seed and saved["hero"] == "zhuge_liang"
-        assert saved["floor"] == expected_floor and saved["stage"] == "lost"
+        expected_stage = "won" if seed == 61068 else "lost"
+        assert saved["floor"] == expected_floor and saved["stage"] == expected_stage
         assert len(saved["action_history"]) == expected_steps
         assert tuple(saved["lore_seen"]) == expected_scenes
         assert all(flag in saved["lore_flags"] for flag in expected_flags)
+        if seed == 61068:
+            assert saved["hp"] == 32
+            assert "longzhong_conditions_record" not in saved["lore_flags"]
+            # Confirm both independent choices occurred at floor 12. Merely
+            # seeing two scene IDs in the final save would be insufficient.
+            visits = [(entry["state"]["floor"], entry["state"]["lore_current"])
+                      for entry in saved["campaign_history"]
+                      if isinstance(entry.get("state"), dict)
+                      and entry["state"].get("lore_current") in
+                      ("fengchu", "leiyang_review")]
+            assert visits == [(12, "fengchu"), (12, "leiyang_review")], visits
         # No manually injected scene/flag: the only inputs are the CLI script above.
         serialized = json.dumps(saved["action_history"], sort_keys=True,
                                 ensure_ascii=False, separators=(",", ":"))
-        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+        digest = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+        if seed == 61068:
+            assert digest == "40c263596dfc69a9cca5cae0dfc6c528a79172d77ab205ae188e2c01d24fd41d"
+        return digest
 
 
 def main() -> None:
@@ -60,7 +83,7 @@ def main() -> None:
         assert first == second, f"seed {seed}: replay histories diverged"
         print(f"PASS seed={seed} hero=zhuge difficulty=0 floor={floor} "
               f"actions={steps} scenes={','.join(scenes)} history_sha256={first}")
-    print("Natural CLI story reachability: 2 seeds, 4 fresh campaigns, deterministic.")
+    print("Natural CLI story reachability: 3 seeds, 6 fresh campaigns, deterministic.")
 
 
 if __name__ == "__main__":
