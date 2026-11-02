@@ -1980,7 +1980,19 @@ impl Game {
             _ => format!("{}：不介入，因果暂且埋入尘埃。",b.title),
         };
         self.lore_seen.push(b.id.into());
-        if self.hp == 0 { self.stage = Stage::Lost; } else { self.finish_scene(); }
+        if self.hp == 0 {
+            self.stage = Stage::Lost;
+        } else if b.id == "fengchu" && index == 1
+            && !self.lore_seen.iter().any(|seen| seen == "leiyang_review")
+        {
+            // Both records belong to chapter 57. Keep the player's second decision
+            // explicit instead of spending a seventh act-two story map node.
+            // Existing V2 saves that already saw Leiyang still exit normally.
+            self.lore_current = Some("leiyang_review".into());
+            self.stage = Stage::Story;
+        } else {
+            self.finish_scene();
+        }
         Ok(result)
     }
     fn choose_story(&mut self, index: usize) -> Result<String, String> {
