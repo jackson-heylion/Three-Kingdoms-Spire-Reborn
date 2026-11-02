@@ -34,3 +34,19 @@ Feature: Chapters 040-042 preserve civilian and ferry accountability across edit
     And the lore scene "huarong"
     When I choose 1
     Then the hidden conclusion "hanjin_huarong_debt" is unlocked
+
+
+  Scenario: Refused Dangyang witness never earns the Red Cliffs civilian debt after restore
+    Given a "zhuge" campaign with seed 40044
+    And the flag "bowang_orders_record" was earned earlier
+    And the lore scene "xinye_evacuation"
+    When I choose 1
+    Then the flag "xinye_civilians" is present
+    And the lore scene "dangyang_ledger"
+    When I choose 2
+    Then the flag "dangyang_refuge_account" is absent
+    And the lore scene "redcliff"
+    When I choose 1
+    Then the flag "redcliff_wind" is present
+    When I save and restore
+    Then the flag "dangyang_refuge_account" is absent
