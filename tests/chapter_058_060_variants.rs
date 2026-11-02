@@ -65,3 +65,53 @@ fn refusal_does_not_forge_zhangsong_or_map_record() {
     assert_eq!(count(&zhuge.lore_flags,"yizhou_map_record"),0);
     assert!(Game::from_json(&zhuge.to_json().unwrap()).is_ok());
 }
+
+
+#[test]
+fn independent_military_reading_keeps_friendly_fire_and_shipboard_losses_distinct() {
+    let evidence = include_str!("../docs/CHAPTERS_058_060_JIAJING_VARIANTS.md");
+    let audit = include_str!("../data/chapter_body_audit.tsv");
+    for marker in ["正文L119—161", "正文L119—158", "正文L119—189", "许褚为防船翻", "李堪是于禁误射", "初宴结束后"] {
+        assert!(evidence.contains(marker), "missing independent witness {marker}");
+    }
+    let rows: Vec<_> = audit.lines().skip(1).filter(|s| !s.is_empty()).collect();
+    assert_eq!(rows.len(), 120);
+    let unique: std::collections::HashSet<_> = rows.iter().map(|s| s.split('\t').next().unwrap()).collect();
+    assert_eq!(unique.len(), 120);
+    for chapter in 58..=60 {
+        let row = rows.iter().find(|s| s.starts_with(&format!("{chapter:03}\t"))).unwrap();
+        assert!(row.contains("2026-11-02独立固定毛评"));
+        assert!(row.contains("非全回异本史料校勘"));
+    }
+    assert!(beat("yizhou_map_audit").unwrap().premise.contains("黄权先谏"));
+    assert!(beat("yizhou_map_audit").unwrap().premise.contains("初宴散后"));
+}
+
+#[test]
+fn map_record_is_optional_atomic_and_fu_pass_reuses_existing_v2_flag() {
+    let mut zhuge = Game::new(Hero::ZhugeLiang, 58063);
+    zhuge.lore_flags.push("leiyang_case_record".into());
+    enter(&mut zhuge, "yizhou_map_audit");
+    let before = zhuge.to_json().unwrap();
+    assert!(zhuge.apply(Action::Choose { index: 99 }).is_err());
+    assert_eq!(zhuge.to_json().unwrap(), before);
+    zhuge.apply(Action::Choose { index: 1 }).unwrap();
+    assert_eq!(count(&zhuge.lore_flags, "yizhou_map_record"), 1);
+    let mut restored = Game::from_json(&zhuge.to_json().unwrap()).unwrap();
+    enter(&mut restored, "fu_pass_review");
+    restored.apply(Action::Choose { index: 1 }).unwrap();
+    assert_eq!(count(&restored.lore_flags, "fu_pass_record"), 1);
+    enter(&mut restored, "yizhou_map_audit");
+    restored.apply(Action::Choose { index: 1 }).unwrap();
+    assert_eq!(count(&restored.lore_flags, "yizhou_map_record"), 1);
+
+    let mut refusal = Game::new(Hero::ZhugeLiang, 58064);
+    refusal.lore_flags.push("leiyang_case_record".into());
+    enter(&mut refusal, "yizhou_map_audit");
+    refusal.apply(Action::Choose { index: 2 }).unwrap();
+    assert_eq!(count(&refusal.lore_flags, "yizhou_map_record"), 0);
+    let mut old = Game::from_json(&refusal.to_json().unwrap()).unwrap();
+    enter(&mut old, "longzhong");
+    old.apply(Action::Choose { index: 1 }).unwrap();
+    assert_eq!(count(&old.lore_flags, "longzhong_plan"), 1);
+}
