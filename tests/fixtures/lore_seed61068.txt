@@ -1,0 +1,229 @@
+new zhuge 61068 0
+choose 2
+choose 1
+choose 1
+choose 1
+choose 1
+choose 1
+choose 1
+play 1 1
+play 3 1
+play 3 1
+play 3 1
+play 1 1
+end
+play 2 1
+play 3 1
+play 1 1
+play 2 1
+play 2 1
+choose 1
+choose 1
+choose 1
+choose 1
+choose 1
+choose 1
+play 5 1
+play 6 1
+play 1 1
+play 2 1
+play 3 1
+play 3 1
+play 3 1
+end
+play 1 1
+play 1 1
+play 2 1
+end
+play 2 1
+play 1 1
+play 3 1
+play 4 1
+play 5 1
+play 5 1
+play 1 1
+play 1 1
+end
+play 1 1
+play 2 1
+play 1 1
+play 4 1
+play 4 1
+play 1 2
+play 1 2
+play 1 2
+play 1 2
+end
+play 2 2
+play 1 2
+play 2 2
+play 2 2
+play 2 2
+end
+play 1 2
+play 1 2
+play 4 2
+choose 1
+choose 1
+choose 2
+choose 2
+choose 2
+choose 1
+choose 1
+play 3 1
+play 5 1
+play 1 1
+play 3 1
+play 5 1
+end
+play 5 1
+play 1 1
+play 3 1
+play 1 1
+play 2 1
+play 3 1
+play 2 2
+play 2 2
+play 1 2
+end
+play 3 2
+play 1 2
+play 1 2
+play 2 2
+play 4 2
+end
+play 3 2
+play 1 2
+choose 1
+choose 1
+choose 1
+choose 2
+choose 1
+choose 1
+choose 1
+choose 1
+choose 1
+play 3 1
+play 1 1
+play 4 1
+play 2 1
+end
+play 2 1
+play 1 1
+play 4 1
+end
+play 2 1
+play 2 1
+play 2 1
+play 2 1
+play 2 1
+play 3 1
+end
+play 4 1
+play 4 1
+play 1 1
+play 3 1
+play 2 1
+end
+play 1 1
+play 4 1
+play 1 1
+end
+play 4 1
+play 6 1
+play 2 1
+play 3 1
+play 4 1
+play 3 2
+end
+play 5 2
+play 8 2
+play 4 2
+play 7 2
+play 1 2
+play 1 2
+end
+play 2 2
+play 3 2
+choose 1
+choose 1
+choose 2
+choose 1
+choose 1
+play 4 1
+play 1 1
+play 4 1
+end
+play 1 1
+play 2 1
+play 5 1
+play 1 1
+play 1 1
+play 2 1
+play 2 1
+end
+play 1 1
+play 3 1
+play 3 1
+play 6 1
+play 7 2
+end
+play 1 2
+play 4 2
+play 1 2
+play 1 2
+play 2 2
+play 1 2
+play 1 2
+end
+play 1 2
+play 1 2
+choose 1
+choose 1
+choose 0
+choose 1
+choose 0
+choose 1
+choose 1
+choose 1
+choose 0
+choose 1
+play 1 1
+play 2 1
+play 2 1
+end
+play 1 1
+play 3 1
+play 6 1
+play 6 1
+end
+play 5 1
+play 5 1
+play 2 1
+play 6 1
+play 1 1
+play 1 1
+end
+play 3 1
+play 2 1
+play 2 1
+play 2 1
+play 3 1
+play 4 1
+end
+play 5 1
+play 5 1
+play 5 1
+play 1 1
+play 1 1
+play 2 1
+play 2 1
+play 6 1
+play 2 1
+end
+play 5 1
+end
+play 1 1
+verify
+lore
+quit
