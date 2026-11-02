@@ -26,3 +26,12 @@ Feature: Chapters 028-030 fixed dual-edition witnesses and optional responsibili
     Then the flag "guandu_captured_letters" is present
     When I save and restore
     Then the flag "guandu_captured_letters" is present
+
+  Scenario: Refusing the Guandu responsibility archive never creates its flag after V2 restore
+    Given a "cao" campaign with seed 280302
+    And the flag "xu_capital" was earned earlier
+    And the lore scene "guandu"
+    When I choose 3
+    Then the flag "guandu_grain" is absent
+    When I save and restore
+    Then the flag "guandu_grain" is absent
