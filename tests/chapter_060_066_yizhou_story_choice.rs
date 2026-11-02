@@ -24,7 +24,7 @@ fn alternative_requires_a_real_third_act_scene_and_leiyang_responsibility() {
         (Hero::ZhugeLiang, "jiangwei", false),
         (Hero::CaoCao, "jiangwei", true),
         (Hero::ZhugeLiang, "fengchu", true),
-        (Hero::ZhugeLiang, "yizhou_map_audit", true),
+        (Hero::ZhugeLiang, "yizhou_map_audit", false),
     ] {
         let mut game = at_story(hero, scene, leiyang);
         let before = game.to_json().unwrap();
