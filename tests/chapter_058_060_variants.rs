@@ -79,7 +79,7 @@ fn independent_military_reading_keeps_friendly_fire_and_shipboard_losses_distinc
     let unique: std::collections::HashSet<_> = rows.iter().map(|s| s.split('\t').next().unwrap()).collect();
     assert_eq!(unique.len(), 120);
     for chapter in 58..=60 {
-        let row = rows.iter().find(|s| s.starts_with(&format!("{chapter:03}\\t"))).unwrap();
+        let row = rows.iter().find(|s| s.starts_with(&format!("{chapter:03}\t"))).unwrap();
         assert!(row.contains("2026-11-02独立固定毛评"));
         assert!(row.contains("非全回异本史料校勘"));
     }
