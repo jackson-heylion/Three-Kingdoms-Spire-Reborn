@@ -1977,7 +1977,7 @@ impl Game {
         if let Some(id) = &self.lore_current
             && let Some(b) = lore::beat(id) {
             let alternative = if self.optional_western_audit_successor().is_some() {
-                "\n  4. 保留本卷责任并接续核审下一卷（同选1的奖励，下一卷仍须独立选择）"
+                "\n  4. 保留本卷责任并接续核审下一卷（放弃本卷即时奖励，下一卷仍须独立选择）"
             } else if self.can_open_yizhou_archive() {
                 "\n  4. 改查西川图责任案卷（先换卷，再独立选择1/2/3）"
             } else { "" };
@@ -1998,11 +1998,18 @@ impl Game {
                 if !self.lore_flags.iter().any(|f| f == b.flag) {
                     self.lore_flags.push(b.flag.into());
                 }
-                self.hp = (self.hp + b.reward_heal).min(self.max_hp);
-                self.gold += b.reward_gold;
-                self.deck.push(Card::new(b.reward_card));
-                let mut narration = format!("{}：结下【{}】，获得{}金、恢复{}体力并得到【{}】。原著参考第{}回。",
-                    b.title,b.flag,b.reward_gold,b.reward_heal,card_spec(b.reward_card).map_or("未知",|spec| spec.name),b.chapter);
+                // Continuation is an accountable trade-off, not a free source
+                // of three extra cards, gold and healing at a single map node.
+                // Original choice 1 remains byte-for-byte equivalent in effect.
+                let mut narration = if index == 1 {
+                    self.hp = (self.hp + b.reward_heal).min(self.max_hp);
+                    self.gold += b.reward_gold;
+                    self.deck.push(Card::new(b.reward_card));
+                    format!("{}：结下【{}】，获得{}金、恢复{}体力并得到【{}】。原著参考第{}回。",
+                        b.title,b.flag,b.reward_gold,b.reward_heal,card_spec(b.reward_card).map_or("未知",|spec| spec.name),b.chapter)
+                } else {
+                    format!("{}：保存【{}】并继续核审下一卷；放弃本卷即时金钱、恢复和卡牌。", b.title,b.flag)
+                };
                 for egg in lore::newly_completed_eggs(self.hero,&self.lore_flags,&self.easter_unlocked) {
                     self.easter_unlocked.push(egg.id.into());
                     self.gold += egg.reward_gold;
