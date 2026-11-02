@@ -52,3 +52,23 @@ Feature: Chapters 060-062 original literary accountability without rewriting his
     Then the flag "fu_pass_record" is absent
     When I save and restore
     Then the flag "fu_pass_record" is absent
+
+  Scenario: Leiyang witness may deliberately switch a third-act story to Yizhou
+    Given a "zhuge" campaign with seed 61068
+    And the flag "leiyang_case_record" was earned earlier
+    And the lore scene "jiangwei"
+    When I choose 4
+    Then the current literary chapter is "yizhou_map_audit"
+    When I save and restore
+    Then the current literary chapter is "yizhou_map_audit"
+    When I choose 1
+    Then the flag "yizhou_map_record" is present
+    And the flag "successor_scroll" is absent
+
+  Scenario: Without Leiyang the alternate scene is rejected atomically
+    Given a "zhuge" campaign with seed 61069
+    And the lore scene "jiangwei"
+    When I remember the current snapshot
+    And I attempt to choose 4
+    Then the snapshot is unchanged
+    And the flag "yizhou_map_record" is absent
