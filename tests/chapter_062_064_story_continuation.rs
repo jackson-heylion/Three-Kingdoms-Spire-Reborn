@@ -67,6 +67,16 @@ fn default_and_refusal_routes_still_exit_without_forged_payoffs() {
     assert!(has(&legacy.lore_flags, "yizhou_map_record"));
     assert!(!has(&legacy.lore_flags, "fu_pass_record"));
 
+    // A version-1 envelope still migrates without opting into the new choice.
+    // This is a synthetic compatibility boundary, not a historical V1 fixture.
+    let mut v1 = archive(Hero::ZhugeLiang, "yizhou_map_audit", true);
+    v1.version = 1;
+    let mut migrated = Game::from_json(&v1.to_json().unwrap()).unwrap();
+    assert_eq!(migrated.version, 2);
+    choose(&mut migrated, 1);
+    assert_eq!(migrated.stage, Stage::Map);
+    assert!(!has(&migrated.lore_flags, "fu_pass_record"));
+
     let mut refusal = archive(Hero::ZhugeLiang, "yizhou_map_audit", true);
     choose(&mut refusal, 4);
     assert_eq!(refusal.lore_current.as_deref(), Some("fu_pass_review"));
