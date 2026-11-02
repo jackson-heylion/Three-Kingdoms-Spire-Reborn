@@ -81,3 +81,35 @@ fn refusing_new_evidence_keeps_old_jingzhou_playable() {
     g.apply(Action::Choose{index:1}).unwrap();
     assert!(has(&g,"jingzhou_warning"));
 }
+
+#[test]
+fn independent_full_read_boundaries_and_refusal_keep_old_jingzhou_open() {
+    let doc=include_str!("../docs/CHAPTERS_034_036_JIAJING_VARIANTS.md");
+    let audit=include_str!("../data/chapter_body_audit.tsv");
+    for marker in ["正文L119—189","正文L119—165","正文L116—165","第二次警告","刘备明确拒绝"] {
+        assert!(doc.contains(marker), "missing evidence {marker}");
+    }
+    let rows:Vec<_>=audit.lines().skip(1).filter(|s|!s.is_empty()).collect();
+    assert_eq!(rows.len(),120);
+    for ch in 34..=36 {
+        let prefix=format!("{ch:03}\t");
+        let matches:Vec<_>=rows.iter().filter(|s|s.starts_with(&prefix)).collect();
+        assert_eq!(matches.len(),1);
+        assert!(matches[0].contains("2026-11-02独立固定单底本复核"));
+    }
+    let b=beat("fancheng_counsel").unwrap();
+    for marker in ["徐母回帖笔迹","刘备拒绝以母命留人","徐母之死在第037回"] {
+        assert!(b.premise.contains(marker), "missing moral causality {marker}");
+    }
+    let mut g=at("fancheng_counsel",&["xinye_counsel_record","anxi_seal"]);
+    let before=g.to_json().unwrap();
+    assert!(g.apply(Action::Choose{index:99}).is_err());
+    assert_eq!(g.to_json().unwrap(),before);
+    g.apply(Action::Choose{index:2}).unwrap();
+    assert!(!has(&g,"fancheng_counsel_record"));
+    let mut g=Game::from_json(&g.to_json().unwrap()).unwrap();
+    enter(&mut g,"jingzhou");
+    g.apply(Action::Choose{index:1}).unwrap();
+    assert!(has(&g,"jingzhou_warning"));
+    assert_eq!(awards(&g,"fancheng_xushu_jingzhou"),0);
+}
