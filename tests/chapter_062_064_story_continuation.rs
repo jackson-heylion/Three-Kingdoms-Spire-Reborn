@@ -21,6 +21,9 @@ fn has(items: &[String], value: &str) -> bool {
 #[test]
 fn explicit_continuation_keeps_each_chapter_decision_and_v2_save() {
     let mut game = archive(Hero::ZhugeLiang, "yizhou_map_audit", true);
+    let initial_gold = game.gold;
+    let initial_hp = game.hp;
+    let initial_deck = game.deck.clone();
     let chain = [
         ("yizhou_map_audit", "yizhou_map_record", "fu_pass_review"),
         ("fu_pass_review", "fu_pass_record", "luofeng_mourning"),
@@ -34,6 +37,12 @@ fn explicit_continuation_keeps_each_chapter_decision_and_v2_save() {
         assert_eq!(game.stage, Stage::Story);
         assert!(has(&game.lore_flags, flag));
         assert!(has(&game.lore_seen, current));
+        if current == "yizhou_map_audit" {
+            // No hidden egg is due yet: continuing must sacrifice immediate loot.
+            assert_eq!(game.gold, initial_gold);
+            assert_eq!(game.hp, initial_hp);
+            assert_eq!(game.deck, initial_deck);
+        }
         assert_eq!(game.lore_current.as_deref(), Some(next));
         let snapshot = game.to_json().unwrap();
         game = Game::from_json(&snapshot).unwrap();
