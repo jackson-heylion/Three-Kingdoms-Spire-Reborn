@@ -75,6 +75,64 @@ def replay(binary: pathlib.Path, seed: int, expected_steps: int,
         return digest
 
 
+def replay_yizhou_alternative(binary: pathlib.Path) -> None:
+    """Find the real floor-15 Story in the existing winning seed, then opt in.
+
+    Every input is a player command. The prefix is discovered by replaying
+    shorter command sequences, never by editing save.json or injecting a scene.
+    """
+    original = (HERE / "fixtures" / "lore_seed61068.txt").read_text(encoding="utf-8").splitlines()
+    assert original[-3:] == ["verify", "lore", "quit"]
+    campaign = original[:-3]
+
+    def run(commands: list[str]) -> tuple[dict, str]:
+        with tempfile.TemporaryDirectory(prefix="tks-yizhou-natural-") as directory:
+            result = subprocess.run(
+                [str(binary), "--plain", "--save-dir", directory],
+                input="\n".join(commands) + "\n", text=True, encoding="utf-8",
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                timeout=75, check=False,
+            )
+            assert result.returncode == 0, (result.returncode, result.stdout[-2000:])
+            saved = json.loads((pathlib.Path(directory) / "save.json").read_text(encoding="utf-8"))
+            return saved, result.stdout
+
+    low, high = 1, len(campaign)
+    while low < high:
+        middle = (low + high) // 2
+        saved, _ = run(campaign[:middle] + ["quit"])
+        if saved["floor"] >= 15:
+            high = middle
+        else:
+            low = middle + 1
+    prefix = campaign[:low]
+    reached, _ = run(prefix + ["quit"])
+    assert (reached["floor"], reached["stage"], reached["lore_current"]) == (
+        15, "story", "jiangwei"
+    ), (low, reached["floor"], reached["stage"], reached["lore_current"])
+    assert "leiyang_case_record" in reached["lore_flags"]
+    assert "yizhou_map_audit" not in reached["lore_seen"]
+
+    script = prefix + ["choose 4", "choose 1", "verify", "lore", "quit"]
+    histories = []
+    for _ in range(2):
+        saved, output = run(script)
+        assert "全战役操作回放校验通过" in output, output[-2000:]
+        assert (saved["floor"], saved["stage"]) == (15, "map")
+        assert saved["lore_seen"][-1] == "yizhou_map_audit"
+        assert "yizhou_map_record" in saved["lore_flags"]
+        assert "jiangwei" not in saved["lore_seen"]
+        assert "successor_scroll" not in saved["lore_flags"]
+        histories.append(hashlib.sha256(json.dumps(
+            saved["action_history"], sort_keys=True, ensure_ascii=False,
+            separators=(",", ":")
+        ).encode("utf-8")).hexdigest())
+    assert histories[0] == histories[1], histories
+    print(f"PASS seed=61068 hero=zhuge difficulty=0 floor=15 "
+          f"scenes=yizhou_map_audit optional_choice=4+1 "
+          f"history_sha256={histories[0]} (2 fresh natural campaigns)")
+
+
 def main() -> None:
     binary = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else "target/debug/tks").resolve()
     for seed, steps, floor, scenes, flags in CASES:
@@ -83,7 +141,8 @@ def main() -> None:
         assert first == second, f"seed {seed}: replay histories diverged"
         print(f"PASS seed={seed} hero=zhuge difficulty=0 floor={floor} "
               f"actions={steps} scenes={','.join(scenes)} history_sha256={first}")
-    print("Natural CLI story reachability: 3 seeds, 6 fresh campaigns, deterministic.")
+    replay_yizhou_alternative(binary)
+    print("Natural CLI story reachability: 3 seeds, 8 fresh campaigns plus prefix discovery, deterministic.")
 
 
 if __name__ == "__main__":
