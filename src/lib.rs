@@ -1955,8 +1955,7 @@ impl Game {
     // at the SAME naturally reached third-act Story node. Choices 1/2/3 keep
     // their old exit semantics; no map/RNG/save-schema changes are needed.
     fn optional_western_audit_successor(&self) -> Option<&'static str> {
-        if self.stage != Stage::Story || self.hero != Hero::ZhugeLiang
-            || !(15..=20).contains(&self.floor) { return None; }
+        if self.stage != Stage::Story || self.hero != Hero::ZhugeLiang { return None; }
         let current = self.lore_current.as_deref()?;
         let next = match current {
             "yizhou_map_audit" => "fu_pass_review",     // 060 -> 062; 061 is a parallel river plot.
