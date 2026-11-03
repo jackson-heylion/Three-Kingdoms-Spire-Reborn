@@ -459,7 +459,7 @@ impl Game {
             if foe.hp == 0 { continue; }
             let act = (self.floor.saturating_sub(1) / 7) as i32;
             // Round up so ascension 1 already changes enemy attacks.
-            let attack = 6 + act * 3 + foe.strength + (self.ascension as i32).div_ceil(3)
+            let attack = 6 + act * 3 + foe.strength + (self.ascension as i32 + 2) / 3
                 + match foe.id.as_str() {
                     "dongzhuo" => 7, "simayi" => 6, "zuoci" => 5, "tiger_general" => 5,
                     "archer" | "assassin" => 1, _ => 0,
@@ -513,7 +513,7 @@ impl Game {
             } else if roll < 68 {
                 Intent::Attack(attack)
             } else if roll < 86 {
-                Intent::Guard(6 + act * 4 + (self.ascension as i32).div_ceil(2))
+                Intent::Guard(6 + act * 4 + (self.ascension as i32 + 1) / 2)
             } else {
                 Intent::Rally(2 + i32::from(act > 0))
             };
@@ -544,7 +544,7 @@ impl Game {
         let mut foes = self.generate_foes(node);
         for foe in &mut foes {
             // Round up so ascension 1 already increases enemy HP.
-            let extra = (self.ascension as i32).div_ceil(2) * (1 + (self.floor as i32 / 7));
+            let extra = (self.ascension as i32 + 1) / 2 * (1 + (self.floor as i32 / 7));
             foe.hp += extra;
             foe.max_hp += extra;
             if self.modifiers.contains(&ChallengeModifier::IronLegion) {
