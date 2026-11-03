@@ -132,6 +132,39 @@ def replay_yizhou_alternative(binary: pathlib.Path) -> None:
           f"scenes=yizhou_map_audit optional_choice=4+1 "
           f"history_sha256={histories[0]} (2 fresh natural campaigns)")
 
+    # The same genuine third-act Story entry can carry three more independent
+    # chapter decisions. The four successive 'choose 4' commands explicitly
+    # retain the current record and open the next; the final 'choose 1' exits.
+    # No map mutation, scene injection, flag editing, or synthetic Game state.
+    script = prefix + ["choose 4", "choose 4", "choose 4", "choose 4",
+                       "choose 1", "verify", "lore", "quit"]
+    chain = ("yizhou_map_audit", "fu_pass_review",
+             "luofeng_mourning", "jinyan_bridge_review")
+    flags = ("yizhou_map_record", "fu_pass_record",
+             "luofeng_mourning_record", "jinyan_bridge_record")
+    chain_hashes = []
+    for _ in range(2):
+        saved, output = run(script)
+        assert "全战役操作回放校验通过" in output, output[-2000:]
+        assert (saved["floor"], saved["stage"]) == (15, "map")
+        assert tuple(saved["lore_seen"][-4:]) == chain, saved["lore_seen"]
+        assert all(flag in saved["lore_flags"] for flag in flags)
+        assert "chengdu_land_record" not in saved["lore_flags"]
+        assert "jiangwei" not in saved["lore_seen"]
+        visits = [(entry["state"]["floor"], entry["state"]["lore_current"])
+                  for entry in saved["campaign_history"]
+                  if isinstance(entry.get("state"), dict)
+                  and entry["state"].get("lore_current") in chain]
+        assert visits == [(15, scene) for scene in chain], visits
+        chain_hashes.append(hashlib.sha256(json.dumps(
+            saved["action_history"], sort_keys=True, ensure_ascii=False,
+            separators=(",", ":")
+        ).encode("utf-8")).hexdigest())
+    assert chain_hashes[0] == chain_hashes[1], chain_hashes
+    print(f"PASS seed=61068 hero=zhuge difficulty=0 floor=15 "
+          f"scenes={','.join(chain)} independent_choices=4+4+4+4+1 "
+          f"history_sha256={chain_hashes[0]} (2 fresh natural campaigns)")
+
 
 def main() -> None:
     binary = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else "target/debug/tks").resolve()
@@ -142,7 +175,7 @@ def main() -> None:
         print(f"PASS seed={seed} hero=zhuge difficulty=0 floor={floor} "
               f"actions={steps} scenes={','.join(scenes)} history_sha256={first}")
     replay_yizhou_alternative(binary)
-    print("Natural CLI story reachability: 3 seeds, 8 fresh campaigns plus prefix discovery, deterministic.")
+    print("Natural CLI story reachability: 3 seeds, 10 fresh campaigns plus prefix discovery, deterministic.")
 
 
 if __name__ == "__main__":

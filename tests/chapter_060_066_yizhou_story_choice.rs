@@ -24,7 +24,7 @@ fn alternative_requires_a_real_third_act_scene_and_leiyang_responsibility() {
         (Hero::ZhugeLiang, "jiangwei", false),
         (Hero::CaoCao, "jiangwei", true),
         (Hero::ZhugeLiang, "fengchu", true),
-        (Hero::ZhugeLiang, "yizhou_map_audit", true),
+        (Hero::ZhugeLiang, "yizhou_map_audit", false),
     ] {
         let mut game = at_story(hero, scene, leiyang);
         let before = game.to_json().unwrap();
@@ -58,9 +58,9 @@ fn switching_is_explicit_reward_free_and_v2_persistent_until_decision() {
     let saved = game.to_json().unwrap();
     let mut resumed = Game::from_json(&saved).unwrap();
     assert_eq!(resumed.to_json().unwrap(), saved);
-    let before = resumed.to_json().unwrap();
-    assert!(resumed.apply(Action::Choose { index: 4 }).is_err());
-    assert_eq!(resumed.to_json().unwrap(), before);
+    // Chapter 062-064 opt-in continuation now legitimately exposes choice 4
+    // after this restore. The original choice 1 must still exit as before.
+    assert!(resumed.lore_hint().contains("4. 保留本卷责任并接续核审"));
     resumed.apply(Action::Choose { index: 1 }).unwrap();
     assert!(contains(&resumed.lore_flags, "yizhou_map_record"));
     assert!(contains(&resumed.lore_seen, "yizhou_map_audit"));

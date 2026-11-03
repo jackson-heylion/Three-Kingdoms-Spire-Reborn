@@ -1951,10 +1951,34 @@ impl Game {
                     && lore::beat(id).is_some_and(|beat| beat.act == 2)
             })
     }
+    // An explicit fourth decision retains this ledger and opens the next one
+    // at the SAME naturally reached third-act Story node. Choices 1/2/3 keep
+    // their old exit semantics; no map/RNG/save-schema changes are needed.
+    fn optional_western_audit_successor(&self) -> Option<&'static str> {
+        if self.stage != Stage::Story || self.hero != Hero::ZhugeLiang { return None; }
+        let current = self.lore_current.as_deref()?;
+        let next = match current {
+            "yizhou_map_audit" => "fu_pass_review",     // 060 -> 062; 061 is a parallel river plot.
+            "fu_pass_review" => "luofeng_mourning",   // 062 -> 063
+            "luofeng_mourning" => "jinyan_bridge_review", // 063 -> 064
+            _ => return None,
+        };
+        let beat = lore::beat(current)?;
+        let successor = lore::beat(next)?;
+        if beat.act != 2 || successor.act != 2
+            || successor.prerequisite != Some(beat.flag)
+            || self.lore_seen.iter().any(|id| id == current || id == next)
+            || beat.prerequisite.is_some_and(|required|
+                !self.lore_flags.iter().any(|flag| flag == required))
+        { return None; }
+        Some(next)
+    }
     pub fn lore_hint(&self) -> String {
         if let Some(id) = &self.lore_current
             && let Some(b) = lore::beat(id) {
-            let alternative = if self.can_open_yizhou_archive() {
+            let alternative = if self.optional_western_audit_successor().is_some() {
+                "\n  4. 保留本卷责任并接续核审下一卷（放弃本卷即时奖励，下一卷仍须独立选择）"
+            } else if self.can_open_yizhou_archive() {
                 "\n  4. 改查西川图责任案卷（先换卷，再独立选择1/2/3）"
             } else { "" };
             return format!("【演义残卷·第{}回】{}——{}：{}\n  1. {}（结缘并记下因果）\n  2. {}（获得金银，错过羁绊）\n  3. 不介入{}",
@@ -1963,19 +1987,29 @@ impl Game {
         self.story_options().to_string()
     }
     fn choose_lore(&mut self, index: usize) -> Result<String, String> {
-        if !(1..=3).contains(&index) { return Err("演义事件请选1、2或3".into()); }
+        let continuation = if index == 4 { self.optional_western_audit_successor() } else { None };
+        if !(1..=3).contains(&index) && continuation.is_none() {
+            return Err("演义事件请选1、2或3；仅明确开放连审时可选4".into());
+        }
         let id = self.lore_current.as_deref().ok_or("没有当前演义章节")?;
         let b = lore::beat(id).ok_or("不存在的演义章节")?;
         let result = match index {
-            1 => {
+            1 | 4 => {
                 if !self.lore_flags.iter().any(|f| f == b.flag) {
                     self.lore_flags.push(b.flag.into());
                 }
-                self.hp = (self.hp + b.reward_heal).min(self.max_hp);
-                self.gold += b.reward_gold;
-                self.deck.push(Card::new(b.reward_card));
-                let mut narration = format!("{}：结下【{}】，获得{}金、恢复{}体力并得到【{}】。原著参考第{}回。",
-                    b.title,b.flag,b.reward_gold,b.reward_heal,card_spec(b.reward_card).map_or("未知",|spec| spec.name),b.chapter);
+                // Continuation is an accountable trade-off, not a free source
+                // of three extra cards, gold and healing at a single map node.
+                // Original choice 1 remains byte-for-byte equivalent in effect.
+                let mut narration = if index == 1 {
+                    self.hp = (self.hp + b.reward_heal).min(self.max_hp);
+                    self.gold += b.reward_gold;
+                    self.deck.push(Card::new(b.reward_card));
+                    format!("{}：结下【{}】，获得{}金、恢复{}体力并得到【{}】。原著参考第{}回。",
+                        b.title,b.flag,b.reward_gold,b.reward_heal,card_spec(b.reward_card).map_or("未知",|spec| spec.name),b.chapter)
+                } else {
+                    format!("{}：保存【{}】并继续核审下一卷；放弃本卷即时金钱、恢复和卡牌。", b.title,b.flag)
+                };
                 for egg in lore::newly_completed_eggs(self.hero,&self.lore_flags,&self.easter_unlocked) {
                     self.easter_unlocked.push(egg.id.into());
                     self.gold += egg.reward_gold;
@@ -2005,6 +2039,11 @@ impl Game {
             // Existing V2 saves that already saw Leiyang still exit normally.
             self.lore_current = Some("leiyang_review".into());
             self.stage = Stage::Story;
+        } else if let Some(next) = continuation {
+            // A fresh decision on the next archive is required. No reward or
+            // flag for that next chapter is granted by this transition.
+            self.lore_current = Some(next.into());
+            self.stage = Stage::Story;
         } else {
             self.finish_scene();
         }
@@ -2012,6 +2051,9 @@ impl Game {
     }
     fn choose_story(&mut self, index: usize) -> Result<String, String> {
         if index == 4 {
+            if self.optional_western_audit_successor().is_some() {
+                return self.choose_lore(index);
+            }
             if !self.can_open_yizhou_archive() {
                 return Err("当前没有可选的西川责任案卷".into());
             }
