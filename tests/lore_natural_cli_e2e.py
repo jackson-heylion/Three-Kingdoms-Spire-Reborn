@@ -166,6 +166,41 @@ def replay_yizhou_alternative(binary: pathlib.Path) -> None:
           f"history_sha256={chain_hashes[0]} (2 fresh natural campaigns)")
 
 
+    # Two separate CLI processes, sharing the same untouched save directory.
+    with tempfile.TemporaryDirectory(prefix="tks-yizhou-restart-") as directory:
+        commands = prefix + ["choose 4", "choose 4", "choose 4",
+                             "choose 4", "choose 1", "save", "quit"]
+        first = subprocess.run(
+            [str(binary), "--plain", "--save-dir", directory],
+            input="\n".join(commands) + "\n", text=True, encoding="utf-8",
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            timeout=75, check=False,
+        )
+        assert first.returncode == 0, first.stdout[-2000:]
+        save_path = pathlib.Path(directory) / "save.json"
+        before = json.loads(save_path.read_text(encoding="utf-8"))
+        assert (before["floor"], before["stage"]) == (15, "map")
+        assert tuple(before["lore_seen"][-4:]) == chain
+        assert all(flag in before["lore_flags"] for flag in flags)
+        second = subprocess.run(
+            [str(binary), "--plain", "--save-dir", directory],
+            input="load\nverify\nlore\nquit\n", text=True, encoding="utf-8",
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            timeout=75, check=False,
+        )
+        assert second.returncode == 0, second.stdout[-2000:]
+        assert "读取进度成功" in second.stdout, second.stdout[-2000:]
+        assert "全战役操作回放校验通过" in second.stdout, second.stdout[-2000:]
+        after = json.loads(save_path.read_text(encoding="utf-8"))
+        for field in ("seed", "hero", "floor", "stage", "lore_seen",
+                      "lore_flags", "action_history", "campaign_history"):
+            assert after[field] == before[field], field
+        assert "chengdu_land_record" not in after["lore_flags"]
+        print("PASS seed=61068 hero=zhuge difficulty=0 floor=15 "
+              "Yizhou responsibility chain survives CLI restart+load+verify; "
+              "Chengdu successor remains unverified")
+
+
 def main() -> None:
     binary = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else "target/debug/tks").resolve()
     for seed, steps, floor, scenes, flags in CASES:
