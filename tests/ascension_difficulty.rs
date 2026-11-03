@@ -71,7 +71,7 @@ fn difficulty_scaling_remains_monotone_across_all_ranks() {
     for rank in 1..=10 {
         let game = first_encounter(Hero::CaoCao, 19, rank);
         let hp = game.battle.as_ref().unwrap().foes[0].max_hp;
-        assert_eq!(hp, hp0 + i32::from(rank).div_ceil(2));
+        assert_eq!(hp, hp0 + (i32::from(rank) + 1) / 2);
         assert!(hp >= last);
         last = hp;
     }
