@@ -81,6 +81,30 @@ mod tests {
         assert!(fancheng.premise.contains("庞德拒降被斩"));
     }
     #[test]
+    fn chapters_097_102_preserve_one_envoy_and_separate_grain_campaigns() {
+        let memorial = beat("second_memorial_supply_review").expect("chapter 097 memorial");
+        let chencang = beat("chencang_siege_wounded_ledger").expect("chapter 097 siege");
+        let retreat = beat("chencang_retreat_supply_audit").expect("chapter 098 withdrawal");
+        let envoy = beat("wu_han_enthronement_dispatch").expect("chapter 098 envoy");
+        let liyan = beat("liyan_dispatch_evidence").expect("chapter 101 dispatch");
+        let ox = beat("wooden_ox_transport_audit").expect("chapter 102 transport");
+        assert_eq!((memorial.chapter, chencang.chapter, retreat.chapter), (97, 97, 98));
+        assert_eq!(retreat.prerequisite, Some(chencang.flag));
+        assert!(retreat.premise.contains("粮尽退还"));
+        assert!(retreat.premise.contains("王双"));
+        assert_eq!(envoy.chapter, 98);
+        assert!(envoy.premise.contains("杨震"));
+        assert!(envoy.premise.contains("陈震"));
+        assert!(envoy.premise.contains("不把使节异文判为两次出使"));
+        assert_eq!(liyan.chapter, 101);
+        assert!(liyan.premise.contains("李严"));
+        assert!(liyan.premise.contains("前后书疏"));
+        assert_eq!(ox.chapter, 102);
+        assert!(ox.premise.contains("二十里"));
+        assert!(ox.premise.contains("三十里"));
+        assert!(ox.premise.contains("不能增生战斗或当史实参数"));
+    }
+    #[test]
     fn maliang_yiling_map_is_novel_story_not_verified_history() {
         let map = beat("yiling_camp_map_warning").expect("chapter 083 archive");
         let report = beat("fishbelly_eightfold_report").expect("chapter 084 archive");
