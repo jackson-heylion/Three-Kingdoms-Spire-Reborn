@@ -102,7 +102,7 @@ mod tests {
         assert_eq!(ox.chapter, 102);
         assert!(ox.premise.contains("二十里"));
         assert!(ox.premise.contains("三十里"));
-        assert!(ox.premise.contains("不得"));
+        assert!(ox.premise.contains("不能增生战斗或当史实参数"));
     }
     #[test]
     fn maliang_yiling_map_is_novel_story_not_verified_history() {
