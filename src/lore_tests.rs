@@ -75,9 +75,9 @@ mod tests {
         assert_eq!(ruxu.chapter, 68);
         assert_eq!(fancheng.chapter, 74);
         assert!(ruxu.premise.contains("陈武与庞德交战"));
+        assert!(ruxu.character.contains("庞德"));
         assert!(ruxu.premise.contains("遂为庞德所杀"));
         assert!(!ruxu.premise.contains("庞德战死"));
         assert!(fancheng.premise.contains("庞德拒降被斩"));
     }
-
 }
