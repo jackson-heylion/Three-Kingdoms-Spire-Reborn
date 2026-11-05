@@ -116,4 +116,16 @@ mod tests {
         assert!(report.premise.contains("不可把小说的预警信使路线当作正史"));
     }
 
+    #[test]
+    fn chapter_080_cao_empress_separates_two_novels_from_hou_han_shu() {
+        let succession = beat("ye_court_succession_review").expect("chapter 079 succession");
+        let abdication = beat("abdication_seal_audit").expect("chapter 080 abdication");
+        assert_eq!((succession.chapter, abdication.chapter), (79, 80));
+        assert_eq!(abdication.prerequisite, Some(succession.flag));
+        assert!(abdication.premise.contains("嘉靖159写曹皇后为曹丕辩护"));
+        assert!(abdication.premise.contains("毛评080却写曹后斥曹洪曹休"));
+        assert!(abdication.premise.contains("《後漢書》卷10下《獻穆曹皇后》"));
+        assert!(abdication.premise.contains("拒交并以璽抵轩下"));
+        assert!(abdication.premise.contains("不能证明毛评的逼宫对白逐字属实"));
+    }
 }
