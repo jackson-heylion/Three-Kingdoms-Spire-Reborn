@@ -90,7 +90,7 @@ mod tests {
         let ox = beat("wooden_ox_transport_audit").expect("chapter 102 transport");
         assert_eq!((memorial.chapter, chencang.chapter, retreat.chapter), (97, 97, 98));
         assert_eq!(retreat.prerequisite, Some(chencang.flag));
-        assert!(retreat.premise.contains("粮尽退军"));
+        assert!(retreat.premise.contains("粮尽退还"));
         assert!(retreat.premise.contains("王双"));
         assert_eq!(envoy.chapter, 98);
         assert!(envoy.premise.contains("杨震"));
