@@ -128,4 +128,16 @@ mod tests {
         assert!(abdication.premise.contains("拒交并以璽抵轩下"));
         assert!(abdication.premise.contains("不能证明毛评的逼宫对白逐字属实"));
     }
+    #[test]
+    fn chapter_097_chencang_envoy_is_separated_from_wei_lue_testimony() {
+        let siege = beat("chencang_siege_wounded_ledger").expect("chapter 097");
+        let retreat = beat("chencang_retreat_supply_audit").expect("chapter 098");
+        assert_eq!((siege.chapter, retreat.chapter), (97, 98));
+        assert_eq!(retreat.prerequisite, Some(siege.flag));
+        assert!(siege.character.contains("鄞祥"));
+        assert!(siege.premise.contains("毛评097与嘉靖193固定电子转录"));
+        assert!(siege.premise.contains("裴注引《魏略》写同乡「靳詳」"));
+        assert!(siege.premise.contains("在城外遥说、郝昭于城楼回应"));
+        assert!(siege.premise.contains("不得将小说会面细节冒充陈寿正文"));
+    }
 }
