@@ -66,4 +66,18 @@ mod tests {
         assert!(next_beat(Hero::GuanYu, 1, &no_flags, &seen).is_none());
         assert_eq!(next_beat(Hero::GuanYu, 1, &["baima_debt".into()], &seen).unwrap().id,"huarong");
     }
+    #[test]
+    fn chapter_068_chen_wu_killed_by_pang_de_who_survives_until_074() {
+        // In chapter 068 Pang De kills Chen Wu; he himself dies after
+        // refusing Guan Yu's surrender offer in chapter 074.
+        let ruxu = beat("ruxu_rescue_roll").expect("chapter 068 scene");
+        let fancheng = beat("pangde_yujin_ledger").expect("chapter 074 scene");
+        assert_eq!(ruxu.chapter, 68);
+        assert_eq!(fancheng.chapter, 74);
+        assert!(ruxu.premise.contains("陈武与庞德交战"));
+        assert!(ruxu.character.contains("庞德"));
+        assert!(ruxu.premise.contains("遂为庞德所杀"));
+        assert!(!ruxu.premise.contains("庞德战死"));
+        assert!(fancheng.premise.contains("庞德拒降被斩"));
+    }
 }
