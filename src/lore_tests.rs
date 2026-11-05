@@ -80,4 +80,16 @@ mod tests {
         assert!(!ruxu.premise.contains("庞德战死"));
         assert!(fancheng.premise.contains("庞德拒降被斩"));
     }
+    #[test]
+    fn maliang_yiling_map_is_novel_story_not_verified_history() {
+        let map = beat("yiling_camp_map_warning").expect("chapter 083 archive");
+        let report = beat("fishbelly_eightfold_report").expect("chapter 084 archive");
+        assert_eq!((map.chapter, report.chapter), (83, 84));
+        assert_eq!(map.flag, "yiling_camp_map_record");
+        assert_eq!(report.prerequisite, Some(map.flag));
+        assert!(map.premise.contains("小说写马良送营图到成都"));
+        assert!(map.premise.contains("《马良传》记其赴武陵"));
+        assert!(report.premise.contains("不可把小说的预警信使路线当作正史"));
+    }
+
 }
