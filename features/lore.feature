@@ -302,3 +302,58 @@ Scenario: Guan Yu's debt and mercy reveal a once-only hidden ending
     Then the flag "shiting_spy_record" is present
     When I save and restore
     Then the flag "shiting_spy_record" is present
+
+# These scenarios enter an injected Story for contract testing. They prove
+  # continuation, rejection and save compatibility, NOT a natural map seed.
+  Scenario: Southern campaign archives retain nine independent choices in one Story node
+    Given a "zhuge" campaign with seed 85900
+    And the flag "yiling_camp_map_record" was earned earlier
+    And the lore scene "fishbelly_eightfold_report"
+    When I choose 4
+    Then the flag "fishbelly_report_record" is present
+    And the current literary chapter is "yongan_regency_register"
+    When I choose 4
+    Then the flag "yongan_regency_record" is present
+    And the current literary chapter is "dengzhi_alliance_dispatch"
+    When I choose 4
+    Then the flag "dengzhi_alliance_record" is present
+    And the current literary chapter is "nanzhong_yongchang_memorial"
+    When I choose 4
+    Then the flag "nanzhong_yongchang_record" is present
+    And the current literary chapter is "nanzhong_first_release_ledger"
+    When I choose 4
+    Then the flag "nanzhong_first_release_record" is present
+    And the hidden conclusion "yongan_nanzhong_civilian_debt" is unlocked
+    And the current literary chapter is "lushui_ferry_care"
+    When I choose 4
+    Then the flag "lushui_ferry_record" is present
+    And the current literary chapter is "xier_spring_civilian_water"
+    When I choose 4
+    Then the flag "xier_spring_record" is present
+    And the current literary chapter is "nanzhong_vine_fire_account"
+    When I save and restore
+    Then the current literary chapter is "nanzhong_vine_fire_account"
+    When I choose 4
+    Then the flag "nanzhong_vine_fire_record" is present
+    And the current literary chapter is "nanzhong_local_governance"
+    When I choose 1
+    Then the flag "nanzhong_local_rule_record" is present
+    When I save and restore
+    Then the hidden conclusion "yongan_nanzhong_civilian_debt" is unlocked
+
+  Scenario: Missing Yiling source rejects Southern archive continuation without state changes
+    Given a "zhuge" campaign with seed 85901
+    And the lore scene "fishbelly_eightfold_report"
+    And I remember the current snapshot
+    When I attempt to choose 4
+    Then the action is rejected
+    And the snapshot is unchanged
+    And the flag "fishbelly_report_record" is absent
+
+  Scenario: Taking Yiling profit never forges the Southern prerequisite
+    Given a "zhuge" campaign with seed 85902
+    And the flag "yiling_camp_map_record" was earned earlier
+    And the lore scene "fishbelly_eightfold_report"
+    When I choose 2
+    Then the flag "fishbelly_report_record" is absent
+    And act 2 does not offer the lore scene "yongan_regency_register"
