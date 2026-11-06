@@ -3,8 +3,28 @@
 pub const BEATS_PART_21: &[Beat] = &[
     Beat {id:"eastward_campaign_counsel",title:"东征谏议与阆中军报",chapter:81,act:2,hero:Some(Hero::ZhugeLiang),prerequisite:Some("chengdu_legitimacy_record"),flag:"eastward_counsel_record",character:"刘备、诸葛亮、赵云、秦宓、张飞、范疆、张达、张苞、关兴",premise:"承080刘备成都即位后赵云进谏，081赵云主张先魏后吴，孔明百官劝勿亲征，秦宓几被斩，刘备仍东行；张飞在阆中鞭责范疆张达后遇刺，吴班先报军书，张苞关兴后来营。李意占图与星陨属小说神异。玩家在成都留守府按时间归档谏书、军粮、死讯，不让孔明亲历阆中夜杀，不改刘备出兵或张飞死生。 嘉靖161录章武元年五月张飞受爵诏，孔明谏后刘备一度说且罢兵；毛评081不录诏全文，只写刘备心中稍回。两本都写张飞催东征及其遇害，不许改写成成功止战。",vow:"原创：保存赵云秦宓谏言、留蜀后勤、张飞遇害军报的先后与被鞭士卒责任",bargain:"原创：只记东征忠义，不记反对意见、暴虐与军粮负担",reward_card:"granary_support",reward_gold:20,reward_heal:9},
     Beat {id:"langzhong_heads_receipt",title:"阆中首级入吴与议和前案",chapter:81,act:2,hero:Some(Hero::SunShangxiang),prerequisite:Some("jingzhou_aftermath_record"),flag:"langzhong_heads_record",character:"孙权、诸葛瑾、范疆、张达、张飞、张苞",premise:"第081回末范疆张达携张飞首级投吴，孙权收留，吴国忧蜀军东征，诸葛瑾请命劝和。孙尚香不在阆中刺杀现场，玩家只在吴方后报区分凶手口供、接收命令与和谈准备；张飞已死，诸葛瑾尚未见刘备。 嘉靖161—162与毛评081均保留范疆张达杀张飞、携首入吴及孙权议和主线；张飞受爵诏详略是版本差异，不能把来吴与报丧重复计为两次刺杀。",vow:"原创：封存凶手供词、首级接收、吴方责任与使节安全令",bargain:"原创：只记吴国得首与迎敌军功，隐去凶手来历和和谈条件",reward_card:"qiaoying",reward_gold:19,reward_heal:8},
-    Beat {id:"wu_wei_envoy_audit",title:"诸葛瑾失和与吴魏册封权宜",chapter:82,act:2,hero:Some(Hero::SunShangxiang),prerequisite:Some("langzhong_heads_record"),flag:"wu_wei_envoy_record",character:"诸葛瑾、刘备、黄权、孙权、张昭、赵咨、曹丕、刘晔、徐盛",premise:"承081吴使出发，082黄权劝刘备见诸葛瑾，吴方提出还荆州、送夫人等和谈条件却被拒，均未交割；孙权遂遣赵咨向曹丕称臣受吴王九锡，嘉靖163则刘晔另详论孙权受王爵后可动员江南民心，毛评082省略这段长论；魏廷拒刘晔夹击建议，魏军并未出兵相救。玩家按吴方回函留证，不将孙夫人写成已经归蜀。",vow:"原创：留两次使节往返、未履行和约、九锡权宜与边境难民转移预算",bargain:"原创：只记册封荣光，不记求和失败和魏不出援",reward_card:"yidong",reward_gold:20,reward_heal:8},
-    Beat {id:"wei_wu_tribute_review",title:"曹魏后继朝廷受吴称臣案",chapter:82,act:2,hero:Some(Hero::CaoCao),prerequisite:Some("abdication_seal_record"),flag:"wei_wu_tribute_record",character:"曹丕、贾诩、赵咨、刘晔、邢贞、孙权、徐盛",premise:"曹操已于078病卒。082吴使赵咨向曹丕称臣，曹丕封孙权吴王加九锡；嘉靖163则刘晔另论王爵可助孙权聚江南民心，毛评082删节这段推演；刘晔提趁吴蜀交兵出兵，曹丕决定坐观。此节点是后继朝廷对外交文书的追录，绝不让曹操本人参与册封，亦不虚构魏军已援吴。",vow:"原创：记录封王诏、吴方权宜称臣、刘晔谏言与战后边民风险",bargain:"原创：只记魏廷受朝贡，不记吴方求援与战略机会代价",reward_card:"qimou",reward_gold:21,reward_heal:8},
+    Beat {id:"wu_wei_envoy_audit",title:"诸葛瑾失和与吴魏册封权宜",chapter:82,act:2,hero:Some(Hero::SunShangxiang),prerequisite:Some("langzhong_heads_record"),flag:"wu_wei_envoy_record",character:"诸葛瑾、刘备、黄权、孙权、张昭、赵咨、曹丕、刘晔、徐盛",premise:"承081吴使出发，082黄权劝刘备见诸葛瑾，吴方提出还荆州、送夫人等和谈条件却被拒，均未交割；孙权遂遣赵咨向曹丕称臣受吴王九锡，嘉靖163则刘晔另详论孙权受王爵后可动员江南民心，毛评082省略这段长论；魏廷拒刘晔夹击建议，魏军并未出兵相救。嘉靖163固定oldid=2554785记孙权随称臣表「並送還於禁等」，毛评079固定oldid=2568043却已叙于禁返魏见高陵壁画后病卒，毛评082没有第二次遣还；《三国志》卷17陈寿正文亦记先遣还、受召见、后谒陵病卒。此为两小说系统的编排差异，不在同一剧情里重复遣返已死人物。玩家按吴方回函留证，不将孙夫人写成已经归蜀。",vow:"原创：留两次使节往返、未履行和约、九锡权宜与边境难民转移预算",bargain:"原创：只记册封荣光，不记求和失败和魏不出援",reward_card:"yidong",reward_gold:20,reward_heal:8},
+    Beat {id:"wei_wu_tribute_review",title:"曹魏后继朝廷受吴称臣案",chapter:82,act:2,hero:Some(Hero::CaoCao),prerequisite:Some("abdication_seal_record"),flag:"wei_wu_tribute_record",character:"曹丕、贾诩、赵咨、刘晔、邢贞、孙权、徐盛",premise:"曹操已于078病卒。082吴使赵咨向曹丕称臣，曹丕封孙权吴王加九锡；嘉靖163则刘晔另论王爵可助孙权聚江南民心，毛评082删节这段推演；刘晔提趁吴蜀交兵出兵，曹丕决定坐观。嘉靖163固定oldid=2554785在赵咨出使前记遣于禁等归魏，毛评079固定oldid=2568043却已将于禁返魏、高陵病卒提前，毛评082未记再次遣还；《三国志·于禁传》卷17固定oldid=2390639陈寿正文先记吴遣归、曹丕召见拜官，再记谒高陵病卒。两套小说时序不可叠加为两次归魏，也不能把陈寿正文冒作裴注。此节点是后继朝廷对外交文书的追录，绝不让曹操本人参与册封，亦不虚构魏军已援吴。",vow:"原创：记录封王诏、吴方权宜称臣、刘晔谏言与战后边民风险",bargain:"原创：只记魏廷受朝贡，不记吴方求援与战略机会代价",reward_card:"qimou",reward_gold:21,reward_heal:8},
     Beat {id:"yiling_defense_memorial",title:"猇亭守险与陆逊军令归档",chapter:83,act:2,hero:Some(Hero::SunShangxiang),prerequisite:Some("wu_wei_envoy_record"),flag:"yiling_defense_record",character:"孙权、陆逊、阚泽、韩当、周泰、孙桓、马良、黄忠、甘宁、潘璋",premise:"第083回蜀军猇亭初胜；嘉靖165则黄忠初战由冯习令吴班助战，毛评083回改作吴班令冯习助战，不能当作两次军令；小说写黄忠被马忠射伤夜卒、甘宁被沙摩柯射死，黄忠史传实卒于220年而非222年夷陵；吴方求和被拒，阚泽荐陆逊为大都督，陆逊令韩当周泰守险、暂不救孙桓。蜀军移林避暑，火攻发生于084，不可在此提前结算。孙尚香仅依据后报复核。",vow:"原创：保存陆逊守险军令、孙桓围城救援争议、史书与小说死年差别和沿江民户避险",bargain:"原创：只记江防待胜，不问病亡将领、围城军民与出击风险",reward_card:"qiaoying",reward_gold:22,reward_heal:10},
     Beat {id:"yiling_camp_map_warning",title:"夷陵连营与营图回送成都",chapter:83,act:2,hero:Some(Hero::ZhugeLiang),prerequisite:Some("eastward_counsel_record"),flag:"yiling_camp_map_record",character:"诸葛亮、刘备、马良、冯习、吴班、陆逊、黄权",premise:"第083回刘备自春历夏连营，陆逊守险不出；刘备因炎热命移营林溪，马良请绘营图问诸葛亮，刘备允其往问。诸葛亮尚未收到完整图本，不可在本回让他亲自指挥猇亭战斗或提前断言084火攻已发生。玩家是成都事后军报与潜在补给风险档案。小说写马良送营图到成都；《三国志》卷39《马良传》记其赴武陵招纳五溪、夷陵败时遇害，并未记成都送图，不能混作史实。",vow:"原创：登记马良请求、营寨水源与林地火险、后勤撤离备选，不提前改写战败",bargain:"原创：只记连营壮观与诱敌之策，不存火险和传递迟延",reward_card:"granary_support",reward_gold:21,reward_heal:9},
 ];
+
+#[cfg(test)]
+mod yujin_079_082_provenance_tests {
+    use super::*;
+
+    #[test]
+    fn edition_specific_repatriation_cannot_revive_yujin_or_be_paid_twice() {
+        let succession = beat("ye_court_succession_review").expect("Mao 079 archive");
+        let envoy = beat("wu_wei_envoy_audit").expect("Wu 082 archive");
+        let tribute = beat("wei_wu_tribute_review").expect("Wei 082 archive");
+        assert_eq!((succession.chapter, envoy.chapter, tribute.chapter), (79, 82, 82));
+        assert!(succession.premise.contains("嘉靖163"));
+        assert!(succession.premise.contains("陈寿正文"));
+        assert!(envoy.premise.contains("不在同一剧情里重复遣返已死人物"));
+        assert!(tribute.premise.contains("两套小说时序不可叠加为两次归魏"));
+        assert!(tribute.premise.contains("陈寿正文"));
+        assert_eq!(envoy.prerequisite, Some("langzhong_heads_record"));
+        assert_eq!(tribute.prerequisite, Some("abdication_seal_record"));
+    }
+}
