@@ -140,4 +140,32 @@ mod tests {
         assert!(siege.premise.contains("在城外遥说、郝昭于城楼回应"));
         assert!(siege.premise.contains("不得将小说会面细节冒充陈寿正文"));
     }
+
+    #[test]
+    fn southern_campaign_archives_follow_eight_explicit_accountability_handoffs() {
+        // Nine independently chosen records are longer than a seven-node act.
+        // This verifies the literary chain; a natural Story entry still needs
+        // its own seed-backed CLI proof and must not be inferred here.
+        let ids = [
+            "fishbelly_eightfold_report",
+            "yongan_regency_register",
+            "dengzhi_alliance_dispatch",
+            "nanzhong_yongchang_memorial",
+            "nanzhong_first_release_ledger",
+            "lushui_ferry_care",
+            "xier_spring_civilian_water",
+            "nanzhong_vine_fire_account",
+            "nanzhong_local_governance",
+        ];
+        for pair in ids.windows(2) {
+            let previous = beat(pair[0]).expect("previous archive must exist");
+            let next = beat(pair[1]).expect("next archive must exist");
+            assert_eq!(previous.act, 2);
+            assert_eq!(next.act, 2);
+            assert_eq!(previous.hero, Some(Hero::ZhugeLiang));
+            assert_eq!(next.hero, Some(Hero::ZhugeLiang));
+            assert_eq!(next.prerequisite, Some(previous.flag), "{}", next.id);
+            assert!(next.chapter >= previous.chapter);
+        }
+    }
 }
