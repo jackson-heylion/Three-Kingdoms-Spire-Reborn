@@ -5,6 +5,12 @@
 固定毛评本：[067 oldid=2568030](https://zh.wikisource.org/w/index.php?title=三國演義/第067回&oldid=2568030)、[068 oldid=2568031](https://zh.wikisource.org/w/index.php?title=三國演義/第068回&oldid=2568031)、[069 oldid=7907113](https://zh.wikisource.org/w/index.php?title=三國演義/第069回&oldid=7907113)。
 固定嘉靖本：[133 oldid=2558051](https://zh.wikisource.org/w/index.php?title=嘉靖本三國志通俗演義/第133回&oldid=2558051)、[134 oldid=2558050](https://zh.wikisource.org/w/index.php?title=嘉靖本三國志通俗演義/第134回&oldid=2558050)、[135 oldid=2558049](https://zh.wikisource.org/w/index.php?title=嘉靖本三國志通俗演義/第135回&oldid=2558049)、[136 oldid=2554744](https://zh.wikisource.org/w/index.php?title=嘉靖本三國志通俗演義/第136回&oldid=2554744)、[137 oldid=2554763](https://zh.wikisource.org/w/index.php?title=嘉靖本三國志通俗演義/第137回&oldid=2554763)、[138 oldid=2554790](https://zh.wikisource.org/w/index.php?title=嘉靖本三國志通俗演義/第138回&oldid=2554790)。
 
+## 067 嘉靖133电子转录的跨则重复谏书（本轮新增定点证据）
+
+逐字定位：[嘉靖132固定oldid=2558066](https://zh.wikisource.org/w/index.php?title=嘉靖本三國志通俗演義/第132回&oldid=2558066) L129 在傅干谏曹操暂罢南征的书信末尾写「惟明公思虞、舜舞干戚之義，全威養德，以道制勝，則國家之幸也！願鈞察焉。」；[嘉靖133固定oldid=2558051](https://zh.wikisource.org/w/index.php?title=嘉靖本三國志通俗演義/第133回&oldid=2558051) L117 在杨任向张鲁立军令状、领二万军下寨的**叙述句末**突兀重复这一整段傅干书尾，L118 随即回到夏侯渊出哨、斩昌奇与杨任的战事。[毛评067固定oldid=2568030](https://zh.wikisource.org/w/index.php?title=三國演義/第067回&oldid=2568030) L125—127 在同一叙事位置没有该书尾，直接转夏侯渊出战。
+
+**证据判断**：目前只能确证两个固定嘉靖**电子转录**版本重复了同一句、且后者处于不相干的军令状语境；强烈提示跨则混入或转录错置。未见嘉靖壬午原刻影印该页，**不能断言原刻本无此句、不能计为已核实的刻本逐字异文**。尤其不得将此句归给杨任，虚构其向张鲁或曹操提出「修文息兵」新主张，更不能由此修改067故事选择或战果。后续取得原刻影印对应叶面时再决定是否勘误电子底本；这是一处新定点辨源，不增加067全回异本校勘或史证完成数。
+
 ## 067 皖城庆功宴：停斗与和解不是同一证词
 毛评067正文约 L159—161：吕蒙居间舞刀牌，孙权到场后「孫權再三勸止」，二人放下兵器；[嘉靖134](https://zh.wikisource.org/w/index.php?title=嘉靖本三國志通俗演義/第134回&oldid=2558050)正文约 L115 则写孙权「自與甘甯、凌统二人和解」。两版都还在毛评068/嘉靖135写甘宁射救凌统后，凌统才「結為生死之交」。嘉靖134宴上「和解」不能误写为永久消除父仇，更不能将孙权说成后来箭救凌统者。此前嘉靖133/毛评067均有阳平先败、庞德受诬、张鲁封仓、司马懿刘晔请进蜀而曹操不从的主要因果；未据此重算真实战损。
 
