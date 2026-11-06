@@ -168,4 +168,66 @@ mod tests {
             assert!(next.chapter >= previous.chapter);
         }
     }
+    #[test]
+    fn yongan_to_nanzhong_hidden_debts_require_every_record_and_pay_once() {
+        // These are flag-injected unit tests, NOT evidence of natural map/CLI reachability.
+        let cases: [(&str, Hero, &[&str], i32, i32); 3] = [
+            (
+                "yongan_nanzhong_civilian_debt",
+                Hero::ZhugeLiang,
+                &["yongan_regency_record", "dengzhi_alliance_record",
+                  "nanzhong_yongchang_record", "nanzhong_first_release_record"],
+                18, 7,
+            ),
+            (
+                "redcliff_nanzhong_water_debt",
+                Hero::ZhugeLiang,
+                &["redcliff_wind", "dengzhi_alliance_record",
+                  "nanzhong_yongchang_record", "nanzhong_first_release_record",
+                  "lushui_ferry_record", "xier_spring_record"],
+                29, 13,
+            ),
+            (
+                "nanzhong_mourning_debt",
+                Hero::ZhugeLiang,
+                &["xier_spring_record", "nanzhong_vine_fire_record",
+                  "nanzhong_local_rule_record", "lushui_memorial_record"],
+                27, 12,
+            ),
+        ];
+        for (id, hero, required, gold, heal) in cases {
+            let egg = EASTER_EGGS.iter().find(|egg| egg.id == id).expect("hidden debt");
+            assert_eq!(egg.hero, Some(hero), "{id}");
+            assert_eq!(egg.flags, required, "{id}");
+            assert_eq!((egg.reward_gold, egg.reward_heal), (gold, heal), "{id}");
+            for missing in required {
+                let partial: Vec<String> = required.iter()
+                    .filter(|flag| *flag != missing)
+                    .map(|flag| (*flag).to_owned()).collect();
+                assert!(
+                    !newly_completed_eggs(hero, &partial, &[])
+                        .iter().any(|unlocked| unlocked.id == id),
+                    "{id} incorrectly pays without {missing}"
+                );
+            }
+            let complete: Vec<String> = required.iter().map(|flag| (*flag).to_owned()).collect();
+            assert_eq!(
+                newly_completed_eggs(hero, &complete, &[])
+                    .iter().filter(|unlocked| unlocked.id == id).count(),
+                1,
+                "{id} must unlock exactly once with all flags"
+            );
+            assert!(
+                !newly_completed_eggs(hero, &complete, &[id.to_owned()])
+                    .iter().any(|unlocked| unlocked.id == id),
+                "{id} must not pay twice after save restoration"
+            );
+            assert!(
+                !newly_completed_eggs(Hero::GuanYu, &complete, &[])
+                    .iter().any(|unlocked| unlocked.id == id),
+                "{id} must not pay to another hero"
+            );
+        }
+    }
+
 }
