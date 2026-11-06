@@ -98,3 +98,22 @@ fn cao_cross_chapter_evidence_is_optional_and_atomic() {
     assert_eq!(count(&refused.lore_flags, "xudu_fire_record"), 0);
     assert_eq!(count(&refused.easter_unlocked, "xudu_hanshui_debt"), 0);
 }
+
+#[test]
+fn chenwu_hefei_215_vs_fictional_ruxu_preserves_existing_lore_contract() {
+    let source = include_str!("../docs/CHAPTERS_067_069_JIAJING_VARIANTS.md");
+    assert!(source.contains("oldid=2603286"));
+    assert!(source.contains("建安二十年"));
+    assert!(source.contains("《陈武传》"));
+    assert!(source.contains("《董袭传》"));
+    assert!(source.contains("陈寿正文"));
+
+    let beat = beat("ruxu_rescue_roll").expect("chapter 068 Wu aftermath");
+    assert_eq!(beat.chapter, 68);
+    assert_eq!(beat.prerequisite, Some("xiaoyao_ferry_record"));
+    assert_eq!(beat.flag, "ruxu_rescue_record");
+    assert_eq!((beat.reward_gold, beat.reward_heal), (21, 9));
+    assert!(beat.premise.contains("固定oldid=2603286"));
+    assert!(beat.premise.contains("不可把小说濡须死因当正史"));
+    assert!(beat.premise.contains("不可将陈武在合肥与濡须计算为两次阵亡"));
+}
