@@ -1956,13 +1956,24 @@ impl Game {
     // An explicit fourth decision retains this ledger and opens the next one
     // at the SAME naturally reached third-act Story node. Choices 1/2/3 keep
     // their old exit semantics; no map/RNG/save-schema changes are needed.
-    fn optional_western_audit_successor(&self) -> Option<&'static str> {
+    fn optional_responsibility_successor(&self) -> Option<&'static str> {
         if self.stage != Stage::Story || self.hero != Hero::ZhugeLiang { return None; }
         let current = self.lore_current.as_deref()?;
         let next = match current {
             "yizhou_map_audit" => "fu_pass_review",     // 060 -> 062; 061 is a parallel river plot.
             "fu_pass_review" => "luofeng_mourning",   // 062 -> 063
             "luofeng_mourning" => "jinyan_bridge_review", // 063 -> 064
+            // Optional Southern Campaign responsibility archive: every hop has
+            // a separate decision, and the current beat's instant reward is
+            // forfeited to avoid multiplying cards/gold at one map node.
+            "fishbelly_eightfold_report" => "yongan_regency_register", // 084 -> 085
+            "yongan_regency_register" => "dengzhi_alliance_dispatch", // 085 -> 086
+            "dengzhi_alliance_dispatch" => "nanzhong_yongchang_memorial", // 086 -> 087
+            "nanzhong_yongchang_memorial" => "nanzhong_first_release_ledger", // 087 -> 087
+            "nanzhong_first_release_ledger" => "lushui_ferry_care", // 087 -> 088
+            "lushui_ferry_care" => "xier_spring_civilian_water", // 088 -> 089
+            "xier_spring_civilian_water" => "nanzhong_vine_fire_account", // 089 -> 090
+            "nanzhong_vine_fire_account" => "nanzhong_local_governance", // 090 -> 090
             _ => return None,
         };
         let beat = lore::beat(current)?;
@@ -1978,7 +1989,7 @@ impl Game {
     pub fn lore_hint(&self) -> String {
         if let Some(id) = &self.lore_current
             && let Some(b) = lore::beat(id) {
-            let alternative = if self.optional_western_audit_successor().is_some() {
+            let alternative = if self.optional_responsibility_successor().is_some() {
                 "\n  4. 保留本卷责任并接续核审下一卷（放弃本卷即时奖励，下一卷仍须独立选择）"
             } else if self.can_open_yizhou_archive() {
                 "\n  4. 改查西川图责任案卷（先换卷，再独立选择1/2/3）"
@@ -1989,7 +2000,7 @@ impl Game {
         self.story_options().to_string()
     }
     fn choose_lore(&mut self, index: usize) -> Result<String, String> {
-        let continuation = if index == 4 { self.optional_western_audit_successor() } else { None };
+        let continuation = if index == 4 { self.optional_responsibility_successor() } else { None };
         if !(1..=3).contains(&index) && continuation.is_none() {
             return Err("演义事件请选1、2或3；仅明确开放连审时可选4".into());
         }
@@ -2053,7 +2064,7 @@ impl Game {
     }
     fn choose_story(&mut self, index: usize) -> Result<String, String> {
         if index == 4 {
-            if self.optional_western_audit_successor().is_some() {
+            if self.optional_responsibility_successor().is_some() {
                 return self.choose_lore(index);
             }
             if !self.can_open_yizhou_archive() {
