@@ -189,7 +189,11 @@ impl Profile {
             let key = game.hero.name().to_string();
             *self.hero_wins.entry(key.clone()).or_default() += 1;
             if let Some(tier) = game.difficulty {
-                self.difficulty_clears.entry(key.clone()).or_default().insert(tier);
+                // The opt-in 21-floor prototype is not a completed 40-floor campaign.
+                // Preserve its run record without granting a full-campaign tier clear.
+                if game.floor >= 40 {
+                    self.difficulty_clears.entry(key.clone()).or_default().insert(tier);
+                }
             } else if game.mode == RunMode::Standard {
                 let legacy_ascension = self.ascensions.entry(key).or_default();
                 *legacy_ascension = (*legacy_ascension).max((game.ascension + 1).min(10));
