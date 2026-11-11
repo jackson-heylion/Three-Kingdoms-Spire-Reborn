@@ -16,6 +16,7 @@ impl Game {
         let mut game = Self::new_with_identity(hero, seed, 0, RunMode::Standard, run_id);
         game.difficulty = Some(difficulty);
         game.refresh_route();
+        game.rng_history = Some(vec![rng_events::RngEvent::Started { state: game.rng_state }]);
         let initial = campaign_authority::CampaignState::current(&game);
         if let Some(history) = game.campaign_history.as_mut() {
             history[0] = campaign_authority::CampaignEvent::Started { state: initial };
