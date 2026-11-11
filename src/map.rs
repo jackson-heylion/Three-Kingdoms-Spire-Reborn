@@ -143,6 +143,12 @@ impl ActMap {
             || self.terrain_at(0,0)==Terrain::Closed
             || (0..LANES).any(|lane|self.terrain_at(row_count-1,lane)==Terrain::Closed)
         {return false;}
+        // Only original seven-row V2 maps may omit these optional graph fields.
+        // Accepting their absence on an eight-row campaign would silently
+        // replace seeded forks, closed lanes and terrain with legacy adjacency.
+        if row_count == EXPANDED_ROWS && (self.edges.is_empty() || self.terrain.is_empty()) {
+            return false;
+        }
         if self.edges.is_empty() {
             // Existing saved campaigns used exactly adjacent-lane paths.
             return true;
@@ -265,6 +271,22 @@ mod tests {
         }
         assert_ne!(EXPANDED_ENCOUNTER_WEIGHTS[2],EXPANDED_ENCOUNTER_WEIGHTS[3]);
         assert_ne!(EXPANDED_ENCOUNTER_WEIGHTS[3],EXPANDED_ENCOUNTER_WEIGHTS[4]);
+    }
+    #[test]
+    fn expanded_map_cannot_silently_fall_back_to_legacy_topology() {
+        let map=ActMap::generate_expanded(|n|n/2,3);
+        assert!(map.is_valid());
+        let mut without_edges=map.clone();
+        without_edges.edges.clear();
+        assert!(!without_edges.is_valid(),"expanded map must retain authoritative edges");
+        let mut without_terrain=map.clone();
+        without_terrain.terrain.clear();
+        assert!(!without_terrain.is_valid(),"expanded map must retain authoritative terrain");
+        // V2 classic snapshots may genuinely lack both optional fields.
+        let mut legacy=ActMap::generate(|n|n/2,0);
+        legacy.edges.clear();
+        legacy.terrain.clear();
+        assert!(legacy.is_valid());
     }
     #[test]
     fn legacy_map_generation_remains_identical_to_explicit_old_layout() {
