@@ -149,17 +149,15 @@ impl ActMap {
         if row_count == EXPANDED_ROWS && (self.edges.is_empty() || self.terrain.is_empty()) {
             return false;
         }
-        if self.edges.is_empty() {
-            // Existing saved campaigns used exactly adjacent-lane paths.
-            return true;
-        }
-        // Check that every enterable reachable lane offers at least one route,
-        // and that all edge bits represent adjacent, unblocked destinations.
+        // Check every reachable lane, including old snapshots whose empty
+        // edge list means implicit adjacent-lane paths. Terrain-only corrupted
+        // snapshots must not be accepted if every onward route is blocked.
+        // Explicit edges also require adjacent, unblocked destinations.
         let mut reachable=[true;3];
         for row in 1..row_count {
             let mut next=[false;3];
             for (previous,found) in reachable.iter().enumerate() {
-                let bits=self.edges[row-1][previous];
+                let bits=self.edges.get(row-1).map_or(0, |edges| edges[previous]);
                 if bits&!0b111!=0 || (bits!=0 && self.terrain_at(row-1,previous as u8)==Terrain::Closed)
                 {return false;}
                 for to in 0usize..3 {
@@ -287,6 +285,16 @@ mod tests {
         legacy.edges.clear();
         legacy.terrain.clear();
         assert!(legacy.is_valid());
+    }
+    #[test]
+    fn implicit_legacy_routes_reject_a_closed_corridor_without_rejecting_old_saves() {
+        let mut map = ActMap::generate(|n| n / 2, 0);
+        map.edges.clear();
+        map.terrain.clear();
+        assert!(map.is_valid(), "original V2 saves have implicit adjacent lanes");
+        map.terrain = vec![[Terrain::Road; 3]; ROWS];
+        map.terrain[2] = [Terrain::Closed; 3];
+        assert!(!map.is_valid(), "a malformed terrain-only save must not strand every lane");
     }
     #[test]
     fn legacy_map_generation_remains_identical_to_explicit_old_layout() {
