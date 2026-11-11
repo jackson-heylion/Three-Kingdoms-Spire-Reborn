@@ -38,6 +38,14 @@ impl Difficulty {
         }
     }
 
+    pub fn rules_summary(self) -> &'static str {
+        match self {
+            Self::Warlords => "敌军体力+2、常规攻势+2、部分护卫偶数回合协同、战后金币-4",
+            Self::Conqueror => "敌军体力+4、常规攻势+4、部分护卫第二回合起协同、战后金币-8",
+            Self::Destiny => "敌军体力+6、常规攻势+6、部分护卫每回合可协同、战后金币-12",
+        }
+    }
+
     // Initial pressure for the vertical slice; tactical mechanics will expand.
     pub fn enemy_hp_bonus(self) -> i32 {
         match self {

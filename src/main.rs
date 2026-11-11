@@ -251,8 +251,15 @@ impl App {
             println!(" 幕：{}  层：{}/21  牌组：{}  遗物：{}  存档修订：{}",
                 (g.floor.saturating_sub(1) / 7 + 1).min(3), g.floor, g.deck.len(),
                 g.relics.join("、"), g.revision);
-            println!(" 模式：{:?}  飞升难度：{}  已完成战役：{}  存档协议：V{}",
-                g.mode, g.ascension, g.victories, g.version);
+            let difficulty_label = g.difficulty.map_or_else(
+                || format!("旧制飞升：{}", g.ascension),
+                |tier| format!("新制三档：{}（21层验证切片）", tier.name()),
+            );
+            println!(" 模式：{:?}  {}  已完成战役：{}  存档协议：V{}",
+                g.mode, difficulty_label, g.victories, g.version);
+            if let Some(tier) = g.difficulty {
+                println!(" 【难度规则】{}", tier.rules_summary());
+            }
             println!(" {}",g.doctrine_status());
             if !g.modifiers.is_empty() {
                 println!(" 【自由挑战】{}", g.modifiers.iter().map(|m| m.name())
@@ -451,8 +458,13 @@ impl App {
                 _ => Err("用法：theme light|dark|highcontrast".into()),
             },
             "status" => Ok(self.game.as_ref().map_or("尚未开局".into(), |g| {
-                format!("{}，第{}层，体力{}/{}，{}金，{}张卡牌，版本{}。",
-                    g.hero.name(), g.floor, g.hp, g.max_hp, g.gold, g.deck.len(), g.version)
+                let rules = g.difficulty.map_or_else(
+                    || format!("旧制飞升{}（三幕21层）", g.ascension),
+                    |tier| format!("新制【{}】；当前为旧制21层验证切片；{}",
+                        tier.name(), tier.rules_summary()),
+                );
+                format!("{}，第{}层，体力{}/{}，{}金，{}张卡牌，版本{}；{}。",
+                    g.hero.name(), g.floor, g.hp, g.max_hp, g.gold, g.deck.len(), g.version, rules)
             })),
             "map" => Ok(self.game.as_ref().map_or("尚未开局".into(),|g| {
                 g.act_map.as_ref().map_or("当前存档没有已生成的地图".into(),|graph| {
