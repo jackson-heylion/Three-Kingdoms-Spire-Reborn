@@ -289,6 +289,16 @@ mod tests {
         assert!(legacy.is_valid());
     }
     #[test]
+    fn implicit_legacy_routes_reject_a_closed_corridor_without_rejecting_old_saves() {
+        let mut map = ActMap::generate(|n| n / 2, 0);
+        map.edges.clear();
+        map.terrain.clear();
+        assert!(map.is_valid(), "original V2 saves have implicit adjacent lanes");
+        map.terrain = vec![[Terrain::Road; 3]; ROWS];
+        map.terrain[2] = [Terrain::Closed; 3];
+        assert!(!map.is_valid(), "a malformed terrain-only save must not strand every lane");
+    }
+    #[test]
     fn legacy_map_generation_remains_identical_to_explicit_old_layout() {
         for act in 0..3 {
             let mut a=12345u64;
