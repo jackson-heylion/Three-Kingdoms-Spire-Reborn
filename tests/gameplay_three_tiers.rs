@@ -74,3 +74,24 @@ fn new_tier_event_archive_reconstructs_after_action_and_json_resume() {
         assert_eq!(restored.to_json().unwrap(), saved, "event verification is read-only");
     }
 }
+
+#[test]
+fn new_tier_replay_rejects_difficulty_identity_tampering_without_mutating_snapshot() {
+    let mut game = first_battle(Game::new_with_campaign_difficulty(
+        Hero::CaoCao, 1945, Difficulty::Warlords, "tamper-tier".into(),
+    ));
+    game.verify_action_replay().expect("original tier must replay");
+    let original = game.to_json().unwrap();
+
+    // The same actions and seed cannot authenticate a different ruleset.
+    // This also covers tampering that leaves the battle-event journal intact.
+    game.difficulty = Some(Difficulty::Destiny);
+    let tampered = game.to_json().unwrap();
+    assert_ne!(tampered, original);
+    assert!(game.verify_action_replay().is_err());
+    assert!(game.reconstruct_event_history().is_err());
+    assert_eq!(game.to_json().unwrap(), tampered, "verification must be read-only");
+
+    let restored = Game::from_json(&original).expect("untampered save loads");
+    restored.verify_action_replay().expect("untampered save still replays");
+}
