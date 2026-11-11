@@ -15,6 +15,7 @@ impl Game {
     ) -> Self {
         let mut game = Self::new_with_identity(hero, seed, 0, RunMode::Standard, run_id);
         game.difficulty = Some(difficulty);
+        game.refresh_route();
         let initial = campaign_authority::CampaignState::current(&game);
         if let Some(history) = game.campaign_history.as_mut() {
             history[0] = campaign_authority::CampaignEvent::Started { state: initial };
@@ -80,18 +81,24 @@ impl Game {
     }
     pub(crate) fn refresh_route(&mut self) {
         let next = self.floor + 1;
-        if next > MAX_FLOOR {
+        let rows = if self.difficulty.is_some() { map::EXPANDED_ROWS as u8 } else { map::ROWS as u8 };
+        let limit = if self.difficulty.is_some() { 40 } else { MAX_FLOOR };
+        if next > limit {
             self.route.clear();
             self.route_lanes.clear();
             return;
         }
-        let act = self.floor / 7;
+        let act = self.floor / rows;
         if self.act_map.as_ref().is_none_or(|map| map.act != act) {
-            let generated = map::ActMap::generate(|bound| self.random(bound),act);
+            let generated = if self.difficulty.is_some() {
+                map::ActMap::generate_expanded(|bound| self.random(bound), act)
+            } else {
+                map::ActMap::generate(|bound| self.random(bound), act)
+            };
             self.act_map = Some(generated);
             self.map_lane = None;
         }
-        let row = usize::from((next - 1) % 7);
+        let row = usize::from((next - 1) % rows);
         let choices = self.act_map.as_ref().expect("generated").routes(row,self.map_lane);
         self.route_lanes = choices.iter().map(|(lane,_)| *lane).collect();
         self.route = choices.iter().map(|(_,node)| *node).collect();
