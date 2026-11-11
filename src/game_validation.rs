@@ -3,7 +3,7 @@ use crate::*;
 
 impl Game {
     pub fn validate(&self) -> Result<(), String> {
-        if self.hp < 0 || self.hp > self.max_hp || self.max_hp <= 0 || self.gold < 0 || self.floor > MAX_FLOOR
+        if self.hp < 0 || self.hp > self.max_hp || self.max_hp <= 0 || self.gold < 0 || self.floor > self.campaign_max_floor()
             || self.ascension > 10 || self.potions > 3 || self.potion_bag.len() > 3
             || usize::from(self.potions) != self.potion_bag.len()
             || self.potion_bag.iter().any(|id| !items::POTIONS.iter().any(|(valid,_)| valid == id))
@@ -88,7 +88,7 @@ impl Game {
         }
         if self.telemetry.recent_turns.len() > MAX_RECENT_TURN_METRICS
             || self.telemetry.recent_turns.iter().any(|entry|
-                entry.floor > MAX_FLOOR || entry.hero_hp_after < 0 || entry.troop_hp_after < 0)
+                entry.floor > self.campaign_max_floor() || entry.hero_hp_after < 0 || entry.troop_hp_after < 0)
         { return Err("战斗统计记录无效".into()); }
         if let Some(history)=&self.event_history {
             if history.len()>1_000_000 {return Err("event history exceeds size limit".into());}
