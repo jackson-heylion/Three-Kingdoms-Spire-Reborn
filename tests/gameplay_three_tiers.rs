@@ -95,3 +95,28 @@ fn new_tier_replay_rejects_difficulty_identity_tampering_without_mutating_snapsh
     let restored = Game::from_json(&original).expect("untampered save loads");
     restored.verify_action_replay().expect("untampered save still replays");
 }
+
+#[test]
+fn all_five_heroes_retain_tier_identity_across_json_and_event_replay() {
+    // This cross-product catches hero-specific setup or combat initialization
+    // paths accidentally rebuilding a three-tier run as legacy ascension.
+    let heroes = [
+        Hero::CaoCao, Hero::GuanYu, Hero::ZhugeLiang, Hero::SunShangXiang, Hero::LuBu,
+    ];
+    for (hero_index, hero) in heroes.into_iter().enumerate() {
+        for tier in Difficulty::ALL {
+            let game = first_battle(Game::new_with_campaign_difficulty(
+                hero, 70_000 + hero_index as u64, tier,
+                format!("hero-{hero_index}-tier-{}", tier.id()),
+            ));
+            let before = game.to_json().expect("serialize campaign");
+            let resumed = Game::from_json(&before).expect("resume campaign");
+            assert_eq!(resumed.difficulty, Some(tier));
+            assert_eq!(resumed.ascension, 0);
+            resumed.audit_campaign_authority().expect("authoritative identity");
+            resumed.verify_action_replay().expect("actions replay");
+            resumed.reconstruct_event_history().expect("events replay");
+            assert_eq!(resumed.to_json().unwrap(), before, "verification must be read-only");
+        }
+    }
+}
