@@ -25,6 +25,8 @@ pub mod battle_runtime_events;
 mod action_commit;
 mod replay;
 pub mod challenges;
+pub mod difficulty;
+pub use difficulty::Difficulty;
 pub mod content;
 pub mod items;
 pub mod lore;
@@ -282,6 +284,9 @@ pub struct Game {
     pub market: Vec<Card>,
     pub log: Vec<String>,
     #[serde(default)] pub ascension: u8,
+    /// Explicit new-era three-tier campaign; None preserves original ascension rules.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub difficulty: Option<Difficulty>,
     #[serde(default)] pub event_id: u8,
     #[serde(default)] pub potion_bag: Vec<String>,
     #[serde(default)] pub shop_relic: Option<String>,
@@ -446,6 +451,7 @@ impl Game {
         }).collect()
     }
     fn roll_intents(&mut self) {
+        let difficulty = self.difficulty;
         let count = self.battle.as_ref().map_or(0, |b| b.foes.len());
         for i in 0..count {
             // Consume the same seed-driven roll for every enemy, including scripted
@@ -460,6 +466,7 @@ impl Game {
             let act = (self.floor.saturating_sub(1) / 7) as i32;
             // Round up so ascension 1 already changes enemy attacks.
             let attack = 6 + act * 3 + foe.strength + (self.ascension as i32 + 2) / 3
+                + difficulty.map_or(0, Difficulty::attack_bonus)
                 + match foe.id.as_str() {
                     "dongzhuo" => 7, "simayi" => 6, "zuoci" => 5, "tiger_general" => 5,
                     "archer" | "assassin" => 1, _ => 0,
@@ -501,9 +508,14 @@ impl Game {
                 Intent::Rally(3)
             } else if living > 1
                 && matches!(foe.id.as_str(),"officer"|"tactician"|"royal_guard")
-                && turn % 3 == 2
+                && match difficulty {
+                    Some(Difficulty::Warlords) => turn.is_multiple_of(2),
+                    Some(Difficulty::Conqueror) => turn >= 2,
+                    Some(Difficulty::Destiny) => true,
+                    None => turn % 3 == 2,
+                }
             {
-                Intent::Assist(4+act*2)
+                Intent::Assist(4 + act * 2 + difficulty.map_or(0, Difficulty::support_bonus))
             } else if foe.phase > 0 && matches!(foe.id.as_str(), "sunjian" | "dongzhuo") {
                 Intent::MultiAttack((attack / 2).max(3), 2)
             } else if spellcaster && (roll < 26 || turn.is_multiple_of(4)) {
@@ -513,7 +525,8 @@ impl Game {
             } else if roll < 68 {
                 Intent::Attack(attack)
             } else if roll < 86 {
-                Intent::Guard(6 + act * 4 + (self.ascension as i32 + 1) / 2)
+                Intent::Guard(6 + act * 4 + (self.ascension as i32 + 1) / 2
+                    + difficulty.map_or(0, Difficulty::support_bonus))
             } else {
                 Intent::Rally(2 + i32::from(act > 0))
             };
@@ -544,7 +557,8 @@ impl Game {
         let mut foes = self.generate_foes(node);
         for foe in &mut foes {
             // Round up so ascension 1 already increases enemy HP.
-            let extra = (self.ascension as i32 + 1) / 2 * (1 + (self.floor as i32 / 7));
+            let extra = (self.ascension as i32 + 1) / 2 * (1 + (self.floor as i32 / 7))
+                + self.difficulty.map_or(0, Difficulty::enemy_hp_bonus);
             foe.hp += extra;
             foe.max_hp += extra;
             if self.modifiers.contains(&ChallengeModifier::IronLegion) {
@@ -965,6 +979,7 @@ impl Game {
         self.capture_turn_metrics(false);
         self.battle = None;
         let payout = match node { Node::Boss => 100, Node::Elite => 60, _ => 24 + self.random(15) as i32 };
+        let payout = payout.saturating_sub(self.difficulty.map_or(0, Difficulty::supply_toll));
         self.gold += payout;
         if self.relics.iter().any(|r| r == "铜雀") { self.gold += 12; }
         if self.relics.iter().any(|r| r == "神医") {

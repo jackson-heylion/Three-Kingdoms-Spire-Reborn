@@ -42,9 +42,13 @@ impl Game {
         if revision > self.revision {
             return Err("请求的历史修订号超过当前存档".into());
         }
-        let mut replayed = Game::new_with_identity(
-            self.hero, self.seed, self.ascension, self.mode, self.run_id.clone(),
-        );
+        let mut replayed = if let Some(difficulty) = self.difficulty {
+            Game::new_with_campaign_difficulty(self.hero, self.seed, difficulty, self.run_id.clone())
+        } else {
+            Game::new_with_identity(
+                self.hero, self.seed, self.ascension, self.mode, self.run_id.clone(),
+            )
+        };
         // Old V2 saves may omit individual authority streams. Preserve that
         // absence instead of fabricating a complete historical journal.
         if self.event_history.is_none() { replayed.event_history = None; }

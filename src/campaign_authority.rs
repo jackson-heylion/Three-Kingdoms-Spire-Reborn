@@ -1,7 +1,7 @@
 //! Action-boundary authority for noncombat campaign state. No action replay.
 //! Each successful revision is recorded; unchanged revisions carry no snapshot.
 //! This covers map, route, narrative and inventory, but not full Game sourcing.
-use crate::{Game, Stage, Node, Card, RunMode, MAX_FLOOR, map, archetypes, challenges, content::Hero};
+use crate::{Game, Stage, Node, Card, RunMode, MAX_FLOOR, map, archetypes, challenges, difficulty::Difficulty, content::Hero};
 use serde::{Deserialize, Serialize};
 
 /// Immutable rules identity anchored at revision zero, independently of the
@@ -13,6 +13,8 @@ pub struct CampaignIdentity {
     pub hero: Hero,
     pub seed: u64,
     pub ascension: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub difficulty: Option<Difficulty>,
     pub mode: RunMode,
     pub run_id: String,
 }
@@ -55,7 +57,7 @@ impl CampaignState {
         Self {
             identity: Some(CampaignIdentity {
                 hero: game.hero, seed: game.seed, ascension: game.ascension,
-                mode: game.mode, run_id: game.run_id.clone(),
+                difficulty: game.difficulty, mode: game.mode, run_id: game.run_id.clone(),
             }),
             floor: game.floor, stage: game.stage, last_node: game.last_node,
             route: game.route.clone(), act_map: game.act_map.clone(),
@@ -76,6 +78,7 @@ impl CampaignState {
         self.floor <= MAX_FLOOR
             && self.identity.as_ref().is_none_or(|identity| {
                 identity.ascension <= 10
+                    && identity.difficulty.is_none_or(|_| identity.ascension == 0 && identity.mode == RunMode::Standard)
                     && (identity.mode == RunMode::Custom || self.modifiers.is_empty())
                     && self.doctrine.is_none_or(|doctrine| doctrine.hero() == identity.hero)
             })

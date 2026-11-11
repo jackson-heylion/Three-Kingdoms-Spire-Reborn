@@ -9,7 +9,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use three_kingdoms_spire_reborn::{
-    Action, Card, Game, RunMode, Stage,
+    Action, Card, Difficulty, Game, RunMode, Stage,
     content::{Hero, card_spec},
     items::potion_name,
     progression::Profile,
@@ -400,7 +400,19 @@ impl App {
                     )),
                 }
             }
-            "help" | "h" => Ok("new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 在出征前指定三幕变体；daily YYYY-MM-DD；load/save；choose N；play N [目标] [副选牌编号]；selections N 查可选副牌；discard N 弃换；end；use [药剂号] [目标]（火/毒指定存活目标，弱化影响全体） ；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看路径与评分；inventory 背包；achievements 成就；codex 图鉴；relics；lore 看纪事；bonds 看人物羁绊；chapter 1-120 回目索引；powers 持续能力/监听器；react-remove ID 注销监听；react <ID> <weak|vulnerable|poison|damage:来源|damage:foe:N|power:军略ID> <hero|foe:0..3> <cancel|reduce|replace> [数值] [优先级] [次数]（仅自由战斗）；events [游标] [条数1-80] 分页审计当前战斗事件；eventsource 查看跨战斗记录；verify-events 重建校验全量战斗事件；metrics 战役统计；verify 回放检验；history 最近操作；doctrine 查看流派 / doctrine auto|代码 选择；builds 查看3套候选构筑及反制；chronicle；timeline 战功时间线；modifier 查看挑战 / modifier 代码 on|off；theme dark|light|highcontrast；status；quit。".into()),
+            "help" | "h" => Ok("campaign [武将] [seed] [warlords|conqueror|destiny] 新三档战役（目前21层基础切片）；new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 在出征前指定三幕变体；daily YYYY-MM-DD；load/save；choose N；play N [目标] [副选牌编号]；selections N 查可选副牌；discard N 弃换；end；use [药剂号] [目标]（火/毒指定存活目标，弱化影响全体） ；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看路径与评分；inventory 背包；achievements 成就；codex 图鉴；relics；lore 看纪事；bonds 看人物羁绊；chapter 1-120 回目索引；powers 持续能力/监听器；react-remove ID 注销监听；react <ID> <weak|vulnerable|poison|damage:来源|damage:foe:N|power:军略ID> <hero|foe:0..3> <cancel|reduce|replace> [数值] [优先级] [次数]（仅自由战斗）；events [游标] [条数1-80] 分页审计当前战斗事件；eventsource 查看跨战斗记录；verify-events 重建校验全量战斗事件；metrics 战役统计；verify 回放检验；history 最近操作；doctrine 查看流派 / doctrine auto|代码 选择；builds 查看3套候选构筑及反制；chronicle；timeline 战功时间线；modifier 查看挑战 / modifier 代码 on|off；theme dark|light|highcontrast；status；quit。".into()),
+            "campaign" => {
+                let hero = args.get(1).and_then(|s| Hero::parse(s)).unwrap_or(Hero::GuanYu);
+                let seed = args.get(2).and_then(|s| s.parse::<u64>().ok()).unwrap_or_else(|| {
+                    SystemTime::now().duration_since(UNIX_EPOCH).map_or(1, |t| t.as_secs().max(1))
+                });
+                match Difficulty::parse(args.get(3).copied().unwrap_or("warlords")) {
+                    Some(tier) => self.start_run(Game::new_with_campaign_difficulty(
+                        hero, seed, tier, new_run_id(),
+                    )).map(|_| format!("以 {} 开始【{}】新制战役，种子 {seed}（当前21层基础切片）。", hero.name(), tier.name())),
+                    None => Err("新制难度仅支持 warlords、conqueror、destiny".into()),
+                }
+            }
             "new" | "custom" => {
                 let mode = if args[0] == "custom" {RunMode::Custom} else {RunMode::Standard};
                 let hero = args.get(1).and_then(|s| Hero::parse(s)).unwrap_or(Hero::GuanYu);

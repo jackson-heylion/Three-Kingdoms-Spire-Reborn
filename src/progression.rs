@@ -1,6 +1,6 @@
 //! Campaign progression independent of terminal, files and frontends.
 //! Stored separately from in-progress snapshots so the same state model works over FFI/WASM.
-use crate::{Game, Node, RunMode, Stage, content::Hero, challenges::ChallengeModifier};
+use crate::{Game, Node, RunMode, Stage, content::Hero, challenges::ChallengeModifier, difficulty::Difficulty};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -37,6 +37,9 @@ pub struct Profile {
     pub best_floor: u8,
     pub best_score: u64,
     pub ascensions: BTreeMap<String, u8>,
+    /// Opt-in three-tier clears, tracked independently from historical ascension.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub difficulty_clears: BTreeMap<String, BTreeSet<Difficulty>>,
     pub hero_wins: BTreeMap<String, u64>,
     pub seen_cards: BTreeSet<String>,
     pub seen_enemies: BTreeSet<String>,
@@ -56,6 +59,8 @@ pub struct RunRecord {
     pub hero: Hero,
     pub seed: u64,
     pub ascension: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub difficulty: Option<Difficulty>,
     pub floor: u8,
     pub score: u64,
     pub won: bool,
@@ -72,6 +77,7 @@ impl Default for Profile {
             version: PROFILE_VERSION, started: 0, started_run_ids: BTreeSet::new(),
             wins: 0, losses: 0,
             best_floor: 0, best_score: 0, ascensions: BTreeMap::new(),
+            difficulty_clears: BTreeMap::new(),
             hero_wins: BTreeMap::new(), seen_cards: BTreeSet::new(),
             seen_enemies: BTreeSet::new(), discovered_relics: BTreeSet::new(),
             recorded_results: BTreeSet::new(), records: Vec::new(),
@@ -182,15 +188,17 @@ impl Profile {
             self.wins += 1;
             let key = game.hero.name().to_string();
             *self.hero_wins.entry(key.clone()).or_default() += 1;
-            let difficulty = self.ascensions.entry(key).or_default();
-            if game.mode == RunMode::Standard {
-                *difficulty = (*difficulty).max((game.ascension + 1).min(10));
+            if let Some(tier) = game.difficulty {
+                self.difficulty_clears.entry(key.clone()).or_default().insert(tier);
+            } else if game.mode == RunMode::Standard {
+                let legacy_ascension = self.ascensions.entry(key).or_default();
+                *legacy_ascension = (*legacy_ascension).max((game.ascension + 1).min(10));
             }
         } else { self.losses += 1; }
         self.best_score = self.best_score.max(score);
         self.records.push(RunRecord {
             identity, hero: game.hero, seed: game.seed, ascension: game.ascension,
-            floor: game.floor, score, won, mode: game.mode, deck_size: game.deck.len(),
+            difficulty: game.difficulty, floor: game.floor, score, won, mode: game.mode, deck_size: game.deck.len(),
             relics: game.relics.clone(), modifiers: game.modifiers.clone(),
         });
         if self.records.len() > 100 { self.records.remove(0); }
