@@ -120,3 +120,20 @@ fn all_five_heroes_retain_tier_identity_across_json_and_event_replay() {
         }
     }
 }
+
+#[test]
+fn new_campaign_uses_five_eight_row_acts_without_changing_legacy() {
+    let expanded = Game::new_with_campaign_difficulty(
+        Hero::GuanYu, 81234, Difficulty::Warlords, "five-acts".into(),
+    );
+    let map = expanded.act_map.as_ref().expect("new campaign map");
+    assert_eq!(map.rows.len(), 8);
+    assert_eq!(map.act, 0);
+    assert!(map.rows[7].iter().all(|node| *node == Node::Boss));
+    let mut started = expanded;
+    started.apply(Action::Choose { index: 1 }).expect("first map action");
+    assert_eq!(started.floor, 1);
+    started.verify_action_replay().expect("expanded first action replay");
+    Game::from_json(&started.to_json().unwrap()).expect("expanded map save");
+    assert_eq!(Game::new(Hero::GuanYu, 81234).act_map.unwrap().rows.len(), 7);
+}
