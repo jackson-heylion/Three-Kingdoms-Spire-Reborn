@@ -101,7 +101,7 @@ fn all_five_heroes_retain_tier_identity_across_json_and_event_replay() {
     // This cross-product catches hero-specific setup or combat initialization
     // paths accidentally rebuilding a three-tier run as legacy ascension.
     let heroes = [
-        Hero::CaoCao, Hero::GuanYu, Hero::ZhugeLiang, Hero::SunShangXiang, Hero::LuBu,
+        Hero::CaoCao, Hero::GuanYu, Hero::ZhugeLiang, Hero::SunShangxiang, Hero::LuBu,
     ];
     for (hero_index, hero) in heroes.into_iter().enumerate() {
         for tier in Difficulty::ALL {
