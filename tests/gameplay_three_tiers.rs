@@ -127,6 +127,8 @@ fn new_campaign_uses_five_eight_row_acts_without_changing_legacy() {
         Hero::GuanYu, 81234, Difficulty::Warlords, "five-acts".into(),
     );
     assert_eq!(expanded.act_name(), "乱世起兵");
+    assert_eq!(expanded.campaign_rows(), 8);
+    assert_eq!(expanded.campaign_max_floor(), 40);
     let map = expanded.act_map.as_ref().expect("new campaign map");
     assert_eq!(map.rows.len(), 8);
     assert_eq!(map.act, 0);
@@ -138,5 +140,7 @@ fn new_campaign_uses_five_eight_row_acts_without_changing_legacy() {
     Game::from_json(&started.to_json().unwrap()).expect("expanded map save");
     let legacy = Game::new(Hero::GuanYu, 81234);
     assert_eq!(legacy.act_name(), "黄巾乱世");
+    assert_eq!(legacy.campaign_rows(), 7);
+    assert_eq!(legacy.campaign_max_floor(), 21);
     assert_eq!(legacy.act_map.unwrap().rows.len(), 7);
 }
