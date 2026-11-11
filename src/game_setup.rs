@@ -84,8 +84,8 @@ impl Game {
     }
     pub(crate) fn refresh_route(&mut self) {
         let next = self.floor + 1;
-        let rows = if self.difficulty.is_some() { map::EXPANDED_ROWS as u8 } else { map::ROWS as u8 };
-        let limit = if self.difficulty.is_some() { 40 } else { MAX_FLOOR };
+        let rows = self.campaign_rows();
+        let limit = self.campaign_max_floor();
         if next > limit {
             self.route.clear();
             self.route_lanes.clear();
