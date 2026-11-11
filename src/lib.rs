@@ -408,6 +408,15 @@ impl Game {
     pub fn act_name(&self) -> &'static str {
         let act = self.floor.saturating_sub(1) / self.campaign_rows();
         let branch = self.act_variant(act);
+        if self.difficulty.is_some() {
+            return match act {
+                0 => "乱世起兵",
+                1 => "群雄逐鹿",
+                2 => "赤壁风云",
+                3 => "三分天下",
+                _ => "汉祚余响",
+            };
+        }
         match (act.min(2), branch) {
             (0, 0) => "黄巾乱世", (0, _) => "江东烽烟",
             (1, 0) => "关中风云", (1, _) => "群雄会盟",
