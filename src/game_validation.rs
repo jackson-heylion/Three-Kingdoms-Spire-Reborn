@@ -10,6 +10,9 @@ impl Game {
         {
             return Err("存档属性无效".into());
         }
+        if self.difficulty.is_some() && (self.ascension != 0 || self.mode != RunMode::Standard) {
+            return Err("新制难度不能混用旧飞升或自由/每日模式".into());
+        }
         if self.action_history.as_ref().is_some_and(|actions|actions.len()>50_000) {
             return Err("操作日志长度超限".into());
         }

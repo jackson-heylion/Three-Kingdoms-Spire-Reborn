@@ -1,5 +1,5 @@
 //! Campaign creation and map regeneration, extracted from the large engine.
-use crate::{Game, Card, Stage, RunMode, SAVE_VERSION, MAX_FLOOR, map,
+use crate::{Game, Card, Stage, RunMode, SAVE_VERSION, MAX_FLOOR, map, difficulty,
     resource_events, rng_events, combat_resource_events, foe_board_events,
     card_zone_events, combat_effect_events, battle_runtime_events, campaign_authority, telemetry_authority, CombatTelemetry};
 use crate::content::Hero;
@@ -8,6 +8,18 @@ impl Game {
     pub fn new(hero: Hero, seed: u64) -> Self { Self::new_with_ascension(hero, seed, 0) }
     pub fn new_with_mode(hero: Hero, seed: u64, ascension: u8, mode: RunMode) -> Self {
         Self::new_with_identity(hero, seed, ascension, mode, String::new())
+    }
+    /// Starts an opt-in three-tier campaign without changing legacy ascension runs.
+    pub fn new_with_campaign_difficulty(
+        hero: Hero, seed: u64, difficulty: difficulty::Difficulty, run_id: String,
+    ) -> Self {
+        let mut game = Self::new_with_identity(hero, seed, 0, RunMode::Standard, run_id);
+        game.difficulty = Some(difficulty);
+        let initial = campaign_authority::CampaignState::current(&game);
+        if let Some(history) = game.campaign_history.as_mut() {
+            history[0] = campaign_authority::CampaignEvent::Started { state: initial };
+        }
+        game
     }
     pub fn new_with_identity(hero: Hero, seed: u64, ascension: u8, mode: RunMode, run_id: String) -> Self {
         let mut game = Self::new_with_ascension(hero,seed,ascension);
@@ -47,7 +59,7 @@ impl Game {
             }]),
             modifiers: vec![], doctrine: None, telemetry: CombatTelemetry::default(), rewards: vec![], market: vec![],
             log: vec![format!("{}率部出征，征途由此开始。", hero.name())],
-            ascension: ascension.min(10), event_id: 0,
+            ascension: ascension.min(10), difficulty: None, event_id: 0,
             potion_bag: vec!["healing".into()], shop_relic: None,
             relic_history: vec!["军旗".into()], victories: 0,
             boons: vec![], boon_choices: vec![], variants: None,

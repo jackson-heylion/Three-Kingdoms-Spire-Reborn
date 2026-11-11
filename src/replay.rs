@@ -42,9 +42,13 @@ impl Game {
         if revision > self.revision {
             return Err("请求的历史修订号超过当前存档".into());
         }
-        let mut replayed = Game::new_with_identity(
-            self.hero, self.seed, self.ascension, self.mode, self.run_id.clone(),
-        );
+        let mut replayed = if let Some(difficulty) = self.difficulty {
+            Game::new_with_campaign_difficulty(self.hero, self.seed, difficulty, self.run_id.clone())
+        } else {
+            Game::new_with_identity(
+                self.hero, self.seed, self.ascension, self.mode, self.run_id.clone(),
+            )
+        };
         // Old V2 saves may omit individual authority streams. Preserve that
         // absence instead of fabricating a complete historical journal.
         if self.event_history.is_none() { replayed.event_history = None; }
@@ -141,8 +145,13 @@ impl Game {
         let actions=self.action_history.as_ref().ok_or(
             "legacy save has no complete action journal")?;
         if actions.len()>50_000 {return Err("action replay limit exceeded".into());}
-        let mut replay=Game::new_with_identity(self.hero,self.seed,self.ascension,
-            self.mode,self.run_id.clone());
+        let mut replay = if let Some(difficulty) = self.difficulty {
+            Game::new_with_campaign_difficulty(self.hero, self.seed, difficulty, self.run_id.clone())
+        } else {
+            Game::new_with_identity(
+                self.hero, self.seed, self.ascension, self.mode, self.run_id.clone(),
+            )
+        };
         replay.profile_start_receipt=self.profile_start_receipt;
         if self.resource_history.is_none() { replay.resource_history=None; }
         if self.rng_history.is_none() { replay.rng_history=None; }
