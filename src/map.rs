@@ -267,6 +267,22 @@ mod tests {
         assert_ne!(EXPANDED_ENCOUNTER_WEIGHTS[3],EXPANDED_ENCOUNTER_WEIGHTS[4]);
     }
     #[test]
+    fn expanded_map_cannot_silently_fall_back_to_legacy_topology() {
+        let map=ActMap::generate_expanded(|n|n/2,3);
+        assert!(map.is_valid());
+        let mut without_edges=map.clone();
+        without_edges.edges.clear();
+        assert!(!without_edges.is_valid(),"expanded map must retain authoritative edges");
+        let mut without_terrain=map.clone();
+        without_terrain.terrain.clear();
+        assert!(!without_terrain.is_valid(),"expanded map must retain authoritative terrain");
+        // V2 classic snapshots may genuinely lack both optional fields.
+        let mut legacy=ActMap::generate(|n|n/2,0);
+        legacy.edges.clear();
+        legacy.terrain.clear();
+        assert!(legacy.is_valid());
+    }
+    #[test]
     fn legacy_map_generation_remains_identical_to_explicit_old_layout() {
         for act in 0..3 {
             let mut a=12345u64;
