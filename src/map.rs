@@ -5,6 +5,16 @@ use crate::Node;
 
 pub const LANES: u8 = 3;
 pub const ROWS: usize = 7;
+pub const EXPANDED_ROWS: usize = 8;
+pub const EXPANDED_ACTS: u8 = 5;
+// Distinct new-campaign encounter curves; legacy generation retains its original weights.
+pub const EXPANDED_ENCOUNTER_WEIGHTS: [[u8; 5]; 5] = [
+    [48, 24, 17, 9, 2],
+    [43, 22, 16, 11, 8],
+    [39, 20, 16, 12, 13],
+    [35, 18, 16, 13, 18],
+    [31, 16, 15, 14, 24],
+];
 pub const ENCOUNTER_WEIGHTS: [[u8;5];3] = [
     // battle, story, camp, market, elite
     [46,25,16,10,3],
@@ -40,12 +50,19 @@ pub struct ActMap {
 }
 impl ActMap {
     pub fn generate(mut random: impl FnMut(usize)->usize, act:u8)->Self {
-        let mut rows=Vec::with_capacity(ROWS);
-        let mut terrain=Vec::with_capacity(ROWS);
+        Self::generate_with_layout(&mut random, act, ROWS, ENCOUNTER_WEIGHTS[usize::from(act.min(2))])
+    }
+    /// Five-act, eight-row graph for the expansion; does not alter legacy RNG draws.
+    pub fn generate_expanded(mut random: impl FnMut(usize)->usize, act:u8)->Self {
+        assert!(act < EXPANDED_ACTS, "expanded act out of range");
+        Self::generate_with_layout(&mut random, act, EXPANDED_ROWS, EXPANDED_ENCOUNTER_WEIGHTS[usize::from(act)])
+    }
+    fn generate_with_layout(random: &mut impl FnMut(usize)->usize, act:u8, row_count:usize, weights:[u8;5])->Self {
+        let mut rows=Vec::with_capacity(row_count);
+        let mut terrain=Vec::with_capacity(row_count);
         rows.push([Node::Battle,Node::Story,Node::Battle]);
         terrain.push([Terrain::Road;3]);
-        let weights=ENCOUNTER_WEIGHTS[usize::from(act.min(2))];
-        for row in 1..6 {
+        for row in 1..row_count-1 {
             let mut choices=[Node::Battle;3];
             let mut ground=[Terrain::Road;3];
             for lane in 0..3 {
@@ -74,14 +91,14 @@ impl ActMap {
                 ground[2]=Terrain::Road;
             }
             // Defensive corridor near a boss prevents three locked entrances.
-            if row==5 {ground[1]=Terrain::Road;choices[1]=Node::Camp;}
+            if row==row_count-2 {ground[1]=Terrain::Road;choices[1]=Node::Camp;}
             rows.push(choices);
             terrain.push(ground);
         }
         rows.push([Node::Boss;3]);
         terrain.push([Terrain::Road;3]);
-        let mut edges=Vec::with_capacity(ROWS-1);
-        for row in 0..ROWS-1 {
+        let mut edges=Vec::with_capacity(row_count-1);
+        for row in 0..row_count-1 {
             let mut transitions=[0u8;3];
             for (from,slot) in transitions.iter_mut().enumerate() {
                 if terrain[row][from]==Terrain::Closed {continue;}
@@ -117,12 +134,14 @@ impl ActMap {
             .map(|lane|(lane,nodes[usize::from(lane)])).collect()
     }
     pub fn is_valid(&self)->bool {
-        if self.act>=3 || self.rows.len()!=ROWS || self.rows[0][0]!=Node::Battle
-            || !self.rows[6].iter().all(|node|*node==Node::Boss)
-            || (!self.edges.is_empty() && self.edges.len()!=ROWS-1)
-            || (!self.terrain.is_empty() && self.terrain.len()!=ROWS)
+        let row_count = self.rows.len();
+        if !((self.act<3 && row_count==ROWS) || (self.act<EXPANDED_ACTS && row_count==EXPANDED_ROWS))
+            || self.rows[0][0]!=Node::Battle
+            || !self.rows[row_count-1].iter().all(|node|*node==Node::Boss)
+            || (!self.edges.is_empty() && self.edges.len()!=row_count-1)
+            || (!self.terrain.is_empty() && self.terrain.len()!=row_count)
             || self.terrain_at(0,0)==Terrain::Closed
-            || (0..LANES).any(|lane|self.terrain_at(6,lane)==Terrain::Closed)
+            || (0..LANES).any(|lane|self.terrain_at(row_count-1,lane)==Terrain::Closed)
         {return false;}
         if self.edges.is_empty() {
             // Existing saved campaigns used exactly adjacent-lane paths.
@@ -131,7 +150,7 @@ impl ActMap {
         // Check that every enterable reachable lane offers at least one route,
         // and that all edge bits represent adjacent, unblocked destinations.
         let mut reachable=[true;3];
-        for row in 1..ROWS {
+        for row in 1..row_count {
             let mut next=[false;3];
             for (previous,found) in reachable.iter().enumerate() {
                 let bits=self.edges[row-1][previous];
@@ -157,7 +176,7 @@ impl ActMap {
         let mut frontier=vec![(lane,0i32)];
         for depth in 0..3 {
             let level=row+depth;
-            if level>=ROWS {break;}
+            if level>=self.rows.len() {break;}
             let mut next=Vec::new();
             for &(previous,score) in &frontier {
                 let options=if depth==0 {
@@ -215,6 +234,46 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+    #[test]
+    fn expanded_maps_have_five_distinct_eight_row_acts_and_replayable_routes() {
+        for seed in 1..=250u64 {
+            for act in 0..EXPANDED_ACTS {
+                let make = || {
+                    let mut state=seed.wrapping_mul(1597334677);
+                    ActMap::generate_expanded(|n| {
+                        state=state.wrapping_mul(6364136223846793005).wrapping_add(1);
+                        ((state>>32) as usize)%n
+                    },act)
+                };
+                let map=make();
+                assert_eq!(map.rows.len(),8);
+                assert!(map.rows[7].iter().all(|node|*node==Node::Boss));
+                assert!(map.is_valid(),"act={act} seed={seed}");
+                assert_eq!(map,make(),"expanded generation must be deterministic");
+                assert_eq!(serde_json::from_str::<ActMap>(&serde_json::to_string(&map).unwrap()).unwrap(),map);
+                for first in 0..3 {
+                    let mut lane=first;
+                    for row in 1..EXPANDED_ROWS {
+                        let routes=map.routes(row,Some(lane));
+                        assert!(!routes.is_empty(),"act={act} seed={seed} row={row} lane={lane}");
+                        lane=routes[0].0;
+                    }
+                }
+            }
+        }
+        assert_ne!(EXPANDED_ENCOUNTER_WEIGHTS[2],EXPANDED_ENCOUNTER_WEIGHTS[3]);
+        assert_ne!(EXPANDED_ENCOUNTER_WEIGHTS[3],EXPANDED_ENCOUNTER_WEIGHTS[4]);
+    }
+    #[test]
+    fn legacy_map_generation_remains_identical_to_explicit_old_layout() {
+        for act in 0..3 {
+            let mut a=12345u64;
+            let mut b=12345u64;
+            let legacy=ActMap::generate(|n| {a=a.wrapping_mul(6364136223846793005).wrapping_add(1); ((a>>32) as usize)%n},act);
+            let explicit=ActMap::generate_with_layout(&mut |n| {b=b.wrapping_mul(6364136223846793005).wrapping_add(1); ((b>>32) as usize)%n},act,ROWS,ENCOUNTER_WEIGHTS[usize::from(act)]);
+            assert_eq!(legacy,explicit);
         }
     }
     #[test]
