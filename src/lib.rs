@@ -41,6 +41,7 @@ use serde::{Deserialize, Serialize};
 
 pub const SAVE_VERSION: u32 = 2;
 pub const MAX_FLOOR: u8 = 21;
+pub const EXPANDED_MAX_FLOOR: u8 = 40;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -333,6 +334,12 @@ pub enum Action {
 }
 
 impl Game {
+    pub fn campaign_rows(&self) -> u8 {
+        if self.difficulty.is_some() { map::EXPANDED_ROWS as u8 } else { map::ROWS as u8 }
+    }
+    pub fn campaign_max_floor(&self) -> u8 {
+        if self.difficulty.is_some() { EXPANDED_MAX_FLOOR } else { MAX_FLOOR }
+    }
     pub fn to_json(&self) -> Result<String, String> {
         serde_json::to_string_pretty(self).map_err(|e| e.to_string())
     }
@@ -399,7 +406,7 @@ impl Game {
     }
 
     pub fn act_name(&self) -> &'static str {
-        let act = self.floor.saturating_sub(1) / 7;
+        let act = self.floor.saturating_sub(1) / self.campaign_rows();
         let branch = self.act_variant(act);
         match (act.min(2), branch) {
             (0, 0) => "黄巾乱世", (0, _) => "江东烽烟",
@@ -414,7 +421,7 @@ impl Game {
         )
     }
     fn generate_foes(&mut self, node: Node) -> Vec<Foe> {
-        let act = self.floor.saturating_sub(1) / 7;
+        let act = self.floor.saturating_sub(1) / self.campaign_rows();
         let branch = self.act_variant(act);
         let ids: Vec<&str> = match node {
             Node::Boss => vec![match (act, branch) {
@@ -463,7 +470,7 @@ impl Game {
             let living = b.foes.iter().filter(|foe|foe.hp > 0).count();
             let foe = &mut b.foes[i];
             if foe.hp == 0 { continue; }
-            let act = (self.floor.saturating_sub(1) / 7) as i32;
+            let act = (self.floor.saturating_sub(1) / self.campaign_rows()) as i32;
             // Round up so ascension 1 already changes enemy attacks.
             let attack = 6 + act * 3 + foe.strength + (self.ascension as i32 + 2) / 3
                 + difficulty.map_or(0, Difficulty::attack_bonus)
@@ -557,7 +564,7 @@ impl Game {
         let mut foes = self.generate_foes(node);
         for foe in &mut foes {
             // Round up so ascension 1 already increases enemy HP.
-            let extra = (self.ascension as i32 + 1) / 2 * (1 + (self.floor as i32 / 7))
+            let extra = (self.ascension as i32 + 1) / 2 * (1 + (self.floor as i32 / i32::from(self.campaign_rows())))
                 + self.difficulty.map_or(0, Difficulty::enemy_hp_bonus);
             foe.hp += extra;
             foe.max_hp += extra;
@@ -662,7 +669,7 @@ impl Game {
         self.floor += 1;
         self.last_node = Some(node);
         let ground=self.act_map.as_ref().and_then(|map|
-            self.map_lane.map(|lane|map.terrain_at(usize::from((self.floor-1)%7),lane)))
+            self.map_lane.map(|lane|map.terrain_at(usize::from((self.floor-1)%self.campaign_rows()),lane)))
             .unwrap_or(map::Terrain::Road);
         let mut msg = format!("第{}层：{}（{}）", self.floor, node.name(),ground.label());
         match ground {
@@ -698,7 +705,7 @@ impl Game {
                 self.event_id = self.random(12) as u8;
                 // The literary ledger is deterministic for any saved seed and visited flags.
                 // Original generic chance events remain when no eligible authored beat exists.
-                let act = (self.floor.saturating_sub(1) / 7).min(2);
+                let act = (self.floor.saturating_sub(1) / self.campaign_rows()).min(2);
                 self.lore_current = lore::next_beat(self.hero, act, &self.lore_flags, &self.lore_seen)
                     .map(|beat| beat.id.to_owned());
                 self.stage = Stage::Story;
@@ -1005,10 +1012,10 @@ impl Game {
             self.potion_bag.push(potion.into());
             self.potions = self.potion_bag.len() as u8;
         }
-        if self.floor >= MAX_FLOOR {
+        if self.floor >= self.campaign_max_floor() {
             self.victories = self.victories.saturating_add(1);
             self.stage = Stage::Won;
-            return "三军凯旋！三幕征程全部通关。".into();
+            return if self.difficulty.is_some() { "三军凯旋！五幕征程全部通关。".into() } else { "三军凯旋！三幕征程全部通关。".into() };
         }
         self.rewards = self.pick_reward_cards();
         self.stage = Stage::Reward;
