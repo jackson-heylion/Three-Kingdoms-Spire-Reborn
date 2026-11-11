@@ -1273,3 +1273,49 @@ mod profile_reconciliation_tests {
         fs::remove_dir_all(dir).unwrap();
     }
 }
+
+
+#[cfg(test)]
+mod gameplay_campaign_cli_tests {
+    use super::*;
+
+    #[test]
+    fn three_tier_campaign_is_visible_and_rejects_unknown_tier_without_replacing_save() {
+        let directory = std::env::temp_dir().join(format!(
+            "tks-campaign-cli-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        let mut app = App {
+            game: None,
+            profile: Profile::new(),
+            theme: Theme::Dark,
+            dir: directory.clone(),
+            use_ansi: false,
+            message: String::new(),
+        };
+
+        assert!(app.command("campaign cao 55311 destiny"));
+        assert_eq!(app.game.as_ref().unwrap().difficulty, Some(Difficulty::Destiny));
+        let initial_save = fs::read_to_string(save_path(&directory)).unwrap();
+
+        assert!(app.command("status"));
+        assert!(app.message.contains("天命难违"), "{}", app.message);
+        assert!(app.message.contains("敌军体力+6"), "{}", app.message);
+        assert!(app.message.contains("旧制21层验证切片"), "{}", app.message);
+
+        assert!(app.command("campaign cao 55311 unknown"));
+        assert!(app.message.contains("仅支持"), "{}", app.message);
+        assert_eq!(fs::read_to_string(save_path(&directory)).unwrap(), initial_save);
+
+        assert!(app.command("choose 1"));
+        let game = app.game.as_ref().unwrap();
+        assert_eq!(game.difficulty, Some(Difficulty::Destiny));
+        game.verify_action_replay().expect("CLI action preserves tier identity");
+        assert_eq!(Game::from_json(&fs::read_to_string(save_path(&directory)).unwrap())
+            .unwrap().difficulty, Some(Difficulty::Destiny));
+
+        fs::remove_dir_all(directory).unwrap();
+    }
+}
