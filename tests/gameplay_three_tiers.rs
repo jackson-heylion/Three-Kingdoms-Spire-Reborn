@@ -59,3 +59,18 @@ fn old_ascension_save_does_not_gain_new_difficulty() {
     assert_eq!(restored.to_json().unwrap(), serialized);
     restored.verify_action_replay().unwrap();
 }
+
+#[test]
+fn new_tier_event_archive_reconstructs_after_action_and_json_resume() {
+    for tier in Difficulty::ALL {
+        let game = first_battle(Game::new_with_campaign_difficulty(
+            Hero::CaoCao, 1945, tier, format!("event-replay-{}", tier.id()),
+        ));
+        let saved = game.to_json().unwrap();
+        let restored = Game::from_json(&saved).expect("new tier save can resume");
+        let events = restored.reconstruct_event_history()
+            .expect("event archive must replay with the selected campaign difficulty");
+        assert_eq!(events.len(), restored.event_history.as_ref().unwrap().len());
+        assert_eq!(restored.to_json().unwrap(), saved, "event verification is read-only");
+    }
+}
