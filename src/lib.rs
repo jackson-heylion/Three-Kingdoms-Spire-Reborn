@@ -464,13 +464,13 @@ impl Game {
             // Consume the same seed-driven roll for every enemy, including scripted
             // bosses, so RNG state remains reproducible through a saved turn.
             let roll = self.random(100);
+            let act = (self.floor.saturating_sub(1) / self.campaign_rows()) as i32;
             let b = self.battle.as_mut().expect("battle");
             let turn = b.turn;
             let last_turn_cards = b.last_turn_cards;
             let living = b.foes.iter().filter(|foe|foe.hp > 0).count();
             let foe = &mut b.foes[i];
             if foe.hp == 0 { continue; }
-            let act = (self.floor.saturating_sub(1) / self.campaign_rows()) as i32;
             // Round up so ascension 1 already changes enemy attacks.
             let attack = 6 + act * 3 + foe.strength + (self.ascension as i32 + 2) / 3
                 + difficulty.map_or(0, Difficulty::attack_bonus)
