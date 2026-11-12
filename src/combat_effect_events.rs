@@ -1,7 +1,7 @@
 //! Committed combat power and dynamic-listener authority at action boundaries.
 //! This restores ordered power stacks and registered reaction rules without
 //! action replay. It does not replay intermediate triggers or reconstruct RNG.
-use crate::{Game, MAX_FLOOR, combat::PowerStack, event_stack::Stack};
+use crate::{Game, EXPANDED_MAX_FLOOR, combat::PowerStack, event_stack::Stack};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -24,7 +24,7 @@ impl BattleEffects {
     }
 
     fn valid(&self) -> bool {
-        (1..=MAX_FLOOR).contains(&self.floor)
+        (1..=EXPANDED_MAX_FLOOR).contains(&self.floor)
             && self.turn > 0
             && self.powers.len() <= 8
             && self.powers.iter().enumerate().all(|(index, power)| {
