@@ -2,7 +2,7 @@
 //! identity, health, status, phase and intent, not intermediate combat triggers.
 //! It does not reconstruct the hero, card piles, listeners or RNG.
 use serde::{Deserialize, Serialize};
-use crate::{Foe, Game, MAX_FLOOR};
+use crate::{Foe, Game};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -22,7 +22,7 @@ impl FoeBoard {
     }
 
     fn valid(&self) -> bool {
-        (1..=MAX_FLOOR).contains(&self.floor)
+        (1..=crate::EXPANDED_MAX_FLOOR).contains(&self.floor)
             && self.turn > 0
             && (1..=4).contains(&self.foes.len())
             && self.foes.iter().all(|foe| {
