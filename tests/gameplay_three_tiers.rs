@@ -321,3 +321,33 @@ fn all_five_act_boss_entrances_commit_at_eight_floor_intervals() {
         }
     }
 }
+
+#[test]
+fn expanded_campaign_rejects_floor_forty_one_without_mutating_authority() {
+    // Isolated boundary fixture: verifies a rejected public action cannot
+    // create a 41st floor or consume RNG/revision/replay state. It is not
+    // evidence of a naturally completed campaign.
+    for tier in Difficulty::ALL {
+        let mut game = Game::new_with_campaign_difficulty(
+            Hero::GuanYu, 960_247, tier, format!("floor-cap-{}", tier.id()),
+        );
+        game.floor = 40;
+        game.act_map = Some(map::ActMap::generate_expanded(|_| 0, 4));
+        game.map_lane = None;
+        game.route = vec![Node::Camp];
+        game.route_lanes = vec![0];
+
+        let before = game.to_json().expect("serialize floor 40 checkpoint");
+        assert!(
+            game.apply(Action::Choose { index: 1 }).is_err(),
+            "tier {} must reject floor 41",
+            tier.id()
+        );
+        assert_eq!(
+            game.to_json().unwrap(),
+            before,
+            "rejected floor 41 must not mutate tier {}",
+            tier.id()
+        );
+    }
+}
