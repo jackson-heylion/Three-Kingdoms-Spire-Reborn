@@ -168,13 +168,28 @@ mod expanded_floor_tests {
 
     #[test]
     fn combat_resource_journal_accepts_forty_but_rejects_forty_one() {
-        let valid = BattleResources { floor: 40, turn: 1, energy: 3, block: 0 };
+        let valid = BattleResources {
+            floor: 40,
+            turn: 1,
+            energy: 3,
+            block: 0,
+        };
         let invalid = BattleResources { floor: 41, ..valid };
         let event = transition(None, Some(valid), 1).expect("expanded final floor");
-        assert_eq!(project(&[BattleResourceEvent::Started, event]).unwrap().0, Some(valid));
+        assert_eq!(
+            project(&[BattleResourceEvent::Started, event]).unwrap().0,
+            Some(valid)
+        );
         assert!(transition(None, Some(invalid), 1).is_err());
-        assert!(project(&[BattleResourceEvent::Started,
-            BattleResourceEvent::Changed { revision: 1, change: BattleResourceChange::Enter { state: invalid } }
-        ]).is_err());
+        assert!(
+            project(&[
+                BattleResourceEvent::Started,
+                BattleResourceEvent::Changed {
+                    revision: 1,
+                    change: BattleResourceChange::Enter { state: invalid }
+                }
+            ])
+            .is_err()
+        );
     }
 }
