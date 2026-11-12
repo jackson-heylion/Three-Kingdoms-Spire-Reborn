@@ -232,6 +232,31 @@ mod tests {
     use crate::content::Hero;
 
     #[test]
+    fn five_act_chronicle_uses_eight_floor_boundaries_without_unlocking_early() {
+        // These are controlled observer boundary snapshots, not claims that a
+        // bot naturally reached these floors via Game::apply(Action).
+        let mut expanded = Game::new_with_campaign_difficulty(
+            Hero::GuanYu, 24_801, Difficulty::Warlords, "chronicle-eight-rows".into(),
+        );
+        let mut chronicle = Profile::new();
+        for (floor, act) in [(8, 1), (9, 2), (16, 2), (17, 3), (32, 4), (33, 5)] {
+            expanded.floor = floor;
+            chronicle.observe(&expanded);
+            assert_eq!(chronicle.longest_campaign, act, "new campaign floor {floor}");
+            assert_eq!(chronicle.achievements.contains("first_act"), floor >= 9);
+            assert_eq!(chronicle.achievements.contains("final_act"), floor >= 17);
+        }
+
+        let mut legacy = Game::new(Hero::GuanYu, 24_801);
+        let mut old_chronicle = Profile::new();
+        for (floor, act) in [(7, 1), (8, 2), (14, 2), (15, 3)] {
+            legacy.floor = floor;
+            old_chronicle.observe(&legacy);
+            assert_eq!(old_chronicle.longest_campaign, act, "legacy floor {floor}");
+        }
+    }
+
+    #[test]
     fn achievement_unlocks_are_persistent_and_old_profiles_migrate() {
         let mut p=Profile::new();
         let mut g=Game::new(Hero::GuanYu,1);
