@@ -312,6 +312,25 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_result_receipt_does_not_mutate_chronicle_observations() {
+        let mut profile = Profile::new();
+        let mut game = Game::new_with_campaign_difficulty(
+            Hero::GuanYu, 247_901, Difficulty::Warlords, "receipt-247901".into(),
+        );
+        game.stage = Stage::Lost;
+        assert_eq!(profile.record(&game, "receipt-247901".into()), Ok(true));
+        let before = profile.to_json().unwrap();
+
+        // A stale duplicate receipt must not import later, unrelated snapshot
+        // discoveries into the already finalized run.
+        game.floor = 40;
+        game.deck.push(crate::Card::new("strike"));
+        game.relics.push("重复结算不应发现的遗物".into());
+        assert_eq!(profile.record(&game, "receipt-247901".into()), Ok(false));
+        assert_eq!(profile.to_json().unwrap(), before);
+    }
+
+    #[test]
     fn progression_counts_once_and_unlocks_ascension() {
         let mut profile = Profile::new();
         let mut g = Game::new_with_ascension(Hero::CaoCao, 42, 3);
