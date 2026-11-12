@@ -154,7 +154,7 @@ impl Profile {
 
     pub fn observe(&mut self, game: &Game) {
         self.best_floor = self.best_floor.max(game.floor);
-        self.longest_campaign=self.longest_campaign.max(if game.floor==0 {0} else {(game.floor-1)/7+1});
+        self.longest_campaign=self.longest_campaign.max(if game.floor==0 {0} else {(game.floor-1)/game.campaign_rows()+1});
         if game.telemetry.totals.battles_won>0 {self.achievements.insert("first_battle".into());}
         if game.stage==Stage::Reward && game.last_node==Some(Node::Elite) {
             self.achievements.insert("first_elite".into());
