@@ -248,12 +248,13 @@ impl App {
         if let Some(g) = &self.game {
             println!(" 武将：{}  体力：{}/{}  金：{}  药剂：{}",
                 g.hero.name(), g.hp, g.max_hp, g.gold, g.potions);
-            println!(" 幕：{}  层：{}/21  牌组：{}  遗物：{}  存档修订：{}",
-                (g.floor.saturating_sub(1) / 7 + 1).min(3), g.floor, g.deck.len(),
+            println!(" 幕：{}  层：{}/{}  牌组：{}  遗物：{}  存档修订：{}",
+                (g.floor.saturating_sub(1) / g.campaign_rows() + 1).min(g.campaign_max_floor() / g.campaign_rows()),
+                g.floor, g.campaign_max_floor(), g.deck.len(),
                 g.relics.join("、"), g.revision);
             let difficulty_label = g.difficulty.map_or_else(
                 || format!("旧制飞升：{}", g.ascension),
-                |tier| format!("新制三档：{}（21层验证切片）", tier.name()),
+                |tier| format!("新制三档：{}（五幕40层）", tier.name()),
             );
             println!(" 模式：{:?}  {}  已完成战役：{}  存档协议：V{}",
                 g.mode, difficulty_label, g.victories, g.version);
@@ -378,7 +379,8 @@ impl App {
                     }
                     println!(" 输入 choose <编号>");
                 }
-                Stage::Won => println!(" 【胜利】三幕皆定，江山已平！输入 new 开始新征程。"),
+                Stage::Won => println!(" 【胜利】{}，江山已平！输入 new 开始新征程。",
+                    if g.difficulty.is_some() { "五幕皆定" } else { "三幕皆定" }),
                 Stage::Lost => println!(" 【败北】胜败乃兵家常事。输入 new 开始新征程。"),
             }
             println!("────────────────────────────────────────────────────");
@@ -419,7 +421,7 @@ impl App {
                 match Difficulty::parse(args.get(3).copied().unwrap_or("warlords")) {
                     Some(tier) => self.start_run(Game::new_with_campaign_difficulty(
                         hero, seed, tier, new_run_id(),
-                    )).map(|_| format!("以 {} 开始【{}】新制战役，种子 {seed}（当前21层基础切片）。", hero.name(), tier.name())),
+                    )).map(|_| format!("以 {} 开始【{}】新制战役，种子 {seed}（五幕40层）。", hero.name(), tier.name())),
                     None => Err("新制难度仅支持 warlords、conqueror、destiny".into()),
                 }
             }
@@ -463,7 +465,7 @@ impl App {
             "status" => Ok(self.game.as_ref().map_or("尚未开局".into(), |g| {
                 let rules = g.difficulty.map_or_else(
                     || format!("旧制飞升{}（三幕21层）", g.ascension),
-                    |tier| format!("新制【{}】；当前为旧制21层验证切片；{}",
+                    |tier| format!("新制【{}】；五幕40层；{}",
                         tier.name(), tier.rules_summary()),
                 );
                 format!("{}，第{}层，体力{}/{}，{}金，{}张卡牌，版本{}；{}。",
@@ -1318,7 +1320,7 @@ mod gameplay_campaign_cli_tests {
         assert!(app.command("status"));
         assert!(app.message.contains("天命难违"), "{}", app.message);
         assert!(app.message.contains("敌军体力+6"), "{}", app.message);
-        assert!(app.message.contains("旧制21层验证切片"), "{}", app.message);
+        assert!(app.message.contains("五幕40层"), "{}", app.message);
 
         assert!(app.command("campaign cao 55311 unknown"));
         assert!(app.message.contains("仅支持"), "{}", app.message);
