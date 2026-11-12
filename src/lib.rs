@@ -1773,7 +1773,8 @@ impl Game {
         {
             self.record_metric(|c| c.battles_lost = c.battles_lost.saturating_add(1));
             self.capture_turn_metrics(true);
-            self.combat_event(EventKind::BattleEnded, "breakout_timeout", 0, None);
+            self.combat_event(EventKind::EnemyTechnique, "breakout_timeout", 1, None);
+            self.combat_event(EventKind::BattleEnded, "defeat", 0, None);
             self.stage = Stage::Lost;
             self.battle = None;
             return Ok(format!("{}。突围失败：四回合内未击退围军，征途结束。", messages.join("；")));
