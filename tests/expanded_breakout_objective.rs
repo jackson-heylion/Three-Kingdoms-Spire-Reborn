@@ -20,6 +20,9 @@ fn first_new_tier_battle_requires_breakout_before_encirclement() {
     assert_eq!(game.gold, before_gold, "a failed breakout pays no victory gold");
     assert!(game.log.last().is_some_and(|entry| entry.contains("突围失败")),
         "failure must explain the objective, not silently count as a normal battle");
+    assert_eq!(game.event_history.as_ref().unwrap().last().unwrap().event.source, "defeat",
+        "timed failure must seal the encounter with the canonical outcome");
+    game.reconstruct_event_history().expect("sealed timed defeat projection");
     game.verify_action_replay().expect("timed failure action replay");
     let snapshot = game.to_json().expect("save timed defeat");
     let restored = Game::from_json(&snapshot).expect("restore timed defeat");
