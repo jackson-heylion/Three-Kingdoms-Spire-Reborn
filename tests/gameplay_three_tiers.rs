@@ -236,3 +236,25 @@ fn expanded_maps_keep_every_reachable_lane_connected_to_the_boss() {
         }
     }
 }
+
+#[test]
+fn expanded_campaign_rejects_invalid_map_choice_without_consuming_authority() {
+    // Real first-floor public action, not a fabricated high-floor checkpoint.
+    // A rejected lane must not advance the seeded map, revision, or replay log.
+    for tier in Difficulty::ALL {
+        let mut game = Game::new_with_campaign_difficulty(
+            Hero::GuanYu, 91_247, tier, format!("atomic-map-{}", tier.id()),
+        );
+        let before = game.to_json().expect("serialize before invalid action");
+        assert!(game.apply(Action::Choose { index: 4 }).is_err());
+        assert_eq!(game.to_json().unwrap(), before, "invalid lane must be atomic");
+
+        game.apply(Action::Choose { index: 1 }).expect("valid first-floor action");
+        assert_eq!(game.floor, 1);
+        game.verify_action_replay().expect("rejected action cannot enter replay");
+        let saved = game.to_json().unwrap();
+        let restored = Game::from_json(&saved).expect("expanded save after rejection");
+        assert_eq!(restored.to_json().unwrap(), saved);
+        restored.verify_action_replay().expect("expanded resumed replay");
+    }
+}
