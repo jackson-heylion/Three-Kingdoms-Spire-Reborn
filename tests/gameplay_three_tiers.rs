@@ -200,3 +200,39 @@ fn later_acts_use_distinct_encounter_rosters_via_public_action() {
         Game::from_json(&game.to_json().unwrap()).expect("late-act encounter save");
     }
 }
+
+#[test]
+fn expanded_maps_keep_every_reachable_lane_connected_to_the_boss() {
+    // Structural seed sweep only: not evidence of natural combat completion.
+    // Each reachable lane must have a legal continuation on every row.
+    for act in 0..map::EXPANDED_ACTS {
+        for seed in 0_u64..64 {
+            let mut rng = seed.wrapping_add(u64::from(act) * 1_000_003);
+            let graph = map::ActMap::generate_expanded(
+                |bound| {
+                    rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                    ((rng >> 32) as usize) % bound
+                },
+                act,
+            );
+            assert!(graph.is_valid(), "act {act} seed {seed} invalid graph");
+            assert_eq!(graph.rows.len(), map::EXPANDED_ROWS);
+            assert!(graph.rows[map::EXPANDED_ROWS - 1].iter().all(|node| *node == Node::Boss));
+            let mut reachable = graph.routes(0, None).into_iter().map(|(lane, _)| lane).collect::<Vec<_>>();
+            assert!(!reachable.is_empty(), "act {act} seed {seed} has no entry");
+            for row in 1..map::EXPANDED_ROWS {
+                let mut next = Vec::new();
+                for lane in reachable {
+                    let choices = graph.routes(row, Some(lane));
+                    assert!(!choices.is_empty(),
+                        "act {act} seed {seed} row {row} lane {lane} dead end");
+                    next.extend(choices.into_iter().map(|(to, _)| to));
+                }
+                next.sort_unstable();
+                next.dedup();
+                reachable = next;
+            }
+            assert!(!reachable.is_empty(), "act {act} seed {seed} cannot reach boss");
+        }
+    }
+}
