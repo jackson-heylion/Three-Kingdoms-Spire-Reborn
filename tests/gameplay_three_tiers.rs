@@ -175,3 +175,28 @@ fn new_campaign_can_commit_floor_twenty_two_beyond_legacy_authority_limit() {
     assert!(legacy.apply(Action::Choose { index: 1 }).is_err());
     assert_eq!(legacy.to_json().unwrap(), unchanged);
 }
+
+#[test]
+fn later_acts_use_distinct_encounter_rosters_via_public_action() {
+    // Checkpoint fixtures isolate the two late-act roster rules; these are
+    // not evidence of natural traversal or late-act economic balance.
+    for (floor, expected) in [
+        (24, ["officer", "wolf", "crossbowman", "raider", "cuirass"]),
+        (32, ["shaman", "witch", "panther", "firelancer", "tomb_guard"]),
+    ] {
+        let mut game = Game::new_with_campaign_difficulty(
+            Hero::GuanYu, 812_345, Difficulty::Warlords, format!("roster-{floor}"),
+        );
+        game.floor = floor;
+        game.act_map = Some(map::ActMap::generate_expanded(|_| 0, floor / 8));
+        game.map_lane = None;
+        game.route = vec![Node::Battle];
+        game.route_lanes = vec![0];
+        game.apply(Action::Choose { index: 1 }).expect("late-act encounter");
+        assert_eq!(game.floor, floor + 1);
+        let battle = game.battle.as_ref().expect("battle");
+        assert!(battle.foes.iter().all(|foe| expected.contains(&foe.id.as_str())),
+            "act {} roster: {:?}", floor / 8 + 1, battle.foes.iter().map(|f| &f.id).collect::<Vec<_>>());
+        Game::from_json(&game.to_json().unwrap()).expect("late-act encounter save");
+    }
+}
