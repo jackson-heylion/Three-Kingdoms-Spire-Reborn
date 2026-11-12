@@ -1,7 +1,7 @@
 //! Action-boundary authority for every active Battle field not already held
 //! by resources, foe board, card zones, or combat effects. This captures the
 //! bounded event window and combat scalars without replaying actions.
-use crate::{Game, MAX_FLOOR, combat::{CombatEvent, MAX_RECENT_EVENTS}};
+use crate::{Game, combat::{CombatEvent, MAX_RECENT_EVENTS}};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,7 +47,7 @@ impl BattleRuntime {
     }
 
     fn valid(&self) -> bool {
-        (1..=MAX_FLOOR).contains(&self.floor) && self.turn > 0
+        (1..=crate::EXPANDED_MAX_FLOOR).contains(&self.floor) && self.turn > 0
             && self.next_turn_energy_penalty <= 2
             && [self.momentum, self.scheme, self.combo, self.command,
                 self.fury, self.thorns, self.troops_hp, self.troops_attack,
