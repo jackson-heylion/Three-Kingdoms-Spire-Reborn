@@ -278,7 +278,7 @@ fn fifth_act_boss_entrance_commits_floor_forty_and_restores() {
         game.apply(Action::Choose { index: 1 }).expect("enter floor 40 boss via public action");
         assert_eq!(game.floor, 40);
         assert_eq!(game.revision, revision + 1);
-        assert_eq!(game.stage, Stage::Battle);
+        assert_eq!(game.stage, Stage::Combat);
         assert_eq!(game.last_node, Some(Node::Boss));
         assert!(game.battle.as_ref().is_some_and(|battle| !battle.foes.is_empty()));
         let saved = game.to_json().expect("serialize floor 40 boss");
