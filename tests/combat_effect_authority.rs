@@ -118,3 +118,25 @@ fn rejected_action_keeps_all_five_authorities_unchanged() {
     assert_eq!(game.to_json().unwrap(), before);
     assert_eq!(game.audit_authority_bundle().unwrap(), 2);
 }
+
+#[test]
+fn expanded_combat_effect_floor_boundary_is_projectable_but_never_exceeds_forty() {
+    use three_kingdoms_spire_reborn::combat_effect_events::transition;
+    let at_forty = BattleEffects {
+        floor: 40, turn: 1, powers: vec![], reactions: Stack::default(),
+    };
+    let entered = transition(None, Some(at_forty.clone()), 1)
+        .expect("expanded campaign final floor is valid");
+    let mut projector = CombatEffectProjector::default();
+    projector.push(&CombatEffectEvent::Started).unwrap();
+    projector.push(&entered).expect("final floor projects");
+    assert_eq!(projector.state().unwrap(), (Some(at_forty.clone()), 1));
+
+    let beyond = BattleEffects { floor: 41, ..at_forty };
+    assert!(transition(None, Some(beyond.clone()), 1).is_err());
+    let before = projector.clone();
+    assert!(projector.push(&CombatEffectEvent::Changed {
+        revision: 2, change: CombatEffectChange::Update { state: beyond },
+    }).is_err());
+    assert_eq!(projector, before, "invalid floor must not commit");
+}
