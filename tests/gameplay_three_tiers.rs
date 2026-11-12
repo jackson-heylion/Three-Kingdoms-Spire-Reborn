@@ -1,6 +1,6 @@
 //! Public-seam regression for the opt-in gameplay-expansion difficulty identity.
 //! Legacy 21-floor campaigns must retain their original deterministic rule set.
-use three_kingdoms_spire_reborn::{Action, Difficulty, Game, Node, content::Hero};
+use three_kingdoms_spire_reborn::{Action, Difficulty, Game, Node, Stage, map, content::Hero};
 
 fn first_battle(mut game: Game) -> Game {
     assert_eq!(game.route.first(), Some(&Node::Battle));
@@ -143,4 +143,35 @@ fn new_campaign_uses_five_eight_row_acts_without_changing_legacy() {
     assert_eq!(legacy.campaign_rows(), 7);
     assert_eq!(legacy.campaign_max_floor(), 21);
     assert_eq!(legacy.act_map.unwrap().rows.len(), 7);
+}
+
+#[test]
+fn new_campaign_can_commit_floor_twenty_two_beyond_legacy_authority_limit() {
+    // Isolated checkpoint fixture: proves the public Action commit boundary,
+    // not that a player naturally traversed the previous 21 floors.
+    let mut expanded = Game::new_with_campaign_difficulty(
+        Hero::GuanYu, 82_221, Difficulty::Warlords, "act-three-boundary".into(),
+    );
+    expanded.floor = 21;
+    expanded.act_map = Some(map::ActMap::generate_expanded(|_| 0, 2));
+    expanded.map_lane = None;
+    expanded.route = vec![Node::Camp];
+    expanded.route_lanes = vec![0];
+    assert!(expanded.act_map.as_ref().unwrap().is_valid());
+    assert_eq!(expanded.campaign_max_floor(), 40);
+    let revision = expanded.revision;
+    expanded.apply(Action::Choose { index: 1 }).expect("expanded campaign must cross floor 21");
+    assert_eq!(expanded.floor, 22);
+    assert_eq!(expanded.stage, Stage::Camp);
+    assert_eq!(expanded.revision, revision + 1);
+    Game::from_json(&expanded.to_json().unwrap()).expect("floor 22 save");
+
+    // A legacy checkpoint must still reject a 22nd floor transactionally.
+    let mut legacy = Game::new(Hero::GuanYu, 82_221);
+    legacy.floor = 21;
+    legacy.route = vec![Node::Camp];
+    legacy.route_lanes = vec![0];
+    let unchanged = legacy.to_json().unwrap();
+    assert!(legacy.apply(Action::Choose { index: 1 }).is_err());
+    assert_eq!(legacy.to_json().unwrap(), unchanged);
 }
