@@ -175,8 +175,9 @@ impl Profile {
         if !matches!(game.stage, Stage::Won | Stage::Lost) {
             return Err("战局尚未结束，不能记入战功簿".into());
         }
+        if self.recorded_results.contains(&identity) { return Ok(false); }
         self.observe(game);
-        if !self.recorded_results.insert(identity.clone()) { return Ok(false); }
+        self.recorded_results.insert(identity.clone());
         let won = game.stage == Stage::Won;
         let score = score(game);
         if won {
