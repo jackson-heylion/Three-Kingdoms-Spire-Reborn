@@ -1,5 +1,5 @@
 //! Campaign creation and map regeneration, extracted from the large engine.
-use crate::{Game, Card, Stage, RunMode, SAVE_VERSION, MAX_FLOOR, map, difficulty,
+use crate::{Game, Card, Stage, RunMode, SAVE_VERSION, map, difficulty,
     resource_events, rng_events, combat_resource_events, foe_board_events,
     card_zone_events, combat_effect_events, battle_runtime_events, campaign_authority, telemetry_authority, CombatTelemetry};
 use crate::content::Hero;
