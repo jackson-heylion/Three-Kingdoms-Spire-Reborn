@@ -258,3 +258,31 @@ fn expanded_campaign_rejects_invalid_map_choice_without_consuming_authority() {
         restored.verify_action_replay().expect("expanded resumed replay");
     }
 }
+
+#[test]
+fn fifth_act_boss_entrance_commits_floor_forty_and_restores() {
+    // Isolated checkpoint fixture, not proof of a naturally completed 40-floor run.
+    // The final boss must use the same public action, combat journals and save
+    // boundary as earlier encounters, rather than failing at the old floor cap.
+    for tier in Difficulty::ALL {
+        let mut game = Game::new_with_campaign_difficulty(
+            Hero::GuanYu, 940_247, tier, format!("final-boss-{}", tier.id()),
+        );
+        game.floor = 39;
+        game.act_map = Some(map::ActMap::generate_expanded(|_| 0, 4));
+        game.map_lane = None;
+        game.route = vec![Node::Boss];
+        game.route_lanes = vec![0];
+        let revision = game.revision;
+
+        game.apply(Action::Choose { index: 1 }).expect("enter floor 40 boss via public action");
+        assert_eq!(game.floor, 40);
+        assert_eq!(game.revision, revision + 1);
+        assert_eq!(game.stage, Stage::Battle);
+        assert_eq!(game.last_node, Some(Node::Boss));
+        assert!(game.battle.as_ref().is_some_and(|battle| !battle.foes.is_empty()));
+        let saved = game.to_json().expect("serialize floor 40 boss");
+        let restored = Game::from_json(&saved).expect("restore floor 40 boss");
+        assert_eq!(restored.to_json().unwrap(), saved);
+    }
+}
