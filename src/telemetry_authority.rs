@@ -1,12 +1,12 @@
 //! Independent action-boundary projection of run-wide combat statistics.
 //! This does not reconstruct individual combat events or authenticate the save.
-use crate::{CombatCounters, CombatTelemetry, Game, MAX_FLOOR, MAX_RECENT_TURN_METRICS};
+use crate::{CombatCounters, CombatTelemetry, Game, MAX_RECENT_TURN_METRICS};
 use serde::{Deserialize, Serialize};
 
 fn valid(state: &CombatTelemetry) -> bool {
     state.recent_turns.len() <= MAX_RECENT_TURN_METRICS
         && state.recent_turns.iter().all(|turn| {
-            (1..=MAX_FLOOR).contains(&turn.floor)
+            (1..=crate::EXPANDED_MAX_FLOOR).contains(&turn.floor)
                 && turn.turn > 0 && turn.hero_hp_after >= 0 && turn.troop_hp_after >= 0
         })
         && state.totals.battles_won.saturating_add(state.totals.battles_lost)
