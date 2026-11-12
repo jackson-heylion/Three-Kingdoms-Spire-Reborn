@@ -42,6 +42,7 @@ use serde::{Deserialize, Serialize};
 pub const SAVE_VERSION: u32 = 2;
 pub const MAX_FLOOR: u8 = 21;
 pub const EXPANDED_MAX_FLOOR: u8 = 40;
+const BREAKOUT_TURN_LIMIT: u32 = 4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -334,6 +335,21 @@ pub enum Action {
 }
 
 impl Game {
+    /// Visible objective for the first new-tier encounter. Derived entirely
+    /// from committed campaign/battle state, so saves and replay need no new schema.
+    pub fn tactical_objective(&self) -> Option<String> {
+        if self.difficulty.is_some() && self.floor == 1
+            && self.last_node == Some(Node::Battle) && self.stage == Stage::Combat
+        {
+            self.battle.as_ref().map(|b| format!(
+                "突围：须在第{BREAKOUT_TURN_LIMIT}回合结束前击退全部围军；当前第{}回合。超时即战败。",
+                b.turn
+            ))
+        } else {
+            None
+        }
+    }
+
     pub fn campaign_rows(&self) -> u8 {
         if self.difficulty.is_some() { map::EXPANDED_ROWS as u8 } else { map::ROWS as u8 }
     }
@@ -1746,6 +1762,21 @@ impl Game {
         // simultaneous lethal damage remain a player loss.
         if self.defeated() {
             return Ok(format!("{}。反击清场！{}", messages.join("；"), self.win_battle()));
+        }
+        // The first new-tier encounter is a timed breakout, not an ordinary
+        // attrition battle. Defeat is settled through the same authoritative
+        // event, metric, and action commit flow as combat death. The announced
+        // deadline leaves four full player turns for attack or control.
+        if self.difficulty.is_some() && self.floor == 1
+            && self.last_node == Some(Node::Battle)
+            && self.battle.as_ref().is_some_and(|b| b.turn >= BREAKOUT_TURN_LIMIT)
+        {
+            self.record_metric(|c| c.battles_lost = c.battles_lost.saturating_add(1));
+            self.capture_turn_metrics(true);
+            self.combat_event(EventKind::BattleEnded, "breakout_timeout", 0, None);
+            self.stage = Stage::Lost;
+            self.battle = None;
+            return Ok(format!("{}。突围失败：四回合内未击退围军，征途结束。", messages.join("；")));
         }
         // Very long battles can deadlock under entirely defensive decks:
         // Zuo Ci can repeatedly heal while both armies take no net damage.
