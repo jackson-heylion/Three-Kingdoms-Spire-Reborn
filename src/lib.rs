@@ -449,7 +449,12 @@ impl Game {
                     (1,0) => ["officer", "raider", "wolf", "horse_archer", "cuirass"],
                     (1,_) => ["officer", "crossbowman", "tactician", "assassin", "iron_guard"],
                     (2,0) => ["shaman", "tomb_guard", "tactician", "witch", "panther"],
-                    _ => ["shaman", "firelancer", "assassin", "witch", "iron_guard"],
+                    (2,_) => ["shaman", "firelancer", "assassin", "witch", "iron_guard"],
+                    // New campaign acts IV and V must not silently inherit the
+                    // old act-III pool. These use existing foes and mechanics;
+                    // distinct late-act bosses and objectives remain separate work.
+                    (3,_) => ["officer", "wolf", "crossbowman", "raider", "cuirass"],
+                    _ => ["shaman", "witch", "panther", "firelancer", "tomb_guard"],
                 };
                 let first = band[self.random(band.len())];
                 if self.floor > 2 && self.random(100) < 40 {
