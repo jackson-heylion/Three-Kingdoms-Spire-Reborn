@@ -286,3 +286,38 @@ fn fifth_act_boss_entrance_commits_floor_forty_and_restores() {
         assert_eq!(restored.to_json().unwrap(), saved);
     }
 }
+
+#[test]
+fn all_five_act_boss_entrances_commit_at_eight_floor_intervals() {
+    // Isolated checkpoints verify each boss entrance via the public action.
+    // They are not evidence of natural full-campaign traversal or victory.
+    for tier in Difficulty::ALL {
+        for act in 0_u8..map::EXPANDED_ACTS {
+            let mut game = Game::new_with_campaign_difficulty(
+                Hero::GuanYu, 950_247 + u64::from(act), tier,
+                format!("act-{act}-boss-{}", tier.id()),
+            );
+            let floor_before = (act + 1) * 8 - 1;
+            game.floor = floor_before;
+            game.act_map = Some(map::ActMap::generate_expanded(|_| 0, act));
+            game.map_lane = None;
+            game.route = vec![Node::Boss];
+            game.route_lanes = vec![0];
+            let revision = game.revision;
+
+            game.apply(Action::Choose { index: 1 })
+                .expect("boss entrance must commit through public action");
+            assert_eq!(game.floor, floor_before + 1);
+            assert_eq!(game.revision, revision + 1);
+            assert_eq!(game.stage, Stage::Combat);
+            assert_eq!(game.last_node, Some(Node::Boss));
+            assert!(game.battle.as_ref().is_some_and(|battle| !battle.foes.is_empty()));
+            let saved = game.to_json().expect("serialize boss entrance");
+            assert_eq!(
+                Game::from_json(&saved).expect("restore boss entrance").to_json().unwrap(),
+                saved,
+                "act {act} tier {} boss entrance must survive restore", tier.id()
+            );
+        }
+    }
+}
