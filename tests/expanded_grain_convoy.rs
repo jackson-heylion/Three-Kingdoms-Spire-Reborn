@@ -99,3 +99,49 @@ fn convoy_victory_uses_normal_action_and_reward_without_legacy_effect() {
     let saved = game.to_json().unwrap();
     assert_eq!(Game::from_json(&saved).unwrap().to_json().unwrap(), saved);
 }
+
+#[test]
+fn a_real_seed_can_reach_grain_convoy_without_mutating_initial_state() {
+    // Entire trajectory before floor two is real player actions. No forced
+    // floor, map, hand, enemy HP, lore flag, or scripted reward is injected.
+    for seed in 247_310..247_510 {
+        let mut game = Game::new_with_campaign_difficulty(
+            Hero::LuBu, seed, Difficulty::Warlords, format!("natural-convoy-{seed}"),
+        );
+        game.apply(Action::Choose { index: 1 }).expect("start natural breakout");
+        for _ in 0..4 {
+            while game.stage == Stage::Combat {
+                let choice = game.battle.as_ref().and_then(|battle| {
+                    battle.hand.iter().enumerate().find(|(_, card)| {
+                        (card.id == "strike" || card.id == "wushuang")
+                            && three_kingdoms_spire_reborn::content::card_spec(&card.id)
+                                .is_some_and(|spec| spec.cost <= battle.energy)
+                    }).map(|(index, _)| index + 1)
+                });
+                let Some(index) = choice else { break };
+                game.apply(Action::Play { index, target: 1 }).expect("normal attack");
+            }
+            if game.stage != Stage::Combat { break; }
+            game.apply(Action::EndTurn).expect("normal enemy turn");
+        }
+        if game.stage != Stage::Reward { continue; }
+        game.apply(Action::Choose { index: 0 }).expect("decline card reward");
+        if game.stage != Stage::Map { continue; }
+        let Some(index) = game.route.iter().position(|node| *node == Node::Battle)
+        else { continue };
+        let notice = game.route_objective_hint(Node::Battle).expect("natural route preview");
+        assert!(notice.contains("粮道保卫"));
+        game.apply(Action::Choose { index: index + 1 }).expect("choose actual convoy lane");
+        assert_eq!(game.floor, 2);
+        assert_eq!(game.stage, Stage::Combat);
+        assert!(game.tactical_objective().unwrap().contains("粮道保卫"));
+        assert_eq!(game.battle.as_ref().unwrap().convoy_hp, Some(12));
+        game.verify_action_replay().expect("natural path through real actions");
+        let json = game.to_json().expect("natural convoy save");
+        let restored = Game::from_json(&json).expect("natural convoy JSON restore");
+        restored.verify_action_replay().expect("restored natural convoy action replay");
+        assert_eq!(restored.to_json().unwrap(), json);
+        return;
+    }
+    panic!("no natural seeded floor-two convoy route found within 200 Lu Bu seeds");
+}
