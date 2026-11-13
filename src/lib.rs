@@ -1727,6 +1727,9 @@ impl Game {
             self.battle.as_mut().expect("battle").wildfire = fire - 1;
             let burn = (i32::from(fire) * 2).min(self.hp);
             self.hp -= burn;
+            self.record_metric(|c| {
+                c.hero_hp_damage = c.hero_hp_damage.saturating_add(burn as u64);
+            });
             self.combat_event(EventKind::DamageReceived, "burning_camp", burn,
                 Some("hero".into()));
             if self.hp == 0 {
