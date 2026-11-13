@@ -345,9 +345,14 @@ impl Game {
     /// from committed campaign/battle state, so saves and replay need no new schema.
     /// Read-only convoy warning before committing to a route.
     pub fn route_objective_hint(&self, node: Node) -> Option<&'static str> {
-        (self.stage == Stage::Map && self.difficulty.is_some()
-            && self.floor == 1 && node == Node::Battle)
-            .then_some("粮道保卫：下一层护送粮车；存活敌军每回合劫粮，防御牌可护粮")
+        if self.stage != Stage::Map || self.difficulty.is_none() || node != Node::Battle {
+            return None;
+        }
+        match self.floor {
+            1 => Some("粮道保卫：下一层护送粮车；存活敌军每回合劫粮，防御牌可护粮"),
+            2 => Some("伏击：下一层敌军前锋以8点护甲设伏；优先破甲再击退敌军"),
+            _ => None,
+        }
     }
 
     pub fn tactical_objective(&self) -> Option<String> {
@@ -364,6 +369,14 @@ impl Game {
             };
             return Some(format!(
                 "粮道保卫：粮车剩余{hp}/12体力；每名存活敌军在回合末劫粮4点，打出防御牌每张可护粮2点（本回合已护{cover}点，上限8点）；本回合预计劫粮{raid}点。{lethal_warning}粮车耗尽立即战败，击退所有敌人即可保住粮道。"
+            ));
+        }
+        if self.difficulty.is_some() && self.floor == 3
+            && self.last_node == Some(Node::Battle) && self.stage == Stage::Combat
+        {
+            return self.battle.as_ref().map(|b| format!(
+                "伏击：敌军前锋设伏，开战获得8点护甲；当前前锋护甲{}点。先用攻击破甲，再集中火力突围。",
+                b.foes.first().map_or(0, |foe| foe.block)
             ));
         }
         if self.difficulty.is_some() && self.floor == 1
@@ -630,6 +643,13 @@ impl Game {
             foe.max_hp += extra;
             if self.modifiers.contains(&ChallengeModifier::IronLegion) {
                 foe.block = foe.block.saturating_add(8);
+            }
+        }
+        // Expanded third-floor ambush: a visible, breakable first-turn shield.
+        // This is only granted at encounter creation, never on save restoration.
+        if self.difficulty.is_some() && self.floor == 3 && node == Node::Battle {
+            if let Some(front) = foes.first_mut() {
+                front.block = front.block.saturating_add(8);
             }
         }
         let mut draw = self.deck.clone();
