@@ -159,6 +159,18 @@ fn a_real_seed_can_reach_grain_convoy_without_mutating_initial_state() {
         let restored = Game::from_json(&json).expect("natural convoy JSON restore");
         restored.verify_action_replay().expect("restored natural convoy action replay");
         assert_eq!(restored.to_json().unwrap(), json);
+        // Continue the natural encounter through an actual enemy turn.
+        // No enemy, map, hand, or RNG fixture is injected.
+        let initial_cargo = game.battle.as_ref().unwrap().convoy_hp.unwrap();
+        game.apply(Action::EndTurn).expect("natural convoy enemy turn");
+        let remaining_cargo = game.battle.as_ref().unwrap().convoy_hp.unwrap();
+        assert!(remaining_cargo < initial_cargo,
+            "an unguarded natural enemy turn must raid the convoy: {initial_cargo} -> {remaining_cargo}");
+        let after_raid = game.to_json().expect("save after natural convoy raid");
+        let recovered = Game::from_json(&after_raid).expect("restore natural raid");
+        assert_eq!(recovered.to_json().unwrap(), after_raid);
+        game.verify_action_replay().expect("natural raid action replay");
+        recovered.verify_action_replay().expect("restored natural raid replay");
         return;
     }
     panic!("no natural seeded floor-two convoy route found within 200 Lu Bu seeds");
