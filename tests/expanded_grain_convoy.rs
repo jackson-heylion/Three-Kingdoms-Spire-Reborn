@@ -171,6 +171,25 @@ fn a_real_seed_can_reach_grain_convoy_without_mutating_initial_state() {
         assert_eq!(recovered.to_json().unwrap(), after_raid);
         game.verify_action_replay().expect("natural raid action replay");
         recovered.verify_action_replay().expect("restored natural raid replay");
+        // Continue the same unmodified, naturally reached encounter to an
+        // actual terminal outcome. This is not the controlled HP/intent fixture
+        // used by the isolated convoy failure test above.
+        let gold_before_terminal = game.gold;
+        for _ in 0..20 {
+            if game.stage != Stage::Combat {
+                break;
+            }
+            game.apply(Action::EndTurn).expect("natural convoy enemy round");
+        }
+        assert_eq!(game.stage, Stage::Lost,
+            "repeatedly abandoning a natural convoy must eventually end the encounter");
+        assert_eq!(game.gold, gold_before_terminal,
+            "a naturally lost encounter must never grant convoy victory rewards");
+        let terminal = game.to_json().expect("save natural terminal outcome");
+        let restored_terminal = Game::from_json(&terminal).expect("restore natural terminal");
+        assert_eq!(restored_terminal.to_json().unwrap(), terminal);
+        game.verify_action_replay().expect("natural terminal action replay");
+        restored_terminal.verify_action_replay().expect("restored terminal action replay");
         return;
     }
     panic!("no natural seeded floor-two convoy route found within 200 Lu Bu seeds");
