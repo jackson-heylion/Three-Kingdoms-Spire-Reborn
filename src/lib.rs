@@ -110,7 +110,7 @@ impl BossMove {
             Self::GrandAlliance(n) => format!("盟军列阵 全军护甲+{n}"),
             Self::HiddenScheme(n) => format!("暗度陈仓 下回合军令-{n}"),
             Self::Mirage(n) => format!("幻身遁甲 回复{n}并获得护甲"),
-            Self::FireCamp(n) => format!("连营火攻：增添{n}层火势（每层回合末灼伤2体力；打出防御牌可扑灭）"),
+            Self::FireCamp(n) => format!("焚营火攻：增添{n}层火势（每层回合末灼伤2体力；打出防御牌可扑灭）"),
         }
     }
 }
