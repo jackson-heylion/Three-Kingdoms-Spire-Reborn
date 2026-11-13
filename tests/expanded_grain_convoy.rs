@@ -25,6 +25,7 @@ fn grain_convoy_is_announced_before_players_act() {
     let warning = game.tactical_objective().expect("grain convoy should be an actual objective");
     assert!(warning.contains("粮道保卫") && warning.contains("粮车") && warning.contains("防御"),
         "players need a convoy status, deadline/risk and counterplay: {warning}");
+    assert!(warning.contains("本回合预计劫粮4点"), "forecast must expose net convoy loss before committing: {warning}");
     assert_eq!(game.to_json().unwrap(), before, "preview must not change RNG or state");
 
     let mut legacy = Game::new(Hero::GuanYu, 247_520);
@@ -56,6 +57,8 @@ fn convoy_cover_damage_and_canonical_defeat_survive_json() {
         three_kingdoms_spire_reborn::Card::new("defend"));
     game.apply(Action::Play { index: 1, target: 1 }).unwrap();
     assert_eq!(game.battle.as_ref().unwrap().convoy_cover, Some(2));
+    assert!(game.tactical_objective().unwrap().contains("本回合预计劫粮2点"),
+        "a played defense must reduce the visible incoming raid");
     let current = game.to_json().unwrap();
     assert_eq!(Game::from_json(&current).unwrap().to_json().unwrap(), current);
     // Already-maxed cargo cover must not emit a fictional extra +2 event.
