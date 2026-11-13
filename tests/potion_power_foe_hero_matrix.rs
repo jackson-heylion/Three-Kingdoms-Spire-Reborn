@@ -1,5 +1,5 @@
-//! 10 real potion types × all 8 persistent Powers × 31 foe IDs × five
-//! heroes = 12,400 actual potion actions, with numeric effect oracles.
+//! 10 real potion types × all 8 persistent Powers × 32 foe IDs × five
+//! heroes = 12,800 actual potion actions, with numeric effect oracles.
 //! These are injected encounter/power fixtures, not natural-drafting,
 //! randomized intent exhaustiveness, or a proof of arbitrary combinations.
 use three_kingdoms_spire_reborn::{
@@ -23,7 +23,7 @@ const POWERS:[PowerId;8]=[
 fn every_potion_power_foe_hero_combination_has_correct_immediate_delta() {
     let mut cases=0;
     assert_eq!(POTIONS.len(),10);
-    assert_eq!(ENEMY_IDS.len(),31);
+    assert_eq!(ENEMY_IDS.len(),32);
     for (h,hero) in HEROES.iter().enumerate() {
         for (p,power) in POWERS.iter().enumerate() {
             for (f,enemy) in ENEMY_IDS.iter().enumerate() {
@@ -121,6 +121,6 @@ fn every_potion_power_foe_hero_combination_has_correct_immediate_delta() {
             }
         }
     }
-    assert_eq!(cases,10*8*31*5);
-    assert_eq!(cases,12_400);
+    assert_eq!(cases,10*8*32*5);
+    assert_eq!(cases,12_800);
 }
