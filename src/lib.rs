@@ -1328,10 +1328,17 @@ impl Game {
         if matches!(spec.effect, Effect::Guard(_) | Effect::GuardEnergy(_) | Effect::XGuard(_))
             && self.battle.as_ref().is_some_and(|b| b.convoy_cover.is_some())
         {
-            let b = self.battle.as_mut().expect("battle");
-            b.convoy_cover = b.convoy_cover.map(|cover| cover.saturating_add(2).min(8));
-            self.combat_event(EventKind::PowerTriggered, "convoy_cover", 2,
-                Some("convoy".into()));
+            let gained = {
+                let b = self.battle.as_mut().expect("battle");
+                let old = b.convoy_cover.unwrap_or(0);
+                let next = old.saturating_add(2).min(8);
+                b.convoy_cover = Some(next);
+                next - old
+            };
+            if gained > 0 {
+                self.combat_event(EventKind::PowerTriggered, "convoy_cover",
+                    i32::from(gained), Some("convoy".into()));
+            }
         }
         if card.enchantment.as_deref() == Some("护身") {
             self.battle.as_mut().expect("battle").block += 4;

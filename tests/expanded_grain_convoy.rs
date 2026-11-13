@@ -58,6 +58,16 @@ fn convoy_cover_damage_and_canonical_defeat_survive_json() {
     assert_eq!(game.battle.as_ref().unwrap().convoy_cover, Some(2));
     let current = game.to_json().unwrap();
     assert_eq!(Game::from_json(&current).unwrap().to_json().unwrap(), current);
+    // Already-maxed cargo cover must not emit a fictional extra +2 event.
+    game.battle.as_mut().unwrap().convoy_cover = Some(8);
+    game.battle.as_mut().unwrap().hand.insert(0,
+        three_kingdoms_spire_reborn::Card::new("defend"));
+    let audited = game.event_history.as_ref().unwrap().iter()
+        .filter(|entry| entry.event.source == "convoy_cover").count();
+    game.apply(Action::Play { index: 1, target: 1 }).unwrap();
+    assert_eq!(game.battle.as_ref().unwrap().convoy_cover, Some(8));
+    assert_eq!(game.event_history.as_ref().unwrap().iter()
+        .filter(|entry| entry.event.source == "convoy_cover").count(), audited);
 
     // Control the enemy's ordinary intent to isolate convoy-loss semantics.
     for _ in 0..4 {
