@@ -99,6 +99,7 @@ pub enum BossMove {
     GrandAlliance(i32),// 袁绍：在场友军列阵护卫
     HiddenScheme(u8),  // 司马懿：削减下回合军令
     Mirage(i32),       // 左慈：回复并立盾
+    FireCamp(u8),      // 陆逊：积累可用防御牌扑灭的焚营火势
 }
 impl BossMove {
     pub fn label(&self) -> String {
@@ -109,6 +110,7 @@ impl BossMove {
             Self::GrandAlliance(n) => format!("盟军列阵 全军护甲+{n}"),
             Self::HiddenScheme(n) => format!("暗度陈仓 下回合军令-{n}"),
             Self::Mirage(n) => format!("幻身遁甲 回复{n}并获得护甲"),
+            Self::FireCamp(n) => format!("焚营火攻：增添{n}层火势（每层回合末灼伤2体力；打出防御牌可扑灭）"),
         }
     }
 }
@@ -178,6 +180,7 @@ pub struct Battle {
     #[serde(default)] pub played_this_turn: u8,
     #[serde(default)] pub last_turn_cards: u8,
     #[serde(default)] pub next_turn_energy_penalty: u8,
+    #[serde(default)] pub wildfire: u8,
     #[serde(default)] pub troops_hp: i32,
     #[serde(default)] pub troops_attack: i32,
     #[serde(default)] pub discard_tokens: i32,
@@ -452,7 +455,8 @@ impl Game {
             Node::Boss => vec![match (act, branch) {
                 (0,0) => "zhangjiao", (0,_) => "sunjian",
                 (1,0) => "dongzhuo", (1,_) => "yuanshao",
-                (2,0) => "simayi", _ => "zuoci",
+                (2,0) => "simayi", (3,0) if self.difficulty.is_some() => "luxun",
+                _ => "zuoci",
             }],
             Node::Elite => {
                 let elites = ["elite", "war_elephant", "royal_guard", "tiger_general", "sacred_beast"];
@@ -528,6 +532,7 @@ impl Game {
                     "yuanshao" => Some(BossMove::GrandAlliance(7+act*2+second*4)),
                     "simayi" => Some(BossMove::HiddenScheme(1+foe.phase.min(1))),
                     "zuoci" => Some(BossMove::Mirage(7+act*2+second*3)),
+                    "luxun" => Some(BossMove::FireCamp(2+foe.phase)),
                     _ => None,
                 }
             } else { None };
@@ -612,6 +617,7 @@ impl Game {
             weak: 0, vulnerable: 0, momentum: 0, scheme: 0,
             combo: 0, command: 0, fury: 0, thorns: 0, played: 0,
             played_this_turn: 0, last_turn_cards: 0, next_turn_energy_penalty: 0,
+            wildfire: 0,
             troops_hp: if self.hero == Hero::CaoCao { 12 } else { 0 },
             troops_attack: if self.hero == Hero::CaoCao { 2 } else { 0 },
             discard_tokens: 0,
@@ -1301,8 +1307,15 @@ impl Game {
             }
             Effect::Unplayable => unreachable!(),
         }
-        if card.enchantment.as_deref() == Some("护身") {
-            self.battle.as_mut().expect("battle").block += 4;
+        // Guard cards provide an explicit way to extinguish Lu Xun's campfire.
+        if matches!(spec.effect, Effect::Guard(_) | Effect::GuardEnergy(_) | Effect::XGuard(_))
+            && self.battle.as_ref().is_some_and(|b| b.wildfire > 0)
+        {
+            self.battle.as_mut().expect("battle").wildfire -= 1;
+            self.combat_event(EventKind::PowerTriggered, "fire_extinguished", 1,
+                Some("hero".into()));
+        }
+        if card.enchantment.as_deref() == Some("护身") {            self.battle.as_mut().expect("battle").block += 4;
         }
         if card.enchantment.as_deref() == Some("明悟") { self.draw_cards(1); }
         let attack = requires_target || matches!(spec.effect, Effect::All(_));
@@ -1546,6 +1559,11 @@ impl Game {
                 format!("暗度陈仓，下回合军令-{}{}",penalty,
                     if curses<4 {"并混入军心涣散"} else {""})
             }
+            BossMove::FireCamp(layers) => {
+                let b = self.battle.as_mut().expect("battle");
+                b.wildfire = b.wildfire.saturating_add(layers).min(6);
+                format!("陆逊引燃连营，当前火势{}层；防御牌可逐层扑灭", b.wildfire)
+            }
             BossMove::Mirage(amount) => {
                 let b = self.battle.as_mut().expect("battle");
                 let foe = &mut b.foes[idx];
@@ -1562,7 +1580,7 @@ impl Game {
             .iter().enumerate().filter(|(_,foe)|
                 foe.hp > 0 && foe.phase == 0 && foe.hp * 2 <= foe.max_hp
                 && matches!(foe.id.as_str(),"zhangjiao"|"sunjian"|"dongzhuo"|"yuanshao"|"simayi"|"zuoci"
-                    |"elite"|"war_elephant"|"royal_guard"|"tiger_general"|"sacred_beast"))
+                    |"luxun"|"elite"|"war_elephant"|"royal_guard"|"tiger_general"|"sacred_beast"))
             .map(|(i,foe)| (i,foe.id.clone())).collect();
         let mut messages = vec![];
         for (idx,id) in changes {
@@ -1593,6 +1611,11 @@ impl Game {
                         enemy_name(&id),
                         if summoned.is_some() {"并呼叫援军（援军下回合开始行动）"}
                         else {"，但战场编制已满，无法增援"}));
+                }
+                "luxun" => {
+                    b.foes[idx].strength += 2;
+                    b.foes[idx].block += 10;
+                    messages.push("陆逊收束火阵，武勇+2、护甲+10；后续火势加剧".into());
                 }
                 "sunjian" => {
                     b.foes[idx].strength += 4;
@@ -1697,6 +1720,27 @@ impl Game {
         if self.defeated() { return Ok(self.win_battle()); }
         self.troop_attack();
         if self.defeated() { return Ok(self.win_battle()); }
+        // The fire first ignites during a telegraphed enemy action; damage
+        // arrives next turn, after the player could use defense to extinguish it.
+        let fire = self.battle.as_ref().expect("battle").wildfire;
+        if fire > 0 {
+            self.battle.as_mut().expect("battle").wildfire = fire - 1;
+            let burn = (i32::from(fire) * 2).min(self.hp);
+            self.hp -= burn;
+            self.record_metric(|c| {
+                c.hero_hp_damage = c.hero_hp_damage.saturating_add(burn as u64);
+            });
+            self.combat_event(EventKind::DamageReceived, "burning_camp", burn,
+                Some("hero".into()));
+            if self.hp == 0 {
+                self.record_metric(|c| c.battles_lost = c.battles_lost.saturating_add(1));
+                self.capture_turn_metrics(true);
+                self.combat_event(EventKind::BattleEnded, "defeat", 0, None);
+                self.stage = Stage::Lost;
+                self.battle = None;
+                return Ok("焚营火势吞没全军，征途结束。".into());
+            }
+        }
         // Remove armor earned in earlier rounds, then let a phase transition
         // grant fresh armor which remains effective during the next player turn.
         if let Some(b) = self.battle.as_mut() {
@@ -4448,7 +4492,7 @@ mod p1_event_cursor_tests {
                 covered+=1;
             }
         }
-        assert_eq!(covered,31*5);
+        assert_eq!(covered,32*5);
     }
 
 }
@@ -4535,9 +4579,9 @@ mod p1_enemy_potion_matrix_regression {
     const HEROES: [Hero; 5] = [
         Hero::GuanYu, Hero::ZhugeLiang, Hero::SunShangxiang, Hero::CaoCao, Hero::LuBu,
     ];
-    const SECOND_PHASE: [&str; 11] = [
+    const SECOND_PHASE: [&str; 12] = [
         "elite", "war_elephant", "royal_guard", "tiger_general", "sacred_beast",
-        "zhangjiao", "sunjian", "dongzhuo", "yuanshao", "simayi", "zuoci",
+        "zhangjiao", "sunjian", "dongzhuo", "yuanshao", "simayi", "zuoci", "luxun",
     ];
 
     fn versus(hero: Hero, foe_id: &str, ascension: u8, seed: u64) -> Game {
@@ -4564,7 +4608,7 @@ mod p1_enemy_potion_matrix_regression {
 
     #[test]
     fn every_enemy_and_boss_phase_resolves_three_real_turns_for_each_class_at_low_and_high_ascension() {
-        assert_eq!(content::ENEMY_IDS.len(),31,"update matrix when enemy roster changes");
+        assert_eq!(content::ENEMY_IDS.len(),32,"update matrix when enemy roster changes");
         let mut cases=0;
         let mut turns=0;
         for hero in HEROES {
@@ -4598,8 +4642,8 @@ mod p1_enemy_potion_matrix_regression {
                 }
             }
         }
-        assert_eq!(cases,420);
-        assert_eq!(turns,1260);
+        assert_eq!(cases,440);
+        assert_eq!(turns,1320);
     }
 
     #[test]
@@ -4631,7 +4675,7 @@ mod p1_enemy_potion_matrix_regression {
                 }
             }
         }
-        assert_eq!(cases,1550);
+        assert_eq!(cases,1600);
     }
 }
 
