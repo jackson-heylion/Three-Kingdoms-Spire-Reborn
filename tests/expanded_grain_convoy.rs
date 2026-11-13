@@ -104,8 +104,16 @@ fn convoy_victory_uses_normal_action_and_reward_without_legacy_effect() {
     }
     game.apply(Action::Play { index: 1, target: 1 }).unwrap();
     assert_eq!(game.stage, Stage::Reward);
-    assert!(game.gold > before_gold, "successful defense pays ordinary battle rewards");
+    assert!(game.gold > before_gold, "successful defense pays battle and cargo rewards");
+    assert!(game.log.last().unwrap().contains("保住粮车12/12，额外获得24金"),
+        "preserving cargo needs an explicit bonus: {:?}", game.log.last());
     assert!(game.battle.is_none(), "no convoy persists into reward");
+    let before_invalid = game.to_json().unwrap();
+    assert!(game.apply(Action::EndTurn).is_err(), "no replaying victory as a turn");
+    assert_eq!(game.to_json().unwrap(), before_invalid);
+    let rewarded_gold = game.gold;
+    game.apply(Action::Choose { index: 0 }).expect("claim reward exactly once");
+    assert_eq!(game.gold, rewarded_gold);
     let saved = game.to_json().unwrap();
     assert_eq!(Game::from_json(&saved).unwrap().to_json().unwrap(), saved);
 }
