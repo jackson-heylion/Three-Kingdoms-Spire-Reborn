@@ -199,3 +199,32 @@ fn a_real_seed_can_reach_grain_convoy_without_mutating_initial_state() {
     }
     panic!("no natural seeded floor-two convoy route found within 200 Lu Bu seeds");
 }
+
+#[test]
+fn convoy_lethal_raid_is_warned_and_defense_changes_the_warning() {
+    let mut game = Game::new_with_campaign_difficulty(
+        Hero::GuanYu, 247_523, Difficulty::Warlords, "convoy-lethal-247523".into(),
+    );
+    game.floor = 1;
+    game.act_map = Some(map::ActMap::generate_expanded(|_| 0, 0));
+    game.map_lane = None;
+    game.route = vec![Node::Battle];
+    game.route_lanes = vec![0];
+    game.apply(Action::Choose { index: 1 }).unwrap();
+    // A low-cargo checkpoint isolates the actionable danger announcement.
+    game.battle.as_mut().unwrap().convoy_hp = Some(4);
+    let before = game.to_json().unwrap();
+    let warning = game.tactical_objective().unwrap();
+    assert!(warning.contains("本回合预计劫粮4点"));
+    assert!(warning.contains("本回合粮车将被毁"), "{warning}");
+    assert_eq!(game.to_json().unwrap(), before, "risk inspection is read-only");
+
+    game.battle.as_mut().unwrap().hand.insert(0,
+        three_kingdoms_spire_reborn::Card::new("defend"));
+    game.apply(Action::Play { index: 1, target: 1 }).unwrap();
+    let countered = game.tactical_objective().unwrap();
+    assert!(countered.contains("本回合预计劫粮2点"), "{countered}");
+    assert!(!countered.contains("本回合粮车将被毁"), "{countered}");
+    let saved = game.to_json().unwrap();
+    assert_eq!(Game::from_json(&saved).unwrap().to_json().unwrap(), saved);
+}
