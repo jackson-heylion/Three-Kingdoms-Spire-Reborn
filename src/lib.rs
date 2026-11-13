@@ -647,10 +647,10 @@ impl Game {
         }
         // Expanded third-floor ambush: a visible, breakable first-turn shield.
         // This is only granted at encounter creation, never on save restoration.
-        if self.difficulty.is_some() && self.floor == 3 && node == Node::Battle {
-            if let Some(front) = foes.first_mut() {
-                front.block = front.block.saturating_add(8);
-            }
+        if self.difficulty.is_some() && self.floor == 3 && node == Node::Battle
+            && let Some(front) = foes.first_mut()
+        {
+            front.block = front.block.saturating_add(8);
         }
         let mut draw = self.deck.clone();
         self.shuffle(&mut draw);
