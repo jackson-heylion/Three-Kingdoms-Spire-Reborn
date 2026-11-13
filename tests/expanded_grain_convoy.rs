@@ -13,6 +13,11 @@ fn grain_convoy_is_announced_before_players_act() {
     game.map_lane = None;
     game.route = vec![Node::Battle];
     game.route_lanes = vec![0];
+    let before_map = game.to_json().unwrap();
+    let route_notice = game.route_objective_hint(Node::Battle).expect("preview before entering");
+    assert!(route_notice.contains("粮道保卫") && route_notice.contains("防御"));
+    assert_eq!(game.to_json().unwrap(), before_map, "route preview is read-only");
+    assert!(game.route_objective_hint(Node::Market).is_none());
     game.apply(Action::Choose { index: 1 }).expect("enter second floor through Action");
     assert_eq!(game.floor, 2);
     assert_eq!(game.stage, Stage::Combat);

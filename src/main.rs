@@ -292,6 +292,9 @@ impl App {
                                 Some(map.score_route(next_row,lane,g.hp,g.max_hp,g.gold))));
                         println!("   {}. {}（道{} / {} / 三层路线评分{}）",
                             i+1,node.name(),lane+1,terrain,risk.map_or("-".into(),|score|score.to_string()));
+                        if let Some(hint) = g.route_objective_hint(*node) {
+                            println!("      【战术预告】{hint}");
+                        }
                     }
                     println!(" 输入 map 查看本幕{}层完整路线图", g.campaign_rows());
                     println!(" 输入 choose <编号>");

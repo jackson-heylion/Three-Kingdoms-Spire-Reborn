@@ -340,6 +340,14 @@ pub enum Action {
 impl Game {
     /// Visible objective for the first new-tier encounter. Derived entirely
     /// from committed campaign/battle state, so saves and replay need no new schema.
+    /// Announce the floor-two convoy before the player commits to a route.
+    /// This is a pure, RNG-free query over the authoritative campaign state.
+    pub fn route_objective_hint(&self, node: Node) -> Option<&'static str> {
+        (self.stage == Stage::Map && self.difficulty.is_some()
+            && self.floor == 1 && node == Node::Battle)
+            .then_some("粮道保卫：下一层护送粮车；存活敌军每回合劫粮，防御牌可护粮")
+    }
+
     pub fn tactical_objective(&self) -> Option<String> {
         if self.stage == Stage::Combat
             && let Some(b) = self.battle.as_ref()
