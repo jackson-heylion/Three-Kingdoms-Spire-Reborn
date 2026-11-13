@@ -1037,10 +1037,22 @@ impl Game {
         let node = self.last_node.unwrap_or(Node::Battle);
         self.record_metric(|c| c.battles_won = c.battles_won.saturating_add(1));
         self.capture_turn_metrics(false);
+        // Save the protected cargo value before closing the combat snapshot.
+        // Only the expanded floor-two convoy has Some(hp); legacy rewards stay unchanged.
+        let convoy_hp = self.battle.as_ref().and_then(|b| b.convoy_hp);
         self.battle = None;
         let payout = match node { Node::Boss => 100, Node::Elite => 60, _ => 24 + self.random(15) as i32 };
         let payout = payout.saturating_sub(self.difficulty.map_or(0, Difficulty::supply_toll));
         self.gold += payout;
+        let convoy_note = if let Some(hp) = convoy_hp {
+            // Preserving the cargo is worth protecting, not merely avoiding loss.
+            // Capped at 24 gold, paid exactly once by the canonical victory path.
+            let bonus = i32::from(hp) * 2;
+            self.gold += bonus;
+            format!("保住粮车{hp}/12，额外获得{bonus}金，")
+        } else {
+            String::new()
+        };
         if self.relics.iter().any(|r| r == "铜雀") { self.gold += 12; }
         if self.relics.iter().any(|r| r == "神医") {
             self.hp = (self.hp + 6).min(self.max_hp);
@@ -1072,7 +1084,7 @@ impl Game {
         }
         self.rewards = self.pick_reward_cards();
         self.stage = Stage::Reward;
-        format!("战斗胜利！获得{payout}金，选择一张战利品，或输入 choose 0 跳过。")
+        format!("战斗胜利！获得{payout}金，{convoy_note}选择一张战利品，或输入 choose 0 跳过。")
     }
     /// Keep the read-only card picker and the authoritative resolver in sync.
     fn eligible_pile_card(card: &Card, attack_only: bool) -> bool {
