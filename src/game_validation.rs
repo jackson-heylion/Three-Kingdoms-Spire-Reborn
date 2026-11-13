@@ -120,6 +120,9 @@ impl Game {
             if b.energy < 0 || b.block < 0 || b.troops_hp < 0 || b.troops_attack < 0
                 || b.discard_tokens < 0 || b.foes.is_empty() || b.foes.len() > 4
                 || b.next_turn_energy_penalty > 2 || b.wildfire > 6
+                || b.convoy_hp.is_some() != b.convoy_cover.is_some()
+                || b.convoy_hp.is_some_and(|hp| hp == 0 || hp > 12)
+                || b.convoy_cover.is_some_and(|cover| cover > 8)
                 || b.powers.len() > 8 || b.powers.iter().any(|power| power.stacks <= 0 || power.stacks > 99)
                 || b.powers.iter().enumerate().any(|(idx,p)| b.powers[..idx].iter().any(|prior| prior.id == p.id))
                 || b.events.len() > MAX_RECENT_EVENTS

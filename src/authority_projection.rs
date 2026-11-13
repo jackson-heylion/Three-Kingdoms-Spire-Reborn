@@ -89,6 +89,7 @@ impl AuthorityView {
             last_turn_cards: runtime.last_turn_cards,
             next_turn_energy_penalty: runtime.next_turn_energy_penalty,
             wildfire: runtime.wildfire,
+            convoy_hp: runtime.convoy_hp, convoy_cover: runtime.convoy_cover,
             troops_hp: runtime.troops_hp, troops_attack: runtime.troops_attack,
             discard_tokens: runtime.discard_tokens, thought_used: runtime.thought_used,
             powers: effects.powers.clone(), reactions: effects.reactions.clone(),
