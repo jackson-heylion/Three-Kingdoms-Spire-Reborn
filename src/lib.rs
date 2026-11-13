@@ -178,6 +178,9 @@ pub struct Battle {
     #[serde(default)] pub played_this_turn: u8,
     #[serde(default)] pub last_turn_cards: u8,
     #[serde(default)] pub next_turn_energy_penalty: u8,
+    /// Only present during the opt-in floor-two grain convoy encounter.
+    #[serde(default, skip_serializing_if = "Option::is_none")] pub convoy_hp: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")] pub convoy_cover: Option<u8>,
     #[serde(default)] pub troops_hp: i32,
     #[serde(default)] pub troops_attack: i32,
     #[serde(default)] pub discard_tokens: i32,
@@ -338,6 +341,14 @@ impl Game {
     /// Visible objective for the first new-tier encounter. Derived entirely
     /// from committed campaign/battle state, so saves and replay need no new schema.
     pub fn tactical_objective(&self) -> Option<String> {
+        if self.stage == Stage::Combat
+            && let Some(b) = self.battle.as_ref()
+            && let (Some(hp), Some(cover)) = (b.convoy_hp, b.convoy_cover)
+        {
+            return Some(format!(
+                "粮道保卫：粮车剩余{hp}/12体力；每名存活敌军在回合末劫粮4点，打出防御牌每张可护粮2点（本回合已护{cover}点，上限8点）。粮车耗尽立即战败，击退所有敌人即可保住粮道。"
+            ));
+        }
         if self.difficulty.is_some() && self.floor == 1
             && self.last_node == Some(Node::Battle) && self.stage == Stage::Combat
         {
@@ -612,6 +623,10 @@ impl Game {
             weak: 0, vulnerable: 0, momentum: 0, scheme: 0,
             combo: 0, command: 0, fury: 0, thorns: 0, played: 0,
             played_this_turn: 0, last_turn_cards: 0, next_turn_energy_penalty: 0,
+            convoy_hp: (self.difficulty.is_some() && self.floor == 2
+                && node == Node::Battle).then_some(12),
+            convoy_cover: (self.difficulty.is_some() && self.floor == 2
+                && node == Node::Battle).then_some(0),
             troops_hp: if self.hero == Hero::CaoCao { 12 } else { 0 },
             troops_attack: if self.hero == Hero::CaoCao { 2 } else { 0 },
             discard_tokens: 0,
@@ -1301,6 +1316,15 @@ impl Game {
             }
             Effect::Unplayable => unreachable!(),
         }
+        // A played defense card protects the convoy as well as the hero.
+        if matches!(spec.effect, Effect::Guard(_) | Effect::GuardEnergy(_) | Effect::XGuard(_))
+            && self.battle.as_ref().is_some_and(|b| b.convoy_cover.is_some())
+        {
+            let b = self.battle.as_mut().expect("battle");
+            b.convoy_cover = b.convoy_cover.map(|cover| cover.saturating_add(2).min(8));
+            self.combat_event(EventKind::PowerTriggered, "convoy_cover", 2,
+                Some("convoy".into()));
+        }
         if card.enchantment.as_deref() == Some("护身") {
             self.battle.as_mut().expect("battle").block += 4;
         }
@@ -1762,6 +1786,34 @@ impl Game {
         // simultaneous lethal damage remain a player loss.
         if self.defeated() {
             return Ok(format!("{}。反击清场！{}", messages.join("；"), self.win_battle()));
+        }
+        // The second-floor convoy is a separate tactical win/loss condition.
+        // Only enemies still alive after counterattacks threaten the convoy.
+        if let Some(hp) = self.battle.as_ref().expect("battle").convoy_hp {
+            let (enemy_count, cover) = {
+                let b = self.battle.as_ref().expect("battle");
+                (b.foes.iter().filter(|foe| foe.hp > 0).count() as u8,
+                    b.convoy_cover.unwrap_or(0))
+            };
+            let damage = enemy_count.saturating_mul(4).saturating_sub(cover);
+            let actual = damage.min(hp);
+            {
+                let b = self.battle.as_mut().expect("battle");
+                b.convoy_hp = Some(hp - actual);
+                b.convoy_cover = Some(0);
+            }
+            self.combat_event(EventKind::EnemyTechnique, "convoy_raided",
+                i32::from(actual), Some("convoy".into()));
+            messages.push(format!("粮车遭劫{actual}体力，剩余{}体力", hp - actual));
+            if actual == hp {
+                self.record_metric(|c| c.battles_lost = c.battles_lost.saturating_add(1));
+                self.capture_turn_metrics(true);
+                self.combat_event(EventKind::BattleEnded, "defeat", 0, None);
+                self.stage = Stage::Lost;
+                self.battle = None;
+                return Ok(format!("{}。粮道保卫失败，粮车被毁，征途结束。",
+                    messages.join("；")));
+            }
         }
         // The first new-tier encounter is a timed breakout, not an ordinary
         // attrition battle. Defeat is settled through the same authoritative
