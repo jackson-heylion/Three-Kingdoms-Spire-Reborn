@@ -228,3 +228,75 @@ fn convoy_lethal_raid_is_warned_and_defense_changes_the_warning() {
     let saved = game.to_json().unwrap();
     assert_eq!(Game::from_json(&saved).unwrap().to_json().unwrap(), saved);
 }
+
+
+#[test]
+fn natural_convoy_victory_requires_real_attacks_and_survives_replay() {
+    // No mutations to floor, map, enemies, hand, cargo, RNG or lore.
+    // Search reproducible natural starts, not an injected near-dead enemy fixture.
+    for seed in 247_310..247_510 {
+        let mut game = Game::new_with_campaign_difficulty(
+            Hero::LuBu, seed, Difficulty::Warlords, format!("natural-convoy-win-{seed}"),
+        );
+        game.apply(Action::Choose { index: 1 }).expect("enter first-floor breakout");
+        for _ in 0..4 {
+            while game.stage == Stage::Combat {
+                let choice = game.battle.as_ref().and_then(|battle| {
+                    battle.hand.iter().enumerate().find(|(_, card)| {
+                        (card.id == "strike" || card.id == "wushuang")
+                            && three_kingdoms_spire_reborn::content::card_spec(&card.id)
+                                .is_some_and(|spec| spec.cost <= battle.energy)
+                    }).map(|(index, _)| index + 1)
+                });
+                let Some(index) = choice else { break };
+                game.apply(Action::Play { index, target: 1 }).expect("first-floor attack");
+            }
+            if game.stage != Stage::Combat { break; }
+            game.apply(Action::EndTurn).expect("first-floor enemy turn");
+        }
+        if game.stage != Stage::Reward { continue; }
+        game.apply(Action::Choose { index: 0 }).expect("decline first-floor reward");
+        if game.stage != Stage::Map { continue; }
+        let Some(lane) = game.route.iter().position(|node| *node == Node::Battle) else {
+            continue;
+        };
+        game.apply(Action::Choose { index: lane + 1 }).expect("enter natural convoy");
+        if game.stage != Stage::Combat || game.floor != 2 { continue; }
+        let gold_before = game.gold;
+        let mut played_attack = false;
+        for _ in 0..12 {
+            if game.stage != Stage::Combat { break; }
+            loop {
+                let next = game.battle.as_ref().and_then(|battle| {
+                    let target = battle.foes.iter().position(|foe| foe.hp > 0)? + 1;
+                    battle.hand.iter().enumerate().find(|(_, card)| {
+                        (card.id == "strike" || card.id == "wushuang")
+                            && three_kingdoms_spire_reborn::content::card_spec(&card.id)
+                                .is_some_and(|spec| spec.cost <= battle.energy)
+                    }).map(|(index, _)| (index + 1, target))
+                });
+                let Some((index, target)) = next else { break };
+                game.apply(Action::Play { index, target }).expect("natural convoy attack");
+                played_attack = true;
+                if game.stage != Stage::Combat { break; }
+            }
+            if game.stage != Stage::Combat { break; }
+            game.apply(Action::EndTurn).expect("natural convoy enemy turn");
+        }
+        if game.stage != Stage::Reward { continue; }
+        assert!(played_attack, "a natural victory must use player attacks");
+        assert!(game.gold > gold_before, "successful convoy pays a real reward");
+        assert!(game.log.iter().any(|line| line.contains("保住粮车")),
+            "victory should explain preserved cargo: {:?}", game.log);
+        let json = game.to_json().expect("natural victory JSON");
+        let restored = Game::from_json(&json).expect("restore natural victory");
+        assert_eq!(restored.to_json().unwrap(), json);
+        game.verify_action_replay().expect("natural victory action replay");
+        restored.verify_action_replay().expect("restored natural victory replay");
+        let payout = game.gold;
+        game.apply(Action::Choose { index: 0 }).expect("claim reward once");
+        assert_eq!(game.gold, payout, "reward selection cannot pay convoy twice");
+        return;
+    }
+    panic!("no unmodified natural convoy victory found in 200 Lu Bu seeds with starter attacks");
+}
