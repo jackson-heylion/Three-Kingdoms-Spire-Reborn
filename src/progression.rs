@@ -154,7 +154,7 @@ impl Profile {
 
     pub fn observe(&mut self, game: &Game) {
         self.best_floor = self.best_floor.max(game.floor);
-        self.longest_campaign=self.longest_campaign.max(if game.floor==0 {0} else {(game.floor-1)/7+1});
+        self.longest_campaign=self.longest_campaign.max(if game.floor==0 {0} else {(game.floor-1)/game.campaign_rows()+1});
         if game.telemetry.totals.battles_won>0 {self.achievements.insert("first_battle".into());}
         if game.stage==Stage::Reward && game.last_node==Some(Node::Elite) {
             self.achievements.insert("first_elite".into());
@@ -175,8 +175,9 @@ impl Profile {
         if !matches!(game.stage, Stage::Won | Stage::Lost) {
             return Err("战局尚未结束，不能记入战功簿".into());
         }
+        if self.recorded_results.contains(&identity) { return Ok(false); }
         self.observe(game);
-        if !self.recorded_results.insert(identity.clone()) { return Ok(false); }
+        self.recorded_results.insert(identity.clone());
         let won = game.stage == Stage::Won;
         let score = score(game);
         if won {
@@ -232,6 +233,31 @@ mod tests {
     use crate::content::Hero;
 
     #[test]
+    fn five_act_chronicle_uses_eight_floor_boundaries_without_unlocking_early() {
+        // These are controlled observer boundary snapshots, not claims that a
+        // bot naturally reached these floors via Game::apply(Action).
+        let mut expanded = Game::new_with_campaign_difficulty(
+            Hero::GuanYu, 24_801, Difficulty::Warlords, "chronicle-eight-rows".into(),
+        );
+        let mut chronicle = Profile::new();
+        for (floor, act) in [(8, 1), (9, 2), (16, 2), (17, 3), (32, 4), (33, 5)] {
+            expanded.floor = floor;
+            chronicle.observe(&expanded);
+            assert_eq!(chronicle.longest_campaign, act, "new campaign floor {floor}");
+            assert_eq!(chronicle.achievements.contains("first_act"), floor >= 9);
+            assert_eq!(chronicle.achievements.contains("final_act"), floor >= 17);
+        }
+
+        let mut legacy = Game::new(Hero::GuanYu, 24_801);
+        let mut old_chronicle = Profile::new();
+        for (floor, act) in [(7, 1), (8, 2), (14, 2), (15, 3)] {
+            legacy.floor = floor;
+            old_chronicle.observe(&legacy);
+            assert_eq!(old_chronicle.longest_campaign, act, "legacy floor {floor}");
+        }
+    }
+
+    #[test]
     fn achievement_unlocks_are_persistent_and_old_profiles_migrate() {
         let mut p=Profile::new();
         let mut g=Game::new(Hero::GuanYu,1);
@@ -284,6 +310,25 @@ mod tests {
         old_game.profile_start_receipt = false;
         assert_eq!(migrated.on_start_once(&old_game), Ok(false));
         assert_eq!(migrated.started, 2, "legacy saves must not be counted again");
+    }
+
+    #[test]
+    fn duplicate_result_receipt_does_not_mutate_chronicle_observations() {
+        let mut profile = Profile::new();
+        let mut game = Game::new_with_campaign_difficulty(
+            Hero::GuanYu, 247_901, Difficulty::Warlords, "receipt-247901".into(),
+        );
+        game.stage = Stage::Lost;
+        assert_eq!(profile.record(&game, "receipt-247901".into()), Ok(true));
+        let before = profile.to_json().unwrap();
+
+        // A stale duplicate receipt must not import later, unrelated snapshot
+        // discoveries into the already finalized run.
+        game.floor = 40;
+        game.deck.push(crate::Card::new("strike"));
+        game.relics.push("重复结算不应发现的遗物".into());
+        assert_eq!(profile.record(&game, "receipt-247901".into()), Ok(false));
+        assert_eq!(profile.to_json().unwrap(), before);
     }
 
     #[test]

@@ -41,6 +41,8 @@ use serde::{Deserialize, Serialize};
 
 pub const SAVE_VERSION: u32 = 2;
 pub const MAX_FLOOR: u8 = 21;
+pub const EXPANDED_MAX_FLOOR: u8 = 40;
+const BREAKOUT_TURN_LIMIT: u32 = 4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -333,6 +335,27 @@ pub enum Action {
 }
 
 impl Game {
+    /// Visible objective for the first new-tier encounter. Derived entirely
+    /// from committed campaign/battle state, so saves and replay need no new schema.
+    pub fn tactical_objective(&self) -> Option<String> {
+        if self.difficulty.is_some() && self.floor == 1
+            && self.last_node == Some(Node::Battle) && self.stage == Stage::Combat
+        {
+            self.battle.as_ref().map(|b| format!(
+                "突围：须在第{BREAKOUT_TURN_LIMIT}回合结束前击退全部围军；当前第{}回合。超时即战败。",
+                b.turn
+            ))
+        } else {
+            None
+        }
+    }
+
+    pub fn campaign_rows(&self) -> u8 {
+        if self.difficulty.is_some() { map::EXPANDED_ROWS as u8 } else { map::ROWS as u8 }
+    }
+    pub fn campaign_max_floor(&self) -> u8 {
+        if self.difficulty.is_some() { EXPANDED_MAX_FLOOR } else { MAX_FLOOR }
+    }
     pub fn to_json(&self) -> Result<String, String> {
         serde_json::to_string_pretty(self).map_err(|e| e.to_string())
     }
@@ -399,8 +422,17 @@ impl Game {
     }
 
     pub fn act_name(&self) -> &'static str {
-        let act = self.floor.saturating_sub(1) / 7;
+        let act = self.floor.saturating_sub(1) / self.campaign_rows();
         let branch = self.act_variant(act);
+        if self.difficulty.is_some() {
+            return match act {
+                0 => "乱世起兵",
+                1 => "群雄逐鹿",
+                2 => "赤壁风云",
+                3 => "三分天下",
+                _ => "汉祚余响",
+            };
+        }
         match (act.min(2), branch) {
             (0, 0) => "黄巾乱世", (0, _) => "江东烽烟",
             (1, 0) => "关中风云", (1, _) => "群雄会盟",
@@ -414,7 +446,7 @@ impl Game {
         )
     }
     fn generate_foes(&mut self, node: Node) -> Vec<Foe> {
-        let act = self.floor.saturating_sub(1) / 7;
+        let act = self.floor.saturating_sub(1) / self.campaign_rows();
         let branch = self.act_variant(act);
         let ids: Vec<&str> = match node {
             Node::Boss => vec![match (act, branch) {
@@ -433,7 +465,12 @@ impl Game {
                     (1,0) => ["officer", "raider", "wolf", "horse_archer", "cuirass"],
                     (1,_) => ["officer", "crossbowman", "tactician", "assassin", "iron_guard"],
                     (2,0) => ["shaman", "tomb_guard", "tactician", "witch", "panther"],
-                    _ => ["shaman", "firelancer", "assassin", "witch", "iron_guard"],
+                    (2,_) => ["shaman", "firelancer", "assassin", "witch", "iron_guard"],
+                    // New campaign acts IV and V must not silently inherit the
+                    // old act-III pool. These use existing foes and mechanics;
+                    // distinct late-act bosses and objectives remain separate work.
+                    (3,_) => ["officer", "wolf", "crossbowman", "raider", "cuirass"],
+                    _ => ["shaman", "witch", "panther", "firelancer", "tomb_guard"],
                 };
                 let first = band[self.random(band.len())];
                 if self.floor > 2 && self.random(100) < 40 {
@@ -457,13 +494,13 @@ impl Game {
             // Consume the same seed-driven roll for every enemy, including scripted
             // bosses, so RNG state remains reproducible through a saved turn.
             let roll = self.random(100);
+            let act = (self.floor.saturating_sub(1) / self.campaign_rows()) as i32;
             let b = self.battle.as_mut().expect("battle");
             let turn = b.turn;
             let last_turn_cards = b.last_turn_cards;
             let living = b.foes.iter().filter(|foe|foe.hp > 0).count();
             let foe = &mut b.foes[i];
             if foe.hp == 0 { continue; }
-            let act = (self.floor.saturating_sub(1) / 7) as i32;
             // Round up so ascension 1 already changes enemy attacks.
             let attack = 6 + act * 3 + foe.strength + (self.ascension as i32 + 2) / 3
                 + difficulty.map_or(0, Difficulty::attack_bonus)
@@ -557,7 +594,7 @@ impl Game {
         let mut foes = self.generate_foes(node);
         for foe in &mut foes {
             // Round up so ascension 1 already increases enemy HP.
-            let extra = (self.ascension as i32 + 1) / 2 * (1 + (self.floor as i32 / 7))
+            let extra = (self.ascension as i32 + 1) / 2 * (1 + (self.floor as i32 / i32::from(self.campaign_rows())))
                 + self.difficulty.map_or(0, Difficulty::enemy_hp_bonus);
             foe.hp += extra;
             foe.max_hp += extra;
@@ -662,7 +699,7 @@ impl Game {
         self.floor += 1;
         self.last_node = Some(node);
         let ground=self.act_map.as_ref().and_then(|map|
-            self.map_lane.map(|lane|map.terrain_at(usize::from((self.floor-1)%7),lane)))
+            self.map_lane.map(|lane|map.terrain_at(usize::from((self.floor-1)%self.campaign_rows()),lane)))
             .unwrap_or(map::Terrain::Road);
         let mut msg = format!("第{}层：{}（{}）", self.floor, node.name(),ground.label());
         match ground {
@@ -698,7 +735,7 @@ impl Game {
                 self.event_id = self.random(12) as u8;
                 // The literary ledger is deterministic for any saved seed and visited flags.
                 // Original generic chance events remain when no eligible authored beat exists.
-                let act = (self.floor.saturating_sub(1) / 7).min(2);
+                let act = (self.floor.saturating_sub(1) / self.campaign_rows()).min(2);
                 self.lore_current = lore::next_beat(self.hero, act, &self.lore_flags, &self.lore_seen)
                     .map(|beat| beat.id.to_owned());
                 self.stage = Stage::Story;
@@ -1005,10 +1042,10 @@ impl Game {
             self.potion_bag.push(potion.into());
             self.potions = self.potion_bag.len() as u8;
         }
-        if self.floor >= MAX_FLOOR {
+        if self.floor >= self.campaign_max_floor() {
             self.victories = self.victories.saturating_add(1);
             self.stage = Stage::Won;
-            return "三军凯旋！三幕征程全部通关。".into();
+            return if self.difficulty.is_some() { "三军凯旋！五幕征程全部通关。".into() } else { "三军凯旋！三幕征程全部通关。".into() };
         }
         self.rewards = self.pick_reward_cards();
         self.stage = Stage::Reward;
@@ -1725,6 +1762,22 @@ impl Game {
         // simultaneous lethal damage remain a player loss.
         if self.defeated() {
             return Ok(format!("{}。反击清场！{}", messages.join("；"), self.win_battle()));
+        }
+        // The first new-tier encounter is a timed breakout, not an ordinary
+        // attrition battle. Defeat is settled through the same authoritative
+        // event, metric, and action commit flow as combat death. The announced
+        // deadline leaves four full player turns for attack or control.
+        if self.difficulty.is_some() && self.floor == 1
+            && self.last_node == Some(Node::Battle)
+            && self.battle.as_ref().is_some_and(|b| b.turn >= BREAKOUT_TURN_LIMIT)
+        {
+            self.record_metric(|c| c.battles_lost = c.battles_lost.saturating_add(1));
+            self.capture_turn_metrics(true);
+            self.combat_event(EventKind::EnemyTechnique, "breakout_timeout", 1, None);
+            self.combat_event(EventKind::BattleEnded, "defeat", 0, None);
+            self.stage = Stage::Lost;
+            self.battle = None;
+            return Ok(format!("{}。突围失败：四回合内未击退围军，征途结束。", messages.join("；")));
         }
         // Very long battles can deadlock under entirely defensive decks:
         // Zuo Ci can repeatedly heal while both armies take no net damage.

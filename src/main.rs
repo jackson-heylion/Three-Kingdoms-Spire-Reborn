@@ -248,12 +248,13 @@ impl App {
         if let Some(g) = &self.game {
             println!(" 武将：{}  体力：{}/{}  金：{}  药剂：{}",
                 g.hero.name(), g.hp, g.max_hp, g.gold, g.potions);
-            println!(" 幕：{}  层：{}/21  牌组：{}  遗物：{}  存档修订：{}",
-                (g.floor.saturating_sub(1) / 7 + 1).min(3), g.floor, g.deck.len(),
+            println!(" 幕：{}  层：{}/{}  牌组：{}  遗物：{}  存档修订：{}",
+                (g.floor.saturating_sub(1) / g.campaign_rows() + 1).min(g.campaign_max_floor() / g.campaign_rows()),
+                g.floor, g.campaign_max_floor(), g.deck.len(),
                 g.relics.join("、"), g.revision);
             let difficulty_label = g.difficulty.map_or_else(
                 || format!("旧制飞升：{}", g.ascension),
-                |tier| format!("新制三档：{}（21层验证切片）", tier.name()),
+                |tier| format!("新制三档：{}（五幕40层）", tier.name()),
             );
             println!(" 模式：{:?}  {}  已完成战役：{}  存档协议：V{}",
                 g.mode, difficulty_label, g.victories, g.version);
@@ -282,7 +283,7 @@ impl App {
             match g.stage {
                 Stage::Map => {
                     println!(" 【征战路线】选择下一站：");
-                    let next_row=usize::from(g.floor%7);
+                    let next_row=usize::from(g.floor % g.campaign_rows());
                     for (i, node) in g.route.iter().enumerate() {
                         let lane = g.route_lanes.get(i).map_or(i as u8,|n|*n);
                         let (terrain,risk)=g.act_map.as_ref().map_or(
@@ -292,13 +293,16 @@ impl App {
                         println!("   {}. {}（道{} / {} / 三层路线评分{}）",
                             i+1,node.name(),lane+1,terrain,risk.map_or("-".into(),|score|score.to_string()));
                     }
-                    println!(" 输入 map 查看本幕七层完整路线图");
+                    println!(" 输入 map 查看本幕{}层完整路线图", g.campaign_rows());
                     println!(" 输入 choose <编号>");
                 }
                 Stage::Combat => {
                     let b = g.battle.as_ref().expect("stage validated");
                     println!(" 【战斗】第{}回合  军令：{}  护甲：{}  武勇：{}",
                         b.turn, b.energy, b.block, b.strength);
+                    if let Some(objective) = g.tactical_objective() {
+                        println!(" 【关卡目标】{objective}");
+                    }
                     if b.thorns > 0 {
                         println!(" 【反击】每次受击反伤{}；击杀施术者可中断尚未生效的后续战技。", b.thorns);
                     }
@@ -375,7 +379,8 @@ impl App {
                     }
                     println!(" 输入 choose <编号>");
                 }
-                Stage::Won => println!(" 【胜利】三幕皆定，江山已平！输入 new 开始新征程。"),
+                Stage::Won => println!(" 【胜利】{}，江山已平！输入 new 开始新征程。",
+                    if g.difficulty.is_some() { "五幕皆定" } else { "三幕皆定" }),
                 Stage::Lost => println!(" 【败北】胜败乃兵家常事。输入 new 开始新征程。"),
             }
             println!("────────────────────────────────────────────────────");
@@ -407,7 +412,7 @@ impl App {
                     )),
                 }
             }
-            "help" | "h" => Ok("campaign [武将] [seed] [warlords|conqueror|destiny] 新三档战役（目前21层基础切片）；new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 在出征前指定三幕变体；daily YYYY-MM-DD；load/save；choose N；play N [目标] [副选牌编号]；selections N 查可选副牌；discard N 弃换；end；use [药剂号] [目标]（火/毒指定存活目标，弱化影响全体） ；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看路径与评分；inventory 背包；achievements 成就；codex 图鉴；relics；lore 看纪事；bonds 看人物羁绊；chapter 1-120 回目索引；powers 持续能力/监听器；react-remove ID 注销监听；react <ID> <weak|vulnerable|poison|damage:来源|damage:foe:N|power:军略ID> <hero|foe:0..3> <cancel|reduce|replace> [数值] [优先级] [次数]（仅自由战斗）；events [游标] [条数1-80] 分页审计当前战斗事件；eventsource 查看跨战斗记录；verify-events 重建校验全量战斗事件；metrics 战役统计；verify 回放检验；history 最近操作；doctrine 查看流派 / doctrine auto|代码 选择；builds 查看3套候选构筑及反制；chronicle；timeline 战功时间线；modifier 查看挑战 / modifier 代码 on|off；theme dark|light|highcontrast；status；quit。".into()),
+            "help" | "h" => Ok("campaign [武将] [seed] [warlords|conqueror|destiny] 新三档五幕40层战役；new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 在出征前指定三幕变体；daily YYYY-MM-DD；load/save；choose N；play N [目标] [副选牌编号]；selections N 查可选副牌；discard N 弃换；end；use [药剂号] [目标]（火/毒指定存活目标，弱化影响全体） ；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看路径与评分；inventory 背包；achievements 成就；codex 图鉴；relics；lore 看纪事；bonds 看人物羁绊；chapter 1-120 回目索引；powers 持续能力/监听器；react-remove ID 注销监听；react <ID> <weak|vulnerable|poison|damage:来源|damage:foe:N|power:军略ID> <hero|foe:0..3> <cancel|reduce|replace> [数值] [优先级] [次数]（仅自由战斗）；events [游标] [条数1-80] 分页审计当前战斗事件；eventsource 查看跨战斗记录；verify-events 重建校验全量战斗事件；metrics 战役统计；verify 回放检验；history 最近操作；doctrine 查看流派 / doctrine auto|代码 选择；builds 查看3套候选构筑及反制；chronicle；timeline 战功时间线；modifier 查看挑战 / modifier 代码 on|off；theme dark|light|highcontrast；status；quit。".into()),
             "campaign" => {
                 let hero = args.get(1).and_then(|s| Hero::parse(s)).unwrap_or(Hero::GuanYu);
                 let seed = args.get(2).and_then(|s| s.parse::<u64>().ok()).unwrap_or_else(|| {
@@ -416,7 +421,7 @@ impl App {
                 match Difficulty::parse(args.get(3).copied().unwrap_or("warlords")) {
                     Some(tier) => self.start_run(Game::new_with_campaign_difficulty(
                         hero, seed, tier, new_run_id(),
-                    )).map(|_| format!("以 {} 开始【{}】新制战役，种子 {seed}（当前21层基础切片）。", hero.name(), tier.name())),
+                    )).map(|_| format!("以 {} 开始【{}】新制战役，种子 {seed}（五幕40层）。", hero.name(), tier.name())),
                     None => Err("新制难度仅支持 warlords、conqueror、destiny".into()),
                 }
             }
@@ -460,7 +465,7 @@ impl App {
             "status" => Ok(self.game.as_ref().map_or("尚未开局".into(), |g| {
                 let rules = g.difficulty.map_or_else(
                     || format!("旧制飞升{}（三幕21层）", g.ascension),
-                    |tier| format!("新制【{}】；当前为旧制21层验证切片；{}",
+                    |tier| format!("新制【{}】；五幕40层；{}",
                         tier.name(), tier.rules_summary()),
                 );
                 format!("{}，第{}层，体力{}/{}，{}金，{}张卡牌，版本{}；{}。",
@@ -1315,7 +1320,7 @@ mod gameplay_campaign_cli_tests {
         assert!(app.command("status"));
         assert!(app.message.contains("天命难违"), "{}", app.message);
         assert!(app.message.contains("敌军体力+6"), "{}", app.message);
-        assert!(app.message.contains("旧制21层验证切片"), "{}", app.message);
+        assert!(app.message.contains("五幕40层"), "{}", app.message);
 
         assert!(app.command("campaign cao 55311 unknown"));
         assert!(app.message.contains("仅支持"), "{}", app.message);

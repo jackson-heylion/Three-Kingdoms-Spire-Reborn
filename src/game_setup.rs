@@ -1,5 +1,5 @@
 //! Campaign creation and map regeneration, extracted from the large engine.
-use crate::{Game, Card, Stage, RunMode, SAVE_VERSION, MAX_FLOOR, map, difficulty,
+use crate::{Game, Card, Stage, RunMode, SAVE_VERSION, map, difficulty,
     resource_events, rng_events, combat_resource_events, foe_board_events,
     card_zone_events, combat_effect_events, battle_runtime_events, campaign_authority, telemetry_authority, CombatTelemetry};
 use crate::content::Hero;
@@ -15,6 +15,10 @@ impl Game {
     ) -> Self {
         let mut game = Self::new_with_identity(hero, seed, 0, RunMode::Standard, run_id);
         game.difficulty = Some(difficulty);
+        game.act_map = None;
+        game.map_lane = None;
+        game.refresh_route();
+        game.rng_history = Some(vec![rng_events::RngEvent::Started { state: game.rng_state }]);
         let initial = campaign_authority::CampaignState::current(&game);
         if let Some(history) = game.campaign_history.as_mut() {
             history[0] = campaign_authority::CampaignEvent::Started { state: initial };
@@ -80,18 +84,24 @@ impl Game {
     }
     pub(crate) fn refresh_route(&mut self) {
         let next = self.floor + 1;
-        if next > MAX_FLOOR {
+        let rows = self.campaign_rows();
+        let limit = self.campaign_max_floor();
+        if next > limit {
             self.route.clear();
             self.route_lanes.clear();
             return;
         }
-        let act = self.floor / 7;
+        let act = self.floor / rows;
         if self.act_map.as_ref().is_none_or(|map| map.act != act) {
-            let generated = map::ActMap::generate(|bound| self.random(bound),act);
+            let generated = if self.difficulty.is_some() {
+                map::ActMap::generate_expanded(|bound| self.random(bound), act)
+            } else {
+                map::ActMap::generate(|bound| self.random(bound), act)
+            };
             self.act_map = Some(generated);
             self.map_lane = None;
         }
-        let row = usize::from((next - 1) % 7);
+        let row = usize::from((next - 1) % rows);
         let choices = self.act_map.as_ref().expect("generated").routes(row,self.map_lane);
         self.route_lanes = choices.iter().map(|(lane,_)| *lane).collect();
         self.route = choices.iter().map(|(_,node)| *node).collect();

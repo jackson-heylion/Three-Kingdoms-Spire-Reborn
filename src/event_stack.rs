@@ -193,7 +193,7 @@ pub(crate) fn verify_record_coordinate(
     previous: Option<(u64, u8, u64)>, current: &RunEvent,
 ) -> Result<(), String> {
     if current.encounter == 0 || current.floor == 0
-        || current.floor > crate::MAX_FLOOR || current.event.seq == 0
+        || current.floor > crate::EXPANDED_MAX_FLOOR || current.event.seq == 0
     {
         return Err("invalid event coordinate".into());
     }

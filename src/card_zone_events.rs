@@ -1,7 +1,7 @@
 //! Committed card-zone authority at successful action boundaries.
 //! This restores permanent deck and ordered battle piles without action replay.
 //! It does not restore RNG, powers, listeners, or intermediate card triggers.
-use crate::{Card, Game, MAX_FLOOR};
+use crate::{Card, Game, EXPANDED_MAX_FLOOR};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -17,7 +17,7 @@ pub struct BattleCardZones {
 
 impl BattleCardZones {
     fn valid(&self) -> bool {
-        (1..=MAX_FLOOR).contains(&self.floor) && self.turn > 0
+        (1..=EXPANDED_MAX_FLOOR).contains(&self.floor) && self.turn > 0
     }
 }
 
@@ -190,5 +190,43 @@ impl Game {
             return Err("card journal differs from current game state".into());
         }
         Ok(events.len())
+    }
+}
+
+#[cfg(test)]
+mod expanded_floor_tests {
+    use super::*;
+
+    fn zones(floor: u8) -> CardZones {
+        CardZones {
+            deck: vec![],
+            battle: Some(BattleCardZones {
+                floor,
+                turn: 1,
+                draw: vec![],
+                hand: vec![],
+                discard: vec![],
+                exhausted: vec![],
+            }),
+        }
+    }
+
+    #[test]
+    fn card_zone_authority_accepts_floor_forty_but_rejects_forty_one() {
+        let idle = CardZones { deck: vec![], battle: None };
+        let legal = zones(40);
+        let event = transition(&idle, &legal, 1).expect("floor 40 transition");
+        let mut projector = CardZoneProjector::default();
+        projector.push(&CardZoneEvent::Started { deck: vec![] }).unwrap();
+        projector.push(&event).expect("floor 40 projection");
+        let committed = projector.clone();
+        let invalid = zones(41);
+        assert!(transition(&idle, &invalid, 1).is_err());
+        assert!(projector.push(&CardZoneEvent::Changed {
+            revision: 2,
+            permanent: None,
+            battle: BattleCardsChange::Update { zones: invalid.battle.unwrap() },
+        }).is_err());
+        assert_eq!(projector, committed, "invalid transition must be atomic");
     }
 }

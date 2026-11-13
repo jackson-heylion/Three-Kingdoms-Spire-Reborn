@@ -1,7 +1,7 @@
 //! Action-boundary authority for noncombat campaign state. No action replay.
 //! Each successful revision is recorded; unchanged revisions carry no snapshot.
 //! This covers map, route, narrative and inventory, but not full Game sourcing.
-use crate::{Game, Stage, Node, Card, RunMode, MAX_FLOOR, map, archetypes, challenges, difficulty::Difficulty, content::Hero};
+use crate::{Game, Stage, Node, Card, RunMode, MAX_FLOOR, EXPANDED_MAX_FLOOR, map, archetypes, challenges, difficulty::Difficulty, content::Hero};
 use serde::{Deserialize, Serialize};
 
 /// Immutable rules identity anchored at revision zero, independently of the
@@ -75,7 +75,9 @@ impl CampaignState {
     }
 
     fn valid(&self) -> bool {
-        self.floor <= MAX_FLOOR
+        self.floor <= self.identity.as_ref().map_or(MAX_FLOOR, |identity| {
+            if identity.difficulty.is_some() { EXPANDED_MAX_FLOOR } else { MAX_FLOOR }
+        })
             && self.identity.as_ref().is_none_or(|identity| {
                 identity.ascension <= 10
                     && identity.difficulty.is_none_or(|_| identity.ascension == 0 && identity.mode == RunMode::Standard)

@@ -2,7 +2,7 @@
 //! Unlike the bounded combat event ring, this journal retains every successful
 //! action boundary. It is deliberately not a full battle or RNG reconstruction.
 use serde::{Deserialize, Serialize};
-use crate::{Game, MAX_FLOOR};
+use crate::{Game, EXPANDED_MAX_FLOOR};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -24,7 +24,7 @@ impl BattleResources {
     }
 
     fn valid(self) -> bool {
-        (1..=MAX_FLOOR).contains(&self.floor)
+        (1..=EXPANDED_MAX_FLOOR).contains(&self.floor)
             && self.turn > 0 && self.energy >= 0 && self.block >= 0
     }
 }
@@ -159,5 +159,37 @@ impl Game {
             return Err("combat resource journal differs from current game state".into());
         }
         Ok(history.len())
+    }
+}
+
+#[cfg(test)]
+mod expanded_floor_tests {
+    use super::*;
+
+    #[test]
+    fn combat_resource_journal_accepts_forty_but_rejects_forty_one() {
+        let valid = BattleResources {
+            floor: 40,
+            turn: 1,
+            energy: 3,
+            block: 0,
+        };
+        let invalid = BattleResources { floor: 41, ..valid };
+        let event = transition(None, Some(valid), 1).expect("expanded final floor");
+        assert_eq!(
+            project(&[BattleResourceEvent::Started, event]).unwrap().0,
+            Some(valid)
+        );
+        assert!(transition(None, Some(invalid), 1).is_err());
+        assert!(
+            project(&[
+                BattleResourceEvent::Started,
+                BattleResourceEvent::Changed {
+                    revision: 1,
+                    change: BattleResourceChange::Enter { state: invalid }
+                }
+            ])
+            .is_err()
+        );
     }
 }
