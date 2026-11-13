@@ -355,8 +355,10 @@ impl Game {
             && let Some(b) = self.battle.as_ref()
             && let (Some(hp), Some(cover)) = (b.convoy_hp, b.convoy_cover)
         {
+            let living = b.foes.iter().filter(|foe| foe.hp > 0).count();
+            let raid = (living as u8).saturating_mul(4).saturating_sub(cover).min(hp);
             return Some(format!(
-                "粮道保卫：粮车剩余{hp}/12体力；每名存活敌军在回合末劫粮4点，打出防御牌每张可护粮2点（本回合已护{cover}点，上限8点）。粮车耗尽立即战败，击退所有敌人即可保住粮道。"
+                "粮道保卫：粮车剩余{hp}/12体力；每名存活敌军在回合末劫粮4点，打出防御牌每张可护粮2点（本回合已护{cover}点，上限8点）；本回合预计劫粮{raid}点。粮车耗尽立即战败，击退所有敌人即可保住粮道。"
             ));
         }
         if self.difficulty.is_some() && self.floor == 1
