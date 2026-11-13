@@ -306,6 +306,10 @@ impl App {
                     if let Some(objective) = g.tactical_objective() {
                         println!(" 【关卡目标】{objective}");
                     }
+                    if b.wildfire > 0 {
+                        println!(" 【焚营火势】{}层；结束回合将无视护甲失去最多{}体力，打出招架/护阵牌可扑灭1层",
+                            b.wildfire, u32::from(b.wildfire) * 2);
+                    }
                     if b.thorns > 0 {
                         println!(" 【反击】每次受击反伤{}；击杀施术者可中断尚未生效的后续战技。", b.thorns);
                     }

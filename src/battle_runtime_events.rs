@@ -22,6 +22,7 @@ pub struct BattleRuntime {
     pub played_this_turn: u8,
     pub last_turn_cards: u8,
     pub next_turn_energy_penalty: u8,
+    #[serde(default)] pub wildfire: u8,
     #[serde(default, skip_serializing_if = "Option::is_none")] pub convoy_hp: Option<u8>,
     #[serde(default, skip_serializing_if = "Option::is_none")] pub convoy_cover: Option<u8>,
     pub troops_hp: i32,
@@ -42,6 +43,7 @@ impl BattleRuntime {
             played: b.played, played_this_turn: b.played_this_turn,
             last_turn_cards: b.last_turn_cards,
             next_turn_energy_penalty: b.next_turn_energy_penalty,
+            wildfire: b.wildfire,
             convoy_hp: b.convoy_hp, convoy_cover: b.convoy_cover,
             troops_hp: b.troops_hp, troops_attack: b.troops_attack,
             discard_tokens: b.discard_tokens, thought_used: b.thought_used,
@@ -51,7 +53,7 @@ impl BattleRuntime {
 
     fn valid(&self) -> bool {
         (1..=crate::EXPANDED_MAX_FLOOR).contains(&self.floor) && self.turn > 0
-            && self.next_turn_energy_penalty <= 2
+            && self.next_turn_energy_penalty <= 2 && self.wildfire <= 6
             && self.convoy_hp.is_some() == self.convoy_cover.is_some()
             && self.convoy_hp.is_none_or(|hp| hp > 0 && hp <= 12)
             && self.convoy_cover.is_none_or(|cover| cover <= 8)
