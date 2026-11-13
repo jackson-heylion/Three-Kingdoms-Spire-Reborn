@@ -183,6 +183,8 @@ fn a_real_seed_can_reach_grain_convoy_without_mutating_initial_state() {
         }
         assert_eq!(game.stage, Stage::Lost,
             "repeatedly abandoning a natural convoy must eventually end the encounter");
+        assert!(game.log.iter().any(|line| line.contains("粮道保卫失败")),
+            "natural defeat must be caused by losing the convoy objective, not merely the hero dying: {:?}", game.log);
         assert_eq!(game.gold, gold_before_terminal,
             "a naturally lost encounter must never grant convoy victory rewards");
         let terminal = game.to_json().expect("save natural terminal outcome");
