@@ -225,7 +225,6 @@ fn convoy_lethal_raid_is_warned_and_defense_changes_the_warning() {
     let countered = game.tactical_objective().unwrap();
     assert!(countered.contains("本回合预计劫粮2点"), "{countered}");
     assert!(!countered.contains("本回合粮车将被毁"), "{countered}");
-    game.verify_action_replay().err(); // Checkpoint hand/cargo are controlled, not a natural replay.
     let saved = game.to_json().unwrap();
     assert_eq!(Game::from_json(&saved).unwrap().to_json().unwrap(), saved);
 }
