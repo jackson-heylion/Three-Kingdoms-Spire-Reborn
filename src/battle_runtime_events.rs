@@ -29,6 +29,7 @@ pub struct BattleRuntime {
     pub troops_attack: i32,
     pub discard_tokens: i32,
     pub thought_used: bool,
+    #[serde(default)] pub ambush_armor_broken: bool,
     pub event_seq: u64,
     pub events: Vec<CombatEvent>,
 }
@@ -47,6 +48,7 @@ impl BattleRuntime {
             convoy_hp: b.convoy_hp, convoy_cover: b.convoy_cover,
             troops_hp: b.troops_hp, troops_attack: b.troops_attack,
             discard_tokens: b.discard_tokens, thought_used: b.thought_used,
+            ambush_armor_broken: b.ambush_armor_broken,
             event_seq: b.event_seq, events: b.events.clone(),
         })
     }
