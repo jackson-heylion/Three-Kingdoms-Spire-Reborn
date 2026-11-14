@@ -282,6 +282,7 @@ pub fn enemy_hp(id: &str) -> i32 {
         "simayi" => 142,
         "zuoci" => 132,
         "luxun" => 164,
+        "lumeng" => 154,
         _ => 30,
     }
 }
@@ -320,6 +321,7 @@ pub fn enemy_name(id: &str) -> &'static str {
         "simayi" => "司马懿·冢虎",
         "zuoci" => "左慈·遁甲宗师",
         "luxun" => "陆逊·火烧连营",
+        "lumeng" => "吕蒙·白衣渡江",
         _ => "无名敌军",
     }
 }

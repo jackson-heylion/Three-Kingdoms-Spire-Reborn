@@ -100,6 +100,7 @@ pub enum BossMove {
     HiddenScheme(u8),  // 司马懿：削减下回合军令
     Mirage(i32),       // 左慈：回复并立盾
     FireCamp(u8),      // 陆逊：积累可用防御牌扑灭的焚营火势
+    WhiteClothes,      // 吕蒙：按回合末护甲判定是否识破白衣伏兵
 }
 impl BossMove {
     pub fn label(&self) -> String {
@@ -111,6 +112,7 @@ impl BossMove {
             Self::HiddenScheme(n) => format!("暗度陈仓 下回合军令-{n}"),
             Self::Mirage(n) => format!("幻身遁甲 回复{n}并获得护甲"),
             Self::FireCamp(n) => format!("焚营火攻：增添{n}层火势（每层回合末灼伤2体力；打出防御牌可扑灭）"),
+            Self::WhiteClothes => "白衣渡江：回合末护甲至少8可识破伏兵并使吕蒙易伤；否则下回合军令-1".into(),
         }
     }
 }
@@ -504,6 +506,7 @@ impl Game {
                 (0,0) => "zhangjiao", (0,_) => "sunjian",
                 (1,0) => "dongzhuo", (1,_) => "yuanshao",
                 (2,0) => "simayi", (3,0) if self.difficulty.is_some() => "luxun",
+                (3,_) if self.difficulty.is_some() => "lumeng",
                 _ => "zuoci",
             }],
             Node::Elite => {
@@ -581,6 +584,7 @@ impl Game {
                     "simayi" => Some(BossMove::HiddenScheme(1+foe.phase.min(1))),
                     "zuoci" => Some(BossMove::Mirage(7+act*2+second*3)),
                     "luxun" => Some(BossMove::FireCamp(2+foe.phase)),
+                    "lumeng" => Some(BossMove::WhiteClothes),
                     _ => None,
                 }
             } else { None };
@@ -1678,6 +1682,21 @@ impl Game {
                 b.wildfire = b.wildfire.saturating_add(layers).min(6);
                 format!("陆逊引燃连营，当前火势{}层；防御牌可逐层扑灭", b.wildfire)
             }
+            BossMove::WhiteClothes => {
+                // The initial military-banner shield grants only 4 block;
+                // players must reinforce the formation to at least 8 to expose the raid.
+                let ready = self.battle.as_ref().is_some_and(|b| b.block >= 8);
+                if ready {
+                    // One stack expires at the current turn boundary. The two
+                    // remaining stacks give the player a genuine attack window.
+                    self.apply_foe_status(idx, "vulnerable", 3);
+                    "白衣渡江被识破：吕蒙露出破绽，易伤持续到后续回合".into()
+                } else {
+                    let b = self.battle.as_mut().expect("battle");
+                    b.next_turn_energy_penalty = b.next_turn_energy_penalty.max(1);
+                    "白衣渡江潜袭成功：下回合军令-1".into()
+                }
+            }
             BossMove::Mirage(amount) => {
                 let b = self.battle.as_mut().expect("battle");
                 let foe = &mut b.foes[idx];
@@ -1694,7 +1713,7 @@ impl Game {
             .iter().enumerate().filter(|(_,foe)|
                 foe.hp > 0 && foe.phase == 0 && foe.hp * 2 <= foe.max_hp
                 && matches!(foe.id.as_str(),"zhangjiao"|"sunjian"|"dongzhuo"|"yuanshao"|"simayi"|"zuoci"
-                    |"luxun"|"elite"|"war_elephant"|"royal_guard"|"tiger_general"|"sacred_beast"))
+                    |"luxun"|"lumeng"|"elite"|"war_elephant"|"royal_guard"|"tiger_general"|"sacred_beast"))
             .map(|(i,foe)| (i,foe.id.clone())).collect();
         let mut messages = vec![];
         for (idx,id) in changes {
@@ -1725,6 +1744,11 @@ impl Game {
                         enemy_name(&id),
                         if summoned.is_some() {"并呼叫援军（援军下回合开始行动）"}
                         else {"，但战场编制已满，无法增援"}));
+                }
+                "lumeng" => {
+                    b.foes[idx].strength += 2;
+                    b.foes[idx].block += 10;
+                    messages.push("吕蒙整顿白衣精兵：武勇+2、护甲+10；继续留意敌军伏袭预告".into());
                 }
                 "luxun" => {
                     b.foes[idx].strength += 2;
