@@ -30,6 +30,7 @@ pub struct BattleRuntime {
     pub discard_tokens: i32,
     pub thought_used: bool,
     #[serde(default)] pub ambush_armor_broken: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")] pub siege_gate_hp: Option<u8>,
     pub event_seq: u64,
     pub events: Vec<CombatEvent>,
 }
@@ -49,6 +50,7 @@ impl BattleRuntime {
             troops_hp: b.troops_hp, troops_attack: b.troops_attack,
             discard_tokens: b.discard_tokens, thought_used: b.thought_used,
             ambush_armor_broken: b.ambush_armor_broken,
+            siege_gate_hp: b.siege_gate_hp,
             event_seq: b.event_seq, events: b.events.clone(),
         })
     }
@@ -59,6 +61,7 @@ impl BattleRuntime {
             && self.convoy_hp.is_some() == self.convoy_cover.is_some()
             && self.convoy_hp.is_none_or(|hp| hp > 0 && hp <= 12)
             && self.convoy_cover.is_none_or(|cover| cover <= 8)
+            && self.siege_gate_hp.is_none_or(|hp| hp <= 12)
             && [self.momentum, self.scheme, self.combo, self.command,
                 self.fury, self.thorns, self.troops_hp, self.troops_attack,
                 self.discard_tokens].iter().all(|value| *value >= 0)
