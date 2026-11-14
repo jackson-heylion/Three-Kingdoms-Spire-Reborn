@@ -194,6 +194,8 @@ pub struct Battle {
     #[serde(default)] pub thought_used: bool,
     /// Set only by real blockable damage that breaks the ambush vanguard shield.
     #[serde(default)] pub ambush_armor_broken: bool,
+    /// Fourth-floor siege objective: breach the gate before its fifth turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")] pub siege_gate_hp: Option<u8>,
     pub turn: u32,
 }
 
@@ -327,6 +329,7 @@ pub enum Action {
     Play { index: usize, target: usize },
     PlaySelected { index: usize, target: usize, selection: usize },
     EndTurn,
+    AssaultGate,
     UsePotion,
     UsePotionAt { slot: usize, target: usize },
     Upgrade { index: usize },
@@ -353,11 +356,16 @@ impl Game {
         match self.floor {
             1 => Some("粮道保卫：下一层护送粮车；存活敌军每回合劫粮，防御牌可护粮"),
             2 => Some("伏击：下一层敌军前锋以8点护甲设伏；破甲后击退敌军可获16金反制赏金"),
+            3 => Some("攻城：下一层须在第5回合前以 assault 指令消耗1军令攻城，每次削减4点城门耐久；城门破即获胜"),
             _ => None,
         }
     }
 
     pub fn tactical_objective(&self) -> Option<String> {
+        if self.stage == Stage::Combat && let Some(hp) = self.battle.as_ref().and_then(|b| b.siege_gate_hp) {
+            let turn = self.battle.as_ref().expect("battle").turn;
+            return Some(format!("攻城：城门耐久{hp}/12；每次 assault 消耗1军令、破门4点；第5回合结束前须破门，敌军仍会攻击；当前第{turn}回合。"));
+        }
         if self.stage == Stage::Combat
             && let Some(b) = self.battle.as_ref()
             && let (Some(hp), Some(cover)) = (b.convoy_hp, b.convoy_cover)
@@ -673,7 +681,9 @@ impl Game {
             troops_attack: if self.hero == Hero::CaoCao { 2 } else { 0 },
             discard_tokens: 0,
             powers: vec![], events: vec![], event_seq: 0, reactions: event_stack::Stack::default(), thought_used: false,
-            ambush_armor_broken: false, turn: 1,
+            ambush_armor_broken: false,
+            siege_gate_hp: (self.difficulty.is_some() && self.floor == 4 && node == Node::Battle).then_some(12),
+            turn: 1,
         });
         self.roll_intents();
         let extra_draw = usize::from(self.relics.iter().any(|r| r == "虎翼"));
@@ -1050,8 +1060,20 @@ impl Game {
     fn deal_enemy_damage_unblockable(&mut self, idx: usize, damage: i32, source: &str) -> i32 {
         self.settle_foe_damage(idx, damage, source, true)
     }
+    fn assault_gate(&mut self) -> Result<String, String> {
+        if self.stage != Stage::Combat { return Err("仅攻城战斗中可破门".into()); }
+        let b = self.battle.as_mut().ok_or("当前没有战斗")?;
+        let hp = b.siege_gate_hp.ok_or("当前并非攻城关卡")?;
+        if b.energy < 1 { return Err("破门需要1点军令".into()); }
+        b.energy -= 1;
+        let remaining = hp.saturating_sub(4);
+        b.siege_gate_hp = Some(remaining);
+        self.combat_event(EventKind::DamageDealt, "siege_gate", i32::from(hp - remaining), Some("gate".into()));
+        if remaining == 0 { Ok(format!("城门已破！{}", self.win_battle())) }
+        else { Ok(format!("攻城破门4点，城门剩余{remaining}/12耐久。")) }
+    }
     fn defeated(&self) -> bool {
-        self.battle.as_ref().is_some_and(|b| b.foes.iter().all(|f| f.hp <= 0))
+        self.battle.as_ref().is_some_and(|b| b.siege_gate_hp.is_none() && b.foes.iter().all(|f| f.hp <= 0))
     }
 
     fn select_relic(&mut self) -> Option<String> {
@@ -1927,6 +1949,16 @@ impl Game {
                     messages.join("；")));
             }
         }
+        // A siege is won by breaching the gate, not merely clearing defenders.
+        // The fifth turn deadline is visible before the player commits to the route.
+        if self.battle.as_ref().is_some_and(|b| b.siege_gate_hp.is_some() && b.turn >= 5) {
+            self.record_metric(|c| c.battles_lost = c.battles_lost.saturating_add(1));
+            self.capture_turn_metrics(true);
+            self.combat_event(EventKind::BattleEnded, "defeat", 0, None);
+            self.stage = Stage::Lost;
+            self.battle = None;
+            return Ok("攻城超时，城门未破，征途结束。".into());
+        }
         // The first new-tier encounter is a timed breakout, not an ordinary
         // attrition battle. Defeat is settled through the same authoritative
         // event, metric, and action commit flow as combat death. The announced
@@ -2444,6 +2476,7 @@ impl Game {
             Action::PlaySelected { index, target, selection } =>
                 self.play(index, target, Some(selection))?,
             Action::EndTurn => self.end_turn()?,
+            Action::AssaultGate => self.assault_gate()?,
             Action::Upgrade { index } => self.upgrade_card(index)?,
             Action::Enchant { index, kind } => self.enchant_card(index, &kind)?,
             Action::Discard { index } => self.discard_card(index)?,

@@ -755,7 +755,7 @@ impl App {
             "relics" => Ok(self.game.as_ref().map_or("尚未开局".into(), |g| {
                 g.relics.iter().map(|r| format!("{}：{}",r, three_kingdoms_spire_reborn::items::relic_name(r))).collect::<Vec<_>>().join("\n")
             })),
-            "choose" | "c" | "play" | "p" | "end" | "use" | "upgrade" | "remove" | "enchant" | "discard" | "variant" | "doctrine" | "modifier" | "modifiers" | "react" | "react-remove" => {
+            "choose" | "c" | "play" | "p" | "end" | "assault" | "use" | "upgrade" | "remove" | "enchant" | "discard" | "variant" | "doctrine" | "modifier" | "modifiers" | "react" | "react-remove" => {
                 let action = match args[0] {
                     "choose" | "c" => parsed(1, 0).map(|index| Action::Choose { index }),
                     "play" | "p" => parsed(1, 0).and_then(|index| parsed(2, 1)
@@ -763,6 +763,7 @@ impl App {
                             parsed(3, 0).map(|selection| Action::PlaySelected { index,target,selection })
                         }))),
                     "end" => Ok(Action::EndTurn),
+                    "assault" => Ok(Action::AssaultGate),
                     "react-remove" => match args.as_slice() {
                         [_, id] => Ok(Action::UnregisterReaction {id:(*id).into()}),
                         _ => Err("用法：react-remove ID（仅自由战斗）".into()),
