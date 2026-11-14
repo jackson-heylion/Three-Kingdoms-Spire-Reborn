@@ -350,7 +350,7 @@ impl Game {
         }
         match self.floor {
             1 => Some("粮道保卫：下一层护送粮车；存活敌军每回合劫粮，防御牌可护粮"),
-            2 => Some("伏击：下一层敌军前锋以8点护甲设伏；优先破甲再击退敌军"),
+            2 => Some("伏击：下一层敌军前锋以8点护甲设伏；破甲后击退敌军可获16金反制赏金"),
             _ => None,
         }
     }
@@ -375,7 +375,7 @@ impl Game {
             && self.last_node == Some(Node::Battle) && self.stage == Stage::Combat
         {
             return self.battle.as_ref().map(|b| format!(
-                "伏击：敌军前锋设伏，开战获得8点护甲；当前前锋护甲{}点。先用攻击破甲，再集中火力突围。",
+                "伏击：敌军前锋设伏，开战获得8点护甲；当前前锋护甲{}点。先用攻击破甲，再击退敌军可获16金反制赏金。",
                 b.foes.first().map_or(0, |foe| foe.block)
             ));
         }
