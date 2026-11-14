@@ -107,3 +107,47 @@ fn natural_new_campaign_reaches_first_act_boss_with_replay_and_resume() {
     }
     panic!("no seed naturally reached floor-eight boss: {}", failures.join(" | "));
 }
+
+
+/// Independent defeat path: the player reaches the real floor-eight boss,
+/// then deliberately refuses to defend. No battle state, HP, RNG or map is
+/// manufactured. This must remain distinct from the victory/reward path.
+#[test]
+fn natural_first_boss_defeat_is_terminal_atomic_and_replayable() {
+    let mut failures = Vec::new();
+    for seed in 247_510..247_526 {
+        let Ok(mut game) = follow_first_act(seed) else {
+            failures.push(format!("seed {seed}: could not enter boss"));
+            continue;
+        };
+        let entrance = game.to_json().expect("natural boss entrance snapshot");
+        let mut turns = 0;
+        while game.stage == Stage::Combat && turns < 80 {
+            game.apply(Action::EndTurn).expect("end turn is a legal player action");
+            turns += 1;
+        }
+        if game.stage != Stage::Lost {
+            failures.push(format!(
+                "seed {seed}: refusing to defend ended at {:?} after {turns} turns",
+                game.stage
+            ));
+            continue;
+        }
+        assert_ne!(game.to_json().unwrap(), entrance, "defeat must change game state");
+        game.audit_campaign_authority().expect("natural defeat authority audit");
+        game.verify_action_replay().expect("natural defeat action replay");
+        let lost = game.to_json().expect("defeat snapshot");
+        let restored = Game::from_json(&lost).expect("restore natural defeat");
+        assert_eq!(restored.to_json().unwrap(), lost);
+        restored.verify_action_replay().expect("restored defeat replay");
+
+        // A terminal game cannot grant another reward or mutate its history.
+        assert!(game.apply(Action::Choose { index: 0 }).is_err());
+        assert_eq!(game.to_json().unwrap(), lost, "invalid post-defeat action must be atomic");
+        return;
+    }
+    panic!(
+        "no naturally entered first boss produced a replayable defeat: {}",
+        failures.join(" | ")
+    );
+}
