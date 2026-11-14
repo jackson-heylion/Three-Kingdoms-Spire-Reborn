@@ -673,7 +673,7 @@ impl Game {
             troops_attack: if self.hero == Hero::CaoCao { 2 } else { 0 },
             discard_tokens: 0,
             powers: vec![], events: vec![], event_seq: 0, reactions: event_stack::Stack::default(), thought_used: false,
-            turn: 1,
+            ambush_armor_broken: false, turn: 1,
         });
         self.roll_intents();
         let extra_draw = usize::from(self.relics.iter().any(|r| r == "虎翼"));
