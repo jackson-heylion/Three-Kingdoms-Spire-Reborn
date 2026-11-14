@@ -1071,6 +1071,11 @@ impl Game {
         self.capture_turn_metrics(false);
         // Save cargo preservation before clearing the battle, rewarding actual protection.
         let convoy_hp = self.battle.as_ref().and_then(|b| b.convoy_hp);
+        // The ambush bounty requires breaking the vanguard shield before victory.
+        // A poison-only victory that bypasses intact armor earns no counterattack bounty.
+        let ambush_countered = self.difficulty.is_some() && self.floor == 3
+            && node == Node::Battle && self.battle.as_ref().is_some_and(|b|
+                b.foes.first().is_some_and(|front| front.block == 0));
         self.battle = None;
         let payout = match node { Node::Boss => 100, Node::Elite => 60, _ => 24 + self.random(15) as i32 };
         let payout = payout.saturating_sub(self.difficulty.map_or(0, Difficulty::supply_toll));
@@ -1082,6 +1087,10 @@ impl Game {
         } else {
             String::new()
         };
+        let ambush_note = if ambush_countered {
+            self.gold += 16;
+            "伏击反制成功，额外获得16金，"
+        } else { "" };
         if self.relics.iter().any(|r| r == "铜雀") { self.gold += 12; }
         if self.relics.iter().any(|r| r == "神医") {
             self.hp = (self.hp + 6).min(self.max_hp);
@@ -1113,7 +1122,7 @@ impl Game {
         }
         self.rewards = self.pick_reward_cards();
         self.stage = Stage::Reward;
-        format!("战斗胜利！获得{payout}金，{convoy_note}选择一张战利品，或输入 choose 0 跳过。")
+        format!("战斗胜利！获得{payout}金，{convoy_note}{ambush_note}选择一张战利品，或输入 choose 0 跳过。")
     }
     /// Keep the read-only card picker and the authoritative resolver in sync.
     fn eligible_pile_card(card: &Card, attack_only: bool) -> bool {
