@@ -76,6 +76,30 @@ fn natural_new_campaign_reaches_first_act_boss_with_replay_and_resume() {
                 assert_eq!(restored.to_json().unwrap(), saved);
                 restored.verify_action_replay().expect("restored first-boss trajectory");
                 assert_eq!(game.floor, 8);
+                // Continue the *same* natural action history through the boss.
+                // Winning must expose a reward; losing must be an authoritative
+                // terminal result. Neither is synthesized by a test fixture.
+                let mut resolved = game;
+                advance_combat(&mut resolved).expect("first boss must resolve via player actions");
+                assert!(
+                    matches!(resolved.stage, Stage::Reward | Stage::Lost),
+                    "boss combat must end in reward or defeat, got {:?}",
+                    resolved.stage
+                );
+                resolved.audit_campaign_authority().expect("boss resolution authority audit");
+                resolved.verify_action_replay().expect("boss result action replay");
+                let outcome = resolved.to_json().expect("boss outcome snapshot");
+                let resumed = Game::from_json(&outcome).expect("restore boss result");
+                assert_eq!(resumed.to_json().unwrap(), outcome);
+                resumed.verify_action_replay().expect("restored boss result replay");
+                if resolved.stage == Stage::Reward {
+                    // Reward is an explicit player choice, not automatic settlement.
+                    resolved.apply(Action::Choose { index: 0 }).expect("accept boss reward");
+                    resolved.audit_campaign_authority().expect("post-reward authority audit");
+                    resolved.verify_action_replay().expect("post-reward action replay");
+                    let awarded = resolved.to_json().expect("reward snapshot");
+                    assert_eq!(Game::from_json(&awarded).unwrap().to_json().unwrap(), awarded);
+                }
                 return;
             }
             Err(error) => failures.push(error),
