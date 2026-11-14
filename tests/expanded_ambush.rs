@@ -140,7 +140,7 @@ fn ambush_victory_pays_a_single_counterattack_bounty() {
         let battle = game.battle.as_mut().unwrap();
         battle.foes.truncate(1);
         battle.foes[0].hp = 1;
-        battle.foes[0].block = 0;
+        battle.foes[0].block = 1;
         battle.hand.insert(0, three_kingdoms_spire_reborn::Card::new("strike"));
     }
     game.apply(Action::Play { index: 1, target: 1 }).unwrap();
@@ -156,4 +156,31 @@ fn ambush_victory_pays_a_single_counterattack_bounty() {
     let after = game.to_json().unwrap();
     assert!(game.apply(Action::EndTurn).is_err());
     assert_eq!(game.to_json().unwrap(), after, "invalid post-victory action is atomic");
+}
+
+#[test]
+fn ambush_zero_armor_without_a_player_break_cannot_claim_bounty() {
+    let mut game = Game::new_with_campaign_difficulty(
+        Hero::LuBu, 247_605, Difficulty::Warlords, "ambush-no-free-bounty".into(),
+    );
+    game.floor = 2;
+    game.stage = Stage::Map;
+    game.act_map = Some(map::ActMap::generate_expanded(|_| 0, 0));
+    game.map_lane = None;
+    game.route = vec![Node::Battle];
+    game.route_lanes = vec![0];
+    game.apply(Action::Choose { index: 1 }).unwrap();
+    {
+        let battle = game.battle.as_mut().unwrap();
+        battle.foes.truncate(1);
+        battle.foes[0].hp = 1;
+        battle.foes[0].block = 0;
+        battle.hand.insert(0, three_kingdoms_spire_reborn::Card::new("strike"));
+    }
+    game.apply(Action::Play { index: 1, target: 1 }).unwrap();
+    assert_eq!(game.stage, Stage::Reward);
+    assert!(!game.log.iter().any(|line| line.contains("伏击反制成功")),
+        "an unearned zero-block snapshot must not pay the bounty");
+    let json = game.to_json().unwrap();
+    assert_eq!(Game::from_json(&json).unwrap().to_json().unwrap(), json);
 }

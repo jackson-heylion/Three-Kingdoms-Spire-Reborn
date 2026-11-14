@@ -92,6 +92,7 @@ impl AuthorityView {
             convoy_hp: runtime.convoy_hp, convoy_cover: runtime.convoy_cover,
             troops_hp: runtime.troops_hp, troops_attack: runtime.troops_attack,
             discard_tokens: runtime.discard_tokens, thought_used: runtime.thought_used,
+            ambush_armor_broken: runtime.ambush_armor_broken,
             powers: effects.powers.clone(), reactions: effects.reactions.clone(),
             events: runtime.events.clone(), event_seq: runtime.event_seq,
             turn: resources.turn,
