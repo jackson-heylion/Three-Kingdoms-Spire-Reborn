@@ -356,7 +356,7 @@ impl Game {
         match self.floor {
             1 => Some("粮道保卫：下一层护送粮车；存活敌军每回合劫粮，防御牌可护粮"),
             2 => Some("伏击：下一层敌军前锋以8点护甲设伏；破甲后击退敌军可获16金反制赏金"),
-            3 => Some("攻城：下一层须在第5回合前以 assault 指令消耗1军令攻城，每次削减4点城门耐久；城门破即获胜"),
+            3 => Some("攻城：下一层须在第5回合前以 assault 指令消耗2军令攻城，每次削减4点城门耐久；城门破即获胜"),
             _ => None,
         }
     }
@@ -364,7 +364,7 @@ impl Game {
     pub fn tactical_objective(&self) -> Option<String> {
         if self.stage == Stage::Combat && let Some(hp) = self.battle.as_ref().and_then(|b| b.siege_gate_hp) {
             let turn = self.battle.as_ref().expect("battle").turn;
-            return Some(format!("攻城：城门耐久{hp}/12；每次 assault 消耗1军令、破门4点；第5回合结束前须破门，敌军仍会攻击；当前第{turn}回合。"));
+            return Some(format!("攻城：城门耐久{hp}/12；每次 assault 消耗2军令、破门4点；第5回合结束前须破门，敌军仍会攻击；当前第{turn}回合。"));
         }
         if self.stage == Stage::Combat
             && let Some(b) = self.battle.as_ref()
@@ -1064,8 +1064,8 @@ impl Game {
         if self.stage != Stage::Combat { return Err("仅攻城战斗中可破门".into()); }
         let b = self.battle.as_mut().ok_or("当前没有战斗")?;
         let hp = b.siege_gate_hp.ok_or("当前并非攻城关卡")?;
-        if b.energy < 1 { return Err("破门需要1点军令".into()); }
-        b.energy -= 1;
+        if b.energy < 2 { return Err("破门需要2点军令".into()); }
+        b.energy -= 2;
         let remaining = hp.saturating_sub(4);
         b.siege_gate_hp = Some(remaining);
         self.combat_event(EventKind::DamageDealt, "siege_gate", i32::from(hp - remaining), Some("gate".into()));
