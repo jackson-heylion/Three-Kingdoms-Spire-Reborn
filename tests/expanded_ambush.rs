@@ -121,3 +121,39 @@ fn natural_third_floor_ambush_can_be_reached_and_countered_with_player_actions()
     }
     panic!("no natural third-floor ambush counterplay found in 200 Lu Bu seeds");
 }
+
+#[test]
+fn ambush_victory_pays_a_single_counterattack_bounty() {
+    let mut game = Game::new_with_campaign_difficulty(
+        Hero::LuBu, 247_604, Difficulty::Warlords, "ambush-bounty".into(),
+    );
+    // Controlled third-floor success boundary. The player still delivers
+    // the finishing blow through Game::apply; natural access is tested above.
+    game.floor = 2;
+    game.stage = Stage::Map;
+    game.act_map = Some(map::ActMap::generate_expanded(|_| 0, 0));
+    game.map_lane = None;
+    game.route = vec![Node::Battle];
+    game.route_lanes = vec![0];
+    game.apply(Action::Choose { index: 1 }).unwrap();
+    {
+        let battle = game.battle.as_mut().unwrap();
+        battle.foes.truncate(1);
+        battle.foes[0].hp = 1;
+        battle.foes[0].block = 0;
+        battle.hand.insert(0, three_kingdoms_spire_reborn::Card::new("strike"));
+    }
+    game.apply(Action::Play { index: 1, target: 1 }).unwrap();
+    assert_eq!(game.stage, Stage::Reward);
+    assert!(game.log.iter().any(|line| line.contains("伏击反制成功") && line.contains("16金")),
+        "the ambush must pay an explicit, player-visible bounty: {:?}", game.log);
+    let paid = game.gold;
+    let saved = game.to_json().unwrap();
+    let restored = Game::from_json(&saved).unwrap();
+    assert_eq!(restored.to_json().unwrap(), saved);
+    game.apply(Action::Choose { index: 0 }).unwrap();
+    assert_eq!(game.gold, paid, "reward selection cannot duplicate ambush bounty");
+    let after = game.to_json().unwrap();
+    assert!(game.apply(Action::EndTurn).is_err());
+    assert_eq!(game.to_json().unwrap(), after, "invalid post-victory action is atomic");
+}
