@@ -192,6 +192,8 @@ pub struct Battle {
     #[serde(default)] pub event_seq: u64,
     #[serde(default, skip_serializing_if = "event_stack::Stack::is_empty")] pub reactions: event_stack::Stack,
     #[serde(default)] pub thought_used: bool,
+    /// Set only by real blockable damage that breaks the ambush vanguard shield.
+    #[serde(default)] pub ambush_armor_broken: bool,
     pub turn: u32,
 }
 
@@ -1024,6 +1026,12 @@ impl Game {
             let incoming = damage.max(0);
             let blocked = if ignores_block { 0 } else { incoming.min(foe.block) };
             foe.block -= blocked;
+            if idx == 0 && blocked > 0 && foe.block == 0
+                && self.difficulty.is_some() && self.floor == 3
+                && self.last_node == Some(Node::Battle)
+            {
+                b.ambush_armor_broken = true;
+            }
             let actual = foe.hp.min(incoming.saturating_sub(blocked));
             foe.hp -= actual;
             (actual, actual > 0 && foe.hp == 0)
@@ -1072,10 +1080,10 @@ impl Game {
         // Save cargo preservation before clearing the battle, rewarding actual protection.
         let convoy_hp = self.battle.as_ref().and_then(|b| b.convoy_hp);
         // The ambush bounty requires breaking the vanguard shield before victory.
-        // A poison-only victory that bypasses intact armor earns no counterattack bounty.
+        // Poison bypass, zero-block snapshots and shield regeneration cannot forge the counterattack history.
         let ambush_countered = self.difficulty.is_some() && self.floor == 3
             && node == Node::Battle && self.battle.as_ref().is_some_and(|b|
-                b.foes.first().is_some_and(|front| front.block == 0));
+                b.ambush_armor_broken);
         self.battle = None;
         let payout = match node { Node::Boss => 100, Node::Elite => 60, _ => 24 + self.random(15) as i32 };
         let payout = payout.saturating_sub(self.difficulty.map_or(0, Difficulty::supply_toll));
