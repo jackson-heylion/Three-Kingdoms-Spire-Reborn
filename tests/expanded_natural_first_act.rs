@@ -8,11 +8,9 @@ use three_kingdoms_spire_reborn::{
 fn advance_combat(game: &mut Game) -> Result<(), String> {
     for _ in 0..24 {
         if game.stage != Stage::Combat { return Ok(()); }
-        if game.battle.as_ref().is_some_and(|b| b.siege_gate_hp.is_some()) {
-            if game.battle.as_ref().is_some_and(|b| b.energy >= 2) {
-                game.apply(Action::AssaultGate)?;
-                continue;
-            }
+        if game.battle.as_ref().is_some_and(|b| b.siege_gate_hp.is_some() && b.energy >= 2) {
+            game.apply(Action::AssaultGate)?;
+            continue;
         }
         loop {
             let choice = game.battle.as_ref().and_then(|b| {
