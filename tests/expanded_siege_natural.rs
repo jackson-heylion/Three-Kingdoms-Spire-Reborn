@@ -124,6 +124,23 @@ fn seeded_siege_entry(seed: u64) -> Option<Game> {
     None
 }
 
+
+/// Spend remaining real hand cards on defense while preserving gate energy.
+/// This is a player policy, not a direct state mutation or a fabricated shield.
+fn defend_natural_siege(game: &mut Game) {
+    loop {
+        let next = game.battle.as_ref().and_then(|battle| {
+            battle.hand.iter().enumerate().find(|(_, card)| {
+                card.id == "defend"
+                    && card_spec(&card.id).is_some_and(|spec| spec.cost <= battle.energy)
+            }).map(|(index, _)| index + 1)
+        });
+        let Some(index) = next else { break };
+        game.apply(Action::Play { index, target: 0 })
+            .expect("legal defense card on real siege turn");
+    }
+}
+
 #[test]
 fn natural_siege_breach_and_timeout_settle_once_and_replay() {
     let mut victory_seed = None;
@@ -141,6 +158,7 @@ fn natural_siege_breach_and_timeout_settle_once_and_replay() {
                 }
                 win.apply(Action::AssaultGate).expect("breach gate with real action");
                 if win.stage == Stage::Combat {
+                    defend_natural_siege(&mut win);
                     win.apply(Action::EndTurn).expect("defenders get a turn");
                 }
             }
@@ -167,6 +185,7 @@ fn natural_siege_breach_and_timeout_settle_once_and_replay() {
                 if lost.stage != Stage::Combat {
                     break;
                 }
+                defend_natural_siege(&mut lost);
                 lost.apply(Action::EndTurn).expect("defenders act on real turn");
             }
             if lost.stage == Stage::Lost && lost.log.iter().any(|line| line.contains("攻城超时")) {
