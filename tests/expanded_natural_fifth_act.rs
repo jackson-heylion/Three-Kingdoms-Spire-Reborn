@@ -1,7 +1,7 @@
 //! Natural fifth-act full-victory acceptance. All four earlier bosses must be won to reach floor 40. No checkpoint injection or fabricated battle state.
 //! This is intentionally strict: defeats at earlier bosses cannot count as fifth-act progress.
 use three_kingdoms_spire_reborn::{
-    Action, Difficulty, Game, Node, Stage, content::{Effect, Hero, card_spec},
+    Action, Difficulty, Game, Node, Stage, content::{Effect, Hero, card_spec}, progression::Profile,
 };
 
 fn fight(game: &mut Game) -> Result<(), String> {
@@ -169,6 +169,19 @@ fn natural_fifth_act_requires_four_boss_victories_and_full_campaign_win() {
             assert_eq!(game.floor, 40);
             assert_eq!(game.stage, Stage::Won);
             assert_eq!(game.last_node, Some(Node::Boss));
+            let mut chronicle = Profile::new();
+            assert!(chronicle.record(&game, game.run_id.clone()).expect("record victory"));
+            let recorded = chronicle.to_json().expect("serialize winning chronicle");
+            let mut restored_chronicle = Profile::from_json(&recorded).expect("restore winning chronicle");
+            assert!(!restored_chronicle.record(&restored, game.run_id.clone()).expect("idempotent victory"));
+            assert_eq!(restored_chronicle.wins, 1);
+            assert_eq!(restored_chronicle.losses, 0);
+            assert_eq!(restored_chronicle.records.len(), 1);
+            assert!(restored_chronicle.ascensions.is_empty(), "new tier must not unlock old ascension");
+            assert!(restored_chronicle.difficulty_clears
+                .get(game.hero.name()).is_some_and(|tiers| tiers.contains(&Difficulty::Warlords)));
+            assert_eq!(restored_chronicle.to_json().unwrap(), recorded);
+
             // Re-run the exact winning seed from a fresh campaign, with no
             // checkpoint injection. Both runs must produce identical final
             // authority snapshots, not merely the same terminal stage.
@@ -209,4 +222,47 @@ fn natural_fifth_act_requires_four_boss_victories_and_full_campaign_win() {
         ));
     }
     panic!("no natural full victory through bosses 8, 16, 24, 32 and 40: {}", failures.join(" | "));
+}
+
+/// Passive player actions produce a real defeat without injecting a checkpoint.
+#[test]
+fn natural_expanded_defeat_is_recorded_once_without_unlocking_a_clear() {
+    let mut game = Game::new_with_campaign_difficulty(
+        Hero::LuBu, 247_510, Difficulty::Warlords, "natural-defeat-247510".into(),
+    );
+    game.apply(Action::Choose { index: 1 }).expect("opening choice");
+    for _ in 0..900 {
+        if game.stage == Stage::Lost { break; }
+        match game.stage {
+            Stage::Combat => { game.apply(Action::EndTurn).expect("legal passive turn"); }
+            Stage::Map => {
+                let index = game.route.iter().position(|node| matches!(node, Node::Battle | Node::Elite | Node::Boss))
+                    .or_else(|| (!game.route.is_empty()).then_some(0))
+                    .expect("legal onward route");
+                game.apply(Action::Choose { index: index + 1 }).expect("legal route");
+            }
+            Stage::Won => panic!("passive defeat policy unexpectedly won"),
+            _ => advance(&mut game).expect("legal noncombat choice"),
+        }
+    }
+    assert_eq!(game.stage, Stage::Lost, "passive natural campaign must settle as defeat");
+    game.audit_campaign_authority().expect("defeat authority audit");
+    game.verify_action_replay().expect("defeat replay");
+    let snapshot = game.to_json().expect("defeat snapshot");
+    let restored = Game::from_json(&snapshot).expect("defeat restore");
+    assert_eq!(restored.to_json().unwrap(), snapshot);
+    restored.verify_action_replay().expect("restored defeat replay");
+    let mut profile = Profile::new();
+    assert!(profile.record(&game, game.run_id.clone()).expect("record defeat"));
+    let persisted = profile.to_json().expect("persist chronicle");
+    let mut reloaded = Profile::from_json(&persisted).expect("restore chronicle");
+    assert!(!reloaded.record(&restored, game.run_id.clone()).expect("duplicate defeat"));
+    assert_eq!(reloaded.wins, 0);
+    assert_eq!(reloaded.losses, 1);
+    assert_eq!(reloaded.records.len(), 1);
+    assert!(reloaded.difficulty_clears.is_empty());
+    assert!(reloaded.ascensions.is_empty());
+    assert_eq!(reloaded.to_json().unwrap(), persisted);
+    assert!(game.apply(Action::EndTurn).is_err());
+    assert_eq!(game.to_json().unwrap(), snapshot);
 }
