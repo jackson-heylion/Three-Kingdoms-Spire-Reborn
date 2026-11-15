@@ -137,8 +137,8 @@ fn natural_fifth_act_requires_four_boss_victories_and_full_campaign_win() {
             return;
         }
         failures.push(format!(
-            "seed {seed}: floor {} stage {:?}, first boss {saw_first_boss}, second boss {saw_second_boss}, third boss {saw_third_boss}, fourth boss {saw_fourth_boss}, fifth boss {saw_fifth_boss}, error {:?}",
-            game.floor, game.stage, failure
+            "seed {seed}: floor {} stage {:?}, first boss {saw_first_boss}, second boss {saw_second_boss}, third boss {saw_third_boss}, fourth boss {saw_fourth_boss}, fifth boss {saw_fifth_boss}, error {:?}, trace {:?}",
+            game.floor, game.stage, failure, floor_trace
         ));
     }
     panic!("no natural full victory through bosses 8, 16, 24, 32 and 40: {}", failures.join(" | "));
