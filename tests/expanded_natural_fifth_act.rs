@@ -99,11 +99,10 @@ fn natural_fifth_act_requires_four_boss_victories_and_full_campaign_win() {
                 failures.push(format!("seed {seed}: floor-40 boss fight failed: {error}"));
                 continue;
             }
-            if game.stage == Stage::Reward {
-                if let Err(error) = game.apply(Action::Choose { index: 0 }) {
+            if game.stage == Stage::Reward
+                && let Err(error) = game.apply(Action::Choose { index: 0 }) {
                     failures.push(format!("seed {seed}: final reward choice failed: {error}"));
                     continue;
-                }
             }
             if game.stage != Stage::Won {
                 failures.push(format!("seed {seed}: final boss did not produce campaign victory: {:?}", game.stage));
