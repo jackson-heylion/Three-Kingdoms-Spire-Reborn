@@ -17,7 +17,13 @@ fn fight(game: &mut Game) -> Result<(), String> {
         let mut guarded = false;
         loop {
             let playable = game.battle.as_ref().and_then(|b| {
-                // Focus the lowest-HP living enemy to remove an incoming intent sooner.\n                // Earlier policies always attacked the first living foe, even when\n                // another attacker could be eliminated immediately.\n                let target = b.foes.iter().enumerate()\n                    .filter(|(_, foe)| foe.hp > 0)\n                    .min_by_key(|(_, foe)| foe.hp)\n                    .map(|(index, _)| index + 1)?;
+                // Focus the lowest-HP living enemy to remove an incoming intent sooner.
+                // Earlier policies always attacked the first living foe, even when
+                // another attacker could be eliminated immediately.
+                let target = b.foes.iter().enumerate()
+                    .filter(|(_, foe)| foe.hp > 0)
+                    .min_by_key(|(_, foe)| foe.hp)
+                    .map(|(index, _)| index + 1)?;
                 let defend = !guarded && b.block < 8 && b.foes.iter().any(|foe|
                     foe.hp > 0 && matches!(foe.intent, three_kingdoms_spire_reborn::Intent::Attack(_)
                         | three_kingdoms_spire_reborn::Intent::MultiAttack(_, _))
@@ -80,9 +86,15 @@ fn natural_fifth_act_requires_four_boss_victories_and_full_campaign_win() {
         let mut saw_third_boss = false;
         let mut saw_fourth_boss = false;
         let mut saw_fifth_boss = false;
-        let mut failure = None;\n        let mut floor_trace = Vec::new();\n        let mut observed_floor = 0;
+        let mut failure = None;
+        let mut floor_trace = Vec::new();
+        let mut observed_floor = 0;
         for _ in 0..900 {
-            if game.floor != observed_floor {\n                observed_floor = game.floor;\n                floor_trace.push(format!("{}:{:?}:hp{}", game.floor, game.stage, game.hp));\n            }\n            if game.stage == Stage::Lost || game.stage == Stage::Won { break; }
+            if game.floor != observed_floor {
+                observed_floor = game.floor;
+                floor_trace.push(format!("{}:{:?}:hp{}", game.floor, game.stage, game.hp));
+            }
+            if game.stage == Stage::Lost || game.stage == Stage::Won { break; }
             if game.floor == 8 && game.stage == Stage::Combat && game.last_node == Some(Node::Boss) {
                 saw_first_boss = true;
             }
