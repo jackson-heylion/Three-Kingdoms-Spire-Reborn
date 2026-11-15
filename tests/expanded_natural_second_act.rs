@@ -93,11 +93,11 @@ fn natural_act_two_requires_first_boss_victory_and_replayable_progress() {
             }
             // A victorious boss must offer a real reward action. A loss must
             // remain terminal, with no fabricated reward or checkpoint.
-            if game.stage == Stage::Reward {
-                if let Err(error) = game.apply(Action::Choose { index: 0 }) {
-                    failures.push(format!("seed {seed}: floor-16 reward failed: {error}"));
-                    continue;
-                }
+            if game.stage == Stage::Reward
+                && let Err(error) = game.apply(Action::Choose { index: 0 })
+            {
+                failures.push(format!("seed {seed}: floor-16 reward failed: {error}"));
+                continue;
             }
             game.audit_campaign_authority().expect("act-two authority audit");
             game.verify_action_replay().expect("act-two action replay");
