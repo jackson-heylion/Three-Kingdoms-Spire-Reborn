@@ -32,16 +32,16 @@ fn fight(game: &mut Game) -> Result<(), String> {
 fn advance(game: &mut Game) -> Result<(), String> {
     match game.stage {
         Stage::Combat => fight(game),
-        Stage::Reward => game.apply(Action::Choose { index: 0 }),
-        Stage::Camp => game.apply(Action::Choose { index: 1 }),
-        Stage::Market => game.apply(Action::Choose { index: 0 }),
-        Stage::Story => game.apply(Action::Choose { index: 3 }),
+        Stage::Reward => game.apply(Action::Choose { index: 0 }).map(|_| ()),
+        Stage::Camp => game.apply(Action::Choose { index: 1 }).map(|_| ()),
+        Stage::Market => game.apply(Action::Choose { index: 0 }).map(|_| ()),
+        Stage::Story => game.apply(Action::Choose { index: 3 }).map(|_| ()),
         Stage::Map => {
             let preferred = [Node::Camp, Node::Story, Node::Market, Node::Battle, Node::Elite, Node::Boss];
             let index = preferred.iter().find_map(|kind|
                 game.route.iter().position(|node| node == kind)
             ).ok_or("no legal onward route")?;
-            game.apply(Action::Choose { index: index + 1 })
+            game.apply(Action::Choose { index: index + 1 }).map(|_| ())
         }
         other => Err(format!("unexpected terminal stage {other:?}")),
     }
