@@ -72,7 +72,12 @@ fn fight(game: &mut Game) -> Result<(), String> {
 fn advance(game: &mut Game) -> Result<(), String> {
     match game.stage {
         Stage::Combat => fight(game),
-        Stage::Reward => game.apply(Action::Choose { index: 0 }).map(|_| ()),
+        // A real campaign must acquire offered cards. Choosing 0 explicitly
+        // skips every reward and leaves the build at starter strength.
+        Stage::Reward => {
+            let index = if game.rewards.is_empty() { 0 } else { 1 };
+            game.apply(Action::Choose { index }).map(|_| ())
+        },
         Stage::Camp => game.apply(Action::Choose { index: 1 }).map(|_| ()),
         Stage::Market => game.apply(Action::Choose { index: 0 }).map(|_| ()),
         Stage::Story => game.apply(Action::Choose { index: 3 }).map(|_| ()),
