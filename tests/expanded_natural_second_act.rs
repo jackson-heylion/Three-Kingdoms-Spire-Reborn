@@ -77,6 +77,28 @@ fn natural_act_two_requires_first_boss_victory_and_replayable_progress() {
             }
         }
         if saw_first_boss && saw_second_boss {
+            // Resolve the actual floor-16 boss using player actions, rather than
+            // treating merely entering its combat as completing the second act.
+            let boss_entry = game.to_json().expect("second-boss entry snapshot");
+            let boss_entry_restored = Game::from_json(&boss_entry).expect("second-boss entry restore");
+            assert_eq!(boss_entry_restored.to_json().unwrap(), boss_entry);
+            boss_entry_restored.verify_action_replay().expect("second-boss entry replay");
+            if let Err(error) = fight(&mut game) {
+                failures.push(format!("seed {seed}: floor-16 boss fight failed: {error}"));
+                continue;
+            }
+            if !matches!(game.stage, Stage::Reward | Stage::Lost) {
+                failures.push(format!("seed {seed}: floor-16 boss did not settle: {:?}", game.stage));
+                continue;
+            }
+            // A victorious boss must offer a real reward action. A loss must
+            // remain terminal, with no fabricated reward or checkpoint.
+            if game.stage == Stage::Reward {
+                if let Err(error) = game.apply(Action::Choose { index: 0 }) {
+                    failures.push(format!("seed {seed}: floor-16 reward failed: {error}"));
+                    continue;
+                }
+            }
             game.audit_campaign_authority().expect("act-two authority audit");
             game.verify_action_replay().expect("act-two action replay");
             let json = game.to_json().expect("act-two snapshot");
