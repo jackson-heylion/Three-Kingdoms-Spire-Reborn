@@ -118,7 +118,7 @@ fn natural_act_four_requires_three_boss_victories_and_replayable_settlement() {
             return;
         }
         failures.push(format!(
-            "seed {seed}: floor {} stage {:?}, first boss {saw_first_boss}, second boss {saw_second_boss}, fourth boss {saw_third_boss}, error {:?}",
+            "seed {seed}: floor {} stage {:?}, first boss {saw_first_boss}, second boss {saw_second_boss}, third boss {saw_third_boss}, fourth boss {saw_fourth_boss}, error {:?}",
             game.floor, game.stage, failure
         ));
     }
