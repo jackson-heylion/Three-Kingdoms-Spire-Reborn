@@ -178,6 +178,16 @@ fn natural_fifth_act_requires_four_boss_victories_and_full_campaign_win() {
             repeated.apply(Action::Choose { index: 1 }).expect("repeat opening choice");
             for _ in 0..900 {
                 if repeated.stage == Stage::Won || repeated.stage == Stage::Lost { break; }
+                if repeated.floor == 40 && repeated.stage == Stage::Combat
+                    && repeated.last_node == Some(Node::Boss)
+                {
+                    fight(&mut repeated).expect("repeat final boss");
+                    if repeated.stage == Stage::Reward {
+                        repeated.apply(Action::Choose { index: 0 })
+                            .expect("repeat final reward choice");
+                    }
+                    break;
+                }
                 advance(&mut repeated).expect("repeat natural player action");
             }
             assert_eq!(repeated.stage, Stage::Won, "winning seed {seed} did not reproduce");
