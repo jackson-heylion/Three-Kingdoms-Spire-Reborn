@@ -36,6 +36,9 @@ fn advance(game: &mut Game) -> Result<(), String> {
         Stage::Camp => game.apply(Action::Choose { index: 1 }).map(|_| ()),
         Stage::Market => game.apply(Action::Choose { index: 0 }).map(|_| ()),
         Stage::Story => game.apply(Action::Choose { index: 3 }).map(|_| ()),
+        // A victorious boss reward transitions to the mandatory Ancient boon choice.
+        // This is a real player decision, not a terminal stage or a synthetic skip.
+        Stage::Ancient => game.apply(Action::Choose { index: 1 }).map(|_| ()),
         Stage::Map => {
             let preferred = [Node::Camp, Node::Story, Node::Market, Node::Battle, Node::Elite, Node::Boss];
             let index = preferred.iter().find_map(|kind|
