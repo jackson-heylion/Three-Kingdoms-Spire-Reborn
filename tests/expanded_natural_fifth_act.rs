@@ -1,7 +1,7 @@
 //! Natural fifth-act full-victory acceptance. All four earlier bosses must be won to reach floor 40. No checkpoint injection or fabricated battle state.
 //! This is intentionally strict: defeats at earlier bosses cannot count as fifth-act progress.
 use three_kingdoms_spire_reborn::{
-    Action, Difficulty, Game, Node, Stage, content::{Hero, card_spec},
+    Action, Difficulty, Game, Node, Stage, content::{Effect, Hero, card_spec},
 };
 
 fn fight(game: &mut Game) -> Result<(), String> {
@@ -28,17 +28,35 @@ fn fight(game: &mut Game) -> Result<(), String> {
                     foe.hp > 0 && matches!(foe.intent, three_kingdoms_spire_reborn::Intent::Attack(_)
                         | three_kingdoms_spire_reborn::Intent::MultiAttack(_, _))
                 );
-                // Preserve damage tempo before spending leftover energy on defense.
-                // The previous defense-first policy shortened survival on all
-                // candidate seeds, including the formerly promising 247524.
-                let choice = b.hand.iter().enumerate().find(|(_, card)| {
-                    (card.id == "strike" || card.id == "wushuang")
-                        && card_spec(&card.id).is_some_and(|spec| spec.cost <= b.energy)
-                }).or_else(|| b.hand.iter().enumerate().find(|(_, card)| {
-                    defend && card.id == "defend"
-                        && card_spec(&card.id).is_some_and(|spec| spec.cost <= b.energy)
-                }));
-                choice.map(|(index, card)| (index + 1, target, card.id == "defend"))
+                // Use the cards actually acquired during the 40-floor campaign.
+                // The former driver ignored every reward card except wushuang,
+                // so its late-game survival did not measure the available build.
+                // Exclude cards needing a separate selection UI or costing HP;
+                // they require an explicit player policy rather than blind use.
+                let choice = b.hand.iter().enumerate().filter_map(|(index, card)| {
+                    let spec = card_spec(&card.id)?;
+                    if spec.cost > b.energy && spec.cost >= 0 { return None; }
+                    let priority = match spec.effect {
+                        Effect::Unplayable | Effect::TutorAttack | Effect::CopyDiscard
+                        | Effect::BloodPrice(_, _) => return None,
+                        Effect::Heal(_) if game.hp >= game.max_hp => return None,
+                        Effect::Guard(_) | Effect::GuardEnergy(_) | Effect::XGuard(_)
+                            if !defend => return None,
+                        Effect::Draw(_) | Effect::DrawEnergy(_, _)
+                        | Effect::Energy(_) | Effect::GainMomentum(_)
+                        | Effect::Fury(_) | Effect::Strength(_) | Effect::Power(_, _) => 0,
+                        Effect::Heal(_) => 1,
+                        Effect::Hit(_) | Effect::HitDraw(_, _) | Effect::HitTwice(_)
+                        | Effect::All(_) | Effect::FuryStrike(_) | Effect::XHit(_)
+                        | Effect::Pierce(_) | Effect::HitWeak(_, _)
+                        | Effect::HitVulnerable(_, _) | Effect::Leech(_)
+                        | Effect::HitPoison(_, _) => 2,
+                        Effect::Guard(_) | Effect::GuardEnergy(_) | Effect::XGuard(_) => 3,
+                        _ => 4,
+                    };
+                    Some((priority, index, card))
+                }).min_by_key(|(priority, index, _)| (*priority, *index));
+                choice.map(|(_, index, card)| (index + 1, target, matches!(card_spec(&card.id).map(|s| s.effect), Some(Effect::Guard(_) | Effect::GuardEnergy(_) | Effect::XGuard(_)))))
             });
             let Some((index, target, is_guard)) = playable else { break; };
             game.apply(Action::Play { index, target })?;
