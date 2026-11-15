@@ -169,6 +169,38 @@ fn natural_fifth_act_requires_four_boss_victories_and_full_campaign_win() {
             assert_eq!(game.floor, 40);
             assert_eq!(game.stage, Stage::Won);
             assert_eq!(game.last_node, Some(Node::Boss));
+            // Re-run the exact winning seed from a fresh campaign, with no
+            // checkpoint injection. Both runs must produce identical final
+            // authority snapshots, not merely the same terminal stage.
+            let mut repeated = Game::new_with_campaign_difficulty(
+                Hero::LuBu, seed, Difficulty::Warlords, format!("act-five-{seed}"),
+            );
+            repeated.apply(Action::Choose { index: 1 }).expect("repeat opening choice");
+            for _ in 0..900 {
+                if repeated.stage == Stage::Won || repeated.stage == Stage::Lost { break; }
+                if repeated.floor == 40 && repeated.stage == Stage::Combat
+                    && repeated.last_node == Some(Node::Boss)
+                {
+                    fight(&mut repeated).expect("repeat final boss");
+                    if repeated.stage == Stage::Reward {
+                        repeated.apply(Action::Choose { index: 0 })
+                            .expect("repeat final reward choice");
+                    }
+                    break;
+                }
+                advance(&mut repeated).expect("repeat natural player action");
+            }
+            assert_eq!(repeated.stage, Stage::Won, "winning seed {seed} did not reproduce");
+            assert_eq!(repeated.to_json().unwrap(), json, "winning seed {seed} diverged");
+            repeated.verify_action_replay().expect("repeat winning action replay");
+
+            // A settled campaign is terminal: illegal attempts must not
+            // re-enter rewards or mutate RNG, records, or serialized state.
+            let terminal_snapshot = game.to_json().unwrap();
+            assert!(game.apply(Action::Choose { index: 1 }).is_err());
+            assert_eq!(game.to_json().unwrap(), terminal_snapshot);
+            assert!(game.apply(Action::EndTurn).is_err());
+            assert_eq!(game.to_json().unwrap(), terminal_snapshot);
             return;
         }
         failures.push(format!(
