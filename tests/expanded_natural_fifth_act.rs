@@ -11,16 +11,29 @@ fn fight(game: &mut Game) -> Result<(), String> {
             game.apply(Action::AssaultGate)?;
             continue;
         }
+        // This is a legal, deterministic player policy, not a combat shortcut.
+        // The earlier probe discarded every defensive card, making long-run
+        // survival an artifact of the test driver rather than the game rules.
+        let mut guarded = false;
         loop {
             let playable = game.battle.as_ref().and_then(|b| {
                 let target = b.foes.iter().position(|foe| foe.hp > 0)? + 1;
-                b.hand.iter().enumerate().find(|(_, card)| {
+                let defend = !guarded && b.block < 8 && b.foes.iter().any(|foe|
+                    foe.hp > 0 && matches!(foe.intent, three_kingdoms_spire_reborn::Intent::Attack(_)
+                        | three_kingdoms_spire_reborn::Intent::MultiAttack(_, _))
+                );
+                let choice = b.hand.iter().enumerate().find(|(_, card)| {
+                    defend && card.id == "defend"
+                        && card_spec(&card.id).is_some_and(|spec| spec.cost <= b.energy)
+                }).or_else(|| b.hand.iter().enumerate().find(|(_, card)| {
                     (card.id == "strike" || card.id == "wushuang")
                         && card_spec(&card.id).is_some_and(|spec| spec.cost <= b.energy)
-                }).map(|(index, _)| (index + 1, target))
+                }));
+                choice.map(|(index, card)| (index + 1, target, card.id == "defend"))
             });
-            let Some((index, target)) = playable else { break; };
+            let Some((index, target, is_guard)) = playable else { break; };
             game.apply(Action::Play { index, target })?;
+            guarded |= is_guard;
             if game.stage != Stage::Combat { break; }
         }
         if game.stage == Stage::Combat { game.apply(Action::EndTurn)?; }
