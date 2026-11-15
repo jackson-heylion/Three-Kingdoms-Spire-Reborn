@@ -90,7 +90,7 @@ fn natural_fifth_act_requires_four_boss_victories_and_full_campaign_win() {
         }
         if saw_first_boss && saw_second_boss && saw_third_boss && saw_fourth_boss && saw_fifth_boss {
             // Resolve the actual floor-40 boss using player actions, rather than
-            // treating merely entering its combat as completing the third act.
+            // treating merely entering its combat as completing the campaign.
             let boss_entry = game.to_json().expect("final-boss entry snapshot");
             let boss_entry_restored = Game::from_json(&boss_entry).expect("final-boss entry restore");
             assert_eq!(boss_entry_restored.to_json().unwrap(), boss_entry);
@@ -99,8 +99,14 @@ fn natural_fifth_act_requires_four_boss_victories_and_full_campaign_win() {
                 failures.push(format!("seed {seed}: floor-40 boss fight failed: {error}"));
                 continue;
             }
+            if game.stage == Stage::Reward {
+                if let Err(error) = game.apply(Action::Choose { index: 0 }) {
+                    failures.push(format!("seed {seed}: final reward choice failed: {error}"));
+                    continue;
+                }
+            }
             if game.stage != Stage::Won {
-                failures.push(format!("seed {seed}: floor-40 boss did not settle: {:?}", game.stage));
+                failures.push(format!("seed {seed}: final boss did not produce campaign victory: {:?}", game.stage));
                 continue;
             }
             // Final victory must be an actual Game settlement, never an early-boss defeat.
@@ -116,9 +122,9 @@ fn natural_fifth_act_requires_four_boss_victories_and_full_campaign_win() {
             return;
         }
         failures.push(format!(
-            "seed {seed}: floor {} stage {:?}, first boss {saw_first_boss}, second boss {saw_second_boss}, third boss {saw_third_boss}, fifth boss {saw_fourth_boss}, error {:?}",
+            "seed {seed}: floor {} stage {:?}, first boss {saw_first_boss}, second boss {saw_second_boss}, third boss {saw_third_boss}, fourth boss {saw_fourth_boss}, fifth boss {saw_fifth_boss}, error {:?}",
             game.floor, game.stage, failure
         ));
     }
-    panic!("no natural victories at bosses 8, 16 and 24 continued to fifth boss: {}", failures.join(" | "));
+    panic!("no natural full victory through bosses 8, 16, 24, 32 and 40: {}", failures.join(" | "));
 }
