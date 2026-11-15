@@ -22,11 +22,14 @@ fn fight(game: &mut Game) -> Result<(), String> {
                     foe.hp > 0 && matches!(foe.intent, three_kingdoms_spire_reborn::Intent::Attack(_)
                         | three_kingdoms_spire_reborn::Intent::MultiAttack(_, _))
                 );
+                // Preserve damage tempo before spending leftover energy on defense.
+                // The previous defense-first policy shortened survival on all
+                // candidate seeds, including the formerly promising 247524.
                 let choice = b.hand.iter().enumerate().find(|(_, card)| {
-                    defend && card.id == "defend"
+                    (card.id == "strike" || card.id == "wushuang")
                         && card_spec(&card.id).is_some_and(|spec| spec.cost <= b.energy)
                 }).or_else(|| b.hand.iter().enumerate().find(|(_, card)| {
-                    (card.id == "strike" || card.id == "wushuang")
+                    defend && card.id == "defend"
                         && card_spec(&card.id).is_some_and(|spec| spec.cost <= b.energy)
                 }));
                 choice.map(|(index, card)| (index + 1, target, card.id == "defend"))
