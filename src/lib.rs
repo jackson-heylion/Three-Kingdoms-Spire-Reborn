@@ -91,6 +91,16 @@ pub enum WuchaoPlan {
     DeclineResolved,
 }
 
+/// Red Cliffs decision: act-III battle and act-IV aftermath settle separately.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChibiPlan {
+    Council,
+    FirePending, FleetPending, DeclinePending,
+    FireBattleResolved, FleetBattleResolved, DeclineBattleResolved,
+    FireSettled, FleetSettled, DeclineSettled,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Node { Battle, Elite, Camp, Market, Story, Boss }
@@ -337,6 +347,8 @@ pub struct Game {
     #[serde(default)] pub lore_current: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wuchao_plan: Option<WuchaoPlan>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chibi_plan: Option<ChibiPlan>,
     #[serde(default)] pub easter_unlocked: Vec<String>,
 }
 
@@ -799,6 +811,54 @@ impl Game {
                 self.wuchao_plan = Some(plan);
             }
         }
+        // A real act-III battle consumes the fleet plan. Act-IV consequences
+        // settle exactly once on that act's first actual combat.
+        if self.difficulty.is_some() {
+            let resolved = match (self.floor, self.chibi_plan) {
+                (17..=24, Some(ChibiPlan::FirePending)) => {
+                    if let Some(b) = self.battle.as_mut() {
+                        if let Some(front) = b.foes.first_mut() {
+                            front.hp = (front.hp - 8).max(1);
+                            front.vulnerable = front.vulnerable.saturating_add(2);
+                        }
+                        // The player can extinguish this fire with guard cards.
+                        b.wildfire = b.wildfire.saturating_add(1);
+                    }
+                    Some(ChibiPlan::FireBattleResolved)
+                }
+                (17..=24, Some(ChibiPlan::FleetPending)) => {
+                    if let Some(b) = self.battle.as_mut() {
+                        b.block += 12;
+                        if let Some(front) = b.foes.first_mut() {
+                            front.weak = front.weak.saturating_add(1);
+                        }
+                    }
+                    Some(ChibiPlan::FleetBattleResolved)
+                }
+                (17..=24, Some(ChibiPlan::DeclinePending)) => {
+                    if let Some(front) = self.battle.as_mut().and_then(|b| b.foes.first_mut()) {
+                        front.block += 12;
+                    }
+                    Some(ChibiPlan::DeclineBattleResolved)
+                }
+                (25..=32, Some(ChibiPlan::FireBattleResolved)) => {
+                    self.gold = (self.gold - 12).max(0);
+                    Some(ChibiPlan::FireSettled)
+                }
+                (25..=32, Some(ChibiPlan::FleetBattleResolved)) => {
+                    if let Some(b) = self.battle.as_mut() { b.block += 6; }
+                    Some(ChibiPlan::FleetSettled)
+                }
+                (25..=32, Some(ChibiPlan::DeclineBattleResolved)) => {
+                    if let Some(front) = self.battle.as_mut().and_then(|b| b.foes.first_mut()) {
+                        front.strength += 1;
+                    }
+                    Some(ChibiPlan::DeclineSettled)
+                }
+                _ => None,
+            };
+            if let Some(plan) = resolved { self.chibi_plan = Some(plan); }
+        }
         self.stage = Stage::Combat;
     }
     fn finish_scene(&mut self) {
@@ -841,7 +901,26 @@ impl Game {
                     self.wuchao_plan,
                     Some(WuchaoPlan::RaidPending | WuchaoPlan::FortifyPending | WuchaoPlan::DeclinePending)
                 );
+                let previous_chibi = self.chibi_plan;
                 self.start_battle(node);
+                if previous_chibi != self.chibi_plan {
+                    let outcome = match self.chibi_plan {
+                        Some(ChibiPlan::FireBattleResolved) =>
+                            "；赤壁东风：敌前锋受火攻易伤，己方火势可用防御扑灭",
+                        Some(ChibiPlan::FleetBattleResolved) =>
+                            "；赤壁稳守：我军获12护甲，敌前锋虚弱",
+                        Some(ChibiPlan::DeclineBattleResolved) =>
+                            "；赤壁失机：敌前锋获12护甲",
+                        Some(ChibiPlan::FireSettled) =>
+                            "；赤壁后勤债务兑现：军资最多减少12金",
+                        Some(ChibiPlan::FleetSettled) =>
+                            "；舰队保全：第四幕首战额外获6护甲",
+                        Some(ChibiPlan::DeclineSettled) =>
+                            "；失机后果：第四幕敌前锋武勇+1",
+                        _ => "",
+                    };
+                    msg.push_str(outcome);
+                }
                 if awaiting_wuchao {
                     let explanation = match self.wuchao_plan {
                         Some(WuchaoPlan::RaidResolved) => "；乌巢夜袭兑现：敌前锋受损且失甲，己方暴露易伤1",
@@ -2310,6 +2389,14 @@ impl Game {
 
     /// One typed source of truth for the optional fourth Story choice in both
     /// plain CLI and keyboard TUI. Council subchoices are already options 1–3.
+    fn can_open_chibi_council(&self) -> bool {
+        self.difficulty.is_some()
+            && matches!(self.hero, Hero::ZhugeLiang | Hero::SunShangxiang)
+            && self.stage == Stage::Story
+            && (17..=24).contains(&self.floor)
+            && self.chibi_plan.is_none()
+    }
+
     pub fn story_fourth_option(&self) -> Option<&'static str> {
         if self.optional_responsibility_successor().is_some() {
             Some("保留责任并继续核审")
@@ -2317,6 +2404,8 @@ impl Game {
             Some("改查西川责任案卷")
         } else if self.can_open_wuchao_council() {
             Some("召开乌巢军议")
+        } else if self.can_open_chibi_council() {
+            Some("议定赤壁东风与水军部署")
         } else {
             None
         }
@@ -2365,6 +2454,9 @@ impl Game {
         Some(next)
     }
     pub fn lore_hint(&self) -> String {
+        if self.chibi_plan == Some(ChibiPlan::Council) {
+            return "【赤壁东风·水陆军议】以下为游戏架空战术抉择：\n  1. 借东风火攻：耗20金；第三幕下次战斗敌前锋损8体力并易伤2，己军承担1层可扑灭火势；第四幕首战耗至多12金\n  2. 稳守水军：耗8体力；第三幕下次战斗我军获12护甲，敌前锋虚弱1；第四幕首战获6护甲\n  3. 不介入：第三幕下次战斗敌前锋获12护甲，第四幕首战敌前锋武勇+1".into();
+        }
         if self.wuchao_plan == Some(WuchaoPlan::Council) {
             return "【官渡乌巢·战术军议】以第030回小说中的袭粮之议为背景；以下均为游戏架空抉择，不改史实。\n  1. 夜袭粮仓：耗20金；下一幕首战前锋失10体力及全部护甲，我军暴露易伤1\n  2. 固守粮道：耗8体力；下一幕首战获得12护甲\n  3. 不介入：保留当前资源，但下一幕首战敌前锋增加12护甲".into();
         }
@@ -2376,6 +2468,8 @@ impl Game {
                 "\n  4. 改查西川图责任案卷（先换卷，再独立选择1/2/3）"
             } else if self.can_open_wuchao_council() {
                 "\n  4. 召开乌巢军议（转入有代价的三选一，原事件不领取奖励）"
+            } else if self.can_open_chibi_council() {
+                "\n  4. 议定赤壁东风与水军部署（独立三选一，放弃本卷即时奖励）"
             } else { "" };
             return format!("【演义残卷·第{}回】{}——{}：{}\n  1. {}（结缘并记下因果）\n  2. {}（获得金银，错过羁绊）\n  3. 不介入{}",
                 b.chapter,b.title,b.character,b.premise,b.vow,b.bargain,alternative);
@@ -2383,6 +2477,8 @@ impl Game {
         let mut hint = self.story_options().to_string();
         if self.can_open_wuchao_council() {
             hint.push_str("\n  4. 召开乌巢军议（转入有代价的三选一）");
+        } else if self.can_open_chibi_council() {
+            hint.push_str("\n  4. 议定赤壁东风与水军部署（独立三选一）");
         }
         hint
     }
@@ -2450,6 +2546,25 @@ impl Game {
         Ok(result)
     }
     fn choose_story(&mut self, index: usize) -> Result<String, String> {
+        if self.chibi_plan == Some(ChibiPlan::Council) {
+            let (plan, message) = match index {
+                1 if self.gold >= 20 => {
+                    self.gold -= 20;
+                    (ChibiPlan::FirePending, "赤壁借东风：投入20金；第三幕下次战斗火攻破阵，己军也需扑火；第四幕尚有12金后勤债务。")
+                }
+                1 => return Err("借东风火攻需要20金".into()),
+                2 if self.hp > 8 => {
+                    self.hp -= 8;
+                    (ChibiPlan::FleetPending, "赤壁水军稳守：耗8体力布阵；第三幕下次战斗获护甲、敌前锋虚弱；第四幕仍有留存舰队。")
+                }
+                2 => return Err("稳守水军至少需要剩余9体力".into()),
+                3 => (ChibiPlan::DeclinePending, "赤壁不介入：保留军资；第三幕下次战斗敌前锋获盾，第四幕首战敌前锋武勇增加。"),
+                _ => return Err("赤壁军议请选1、2或3".into()),
+            };
+            self.chibi_plan = Some(plan);
+            self.finish_scene();
+            return Ok(message.into());
+        }
         if self.wuchao_plan == Some(WuchaoPlan::Council) {
             let (plan, message) = match index {
                 1 if self.gold >= 20 => {
@@ -2479,14 +2594,15 @@ impl Game {
                 self.wuchao_plan = Some(WuchaoPlan::Council);
                 return Ok("乌巢战术军议开启：请独立选择1夜袭、2固守或3不介入。".into());
             }
-            if !self.can_open_yizhou_archive() {
-                return Err("当前没有可选的西川责任案卷".into());
+            if self.can_open_yizhou_archive() {
+                self.lore_current = Some("yizhou_map_audit".into());
+                return Ok("转查第060回西川图责任案卷；请独立选择1、2或3。".into());
             }
-            // Explicit player choice, not a scene/flag injection or free reward.
-            // The original scene remains unseen; only the subsequent 1/2/3
-            // decision can award the Yizhou responsibility flag.
-            self.lore_current = Some("yizhou_map_audit".into());
-            return Ok("转查第060回西川图责任案卷；请独立选择1、2或3。".into());
+            if self.can_open_chibi_council() {
+                self.chibi_plan = Some(ChibiPlan::Council);
+                return Ok("赤壁水陆军议开启：请独立选择1借东风、2稳守水军或3不介入。".into());
+            }
+            return Err("当前没有可选的历史军议或责任案卷".into());
         }
         if self.lore_current.is_some() { return self.choose_lore(index); }
         if !(1..=3).contains(&index) { return Err("奇遇请选 choose 1、2 或 3".into()); }
