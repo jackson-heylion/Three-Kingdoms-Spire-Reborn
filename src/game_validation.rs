@@ -84,6 +84,16 @@ impl Game {
         {
             return Err("乌巢军议只能在新制第二幕奇遇中决策".into());
         }
+        if self.chibi_plan.is_some() && self.difficulty.is_none() {
+            return Err("旧制战役不能携带赤壁军议状态".into());
+        }
+        if self.chibi_plan == Some(ChibiPlan::Council)
+            && (self.stage != Stage::Story
+                || !matches!(self.hero, Hero::ZhugeLiang | Hero::SunShangxiang)
+                || !(17..=24).contains(&self.floor))
+        {
+            return Err("赤壁水陆军议只能在新制第三幕奇遇中决策".into());
+        }
         for boon in self.boons.iter().chain(self.boon_choices.iter()) {
             if !items::BOONS.iter().any(|(id,_)| id == boon) { return Err(format!("未知赐福: {boon}")); }
         }
