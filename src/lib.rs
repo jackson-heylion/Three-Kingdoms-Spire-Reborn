@@ -100,6 +100,14 @@ pub enum ChibiPlan {
     FireBattleResolved, FleetBattleResolved, DeclineBattleResolved,
     FireSettled, FleetSettled, DeclineSettled,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JietingPlan {
+    Council,
+    WaterPending, HillPending, RetreatPending,
+    WaterResolved, HillResolved, RetreatResolved,
+    WaterSettled, HillSettled, RetreatSettled,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -349,6 +357,8 @@ pub struct Game {
     pub wuchao_plan: Option<WuchaoPlan>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chibi_plan: Option<ChibiPlan>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jieting_plan: Option<JietingPlan>,
     #[serde(default)] pub easter_unlocked: Vec<String>,
 }
 
@@ -722,6 +732,12 @@ impl Game {
             siege_gate_hp: (self.difficulty.is_some() && self.floor == 4 && node == Node::Battle).then_some(12),
             turn: 1,
         });
+        if self.difficulty.is_some() && (25..=32).contains(&self.floor)
+            && self.jieting_plan == Some(JietingPlan::HillPending)
+            && let Some(front) = self.battle.as_mut().and_then(|b| b.foes.first_mut())
+        {
+            front.strength += 1;
+        }
         // Strength is part of the generated first-turn enemy intent. Apply
         // the act-IV strategic setback BEFORE rolling, never after preview.
         if self.difficulty.is_some()
@@ -870,6 +886,42 @@ impl Game {
             };
             if let Some(plan) = resolved { self.chibi_plan = Some(plan); }
         }
+        if self.difficulty.is_some() {
+            let resolved = match (self.floor, self.jieting_plan) {
+                (25..=32, Some(JietingPlan::WaterPending)) => {
+                    if let Some(b) = self.battle.as_mut() {
+                        b.block += 14;
+                        if let Some(front) = b.foes.first_mut() { front.weak = front.weak.saturating_add(1); }
+                    }
+                    Some(JietingPlan::WaterResolved)
+                }
+                (25..=32, Some(JietingPlan::HillPending)) => {
+                    if let Some(b) = self.battle.as_mut() { b.block += 20; }
+                    Some(JietingPlan::HillResolved)
+                }
+                (25..=32, Some(JietingPlan::RetreatPending)) => {
+                    if let Some(b) = self.battle.as_mut() {
+                        b.block += 6;
+                        if let Some(front) = b.foes.first_mut() { front.block += 8; }
+                    }
+                    Some(JietingPlan::RetreatResolved)
+                }
+                (33..=40, Some(JietingPlan::WaterResolved)) => {
+                    if let Some(b) = self.battle.as_mut() { b.block += 8; }
+                    Some(JietingPlan::WaterSettled)
+                }
+                (33..=40, Some(JietingPlan::HillResolved)) => {
+                    self.gold = (self.gold - 12).max(0);
+                    Some(JietingPlan::HillSettled)
+                }
+                (33..=40, Some(JietingPlan::RetreatResolved)) => {
+                    self.hp = (self.hp + 8).min(self.max_hp);
+                    Some(JietingPlan::RetreatSettled)
+                }
+                _ => None,
+            };
+            if let Some(plan) = resolved { self.jieting_plan = Some(plan); }
+        }
         self.stage = Stage::Combat;
     }
     fn finish_scene(&mut self) {
@@ -913,7 +965,19 @@ impl Game {
                     Some(WuchaoPlan::RaidPending | WuchaoPlan::FortifyPending | WuchaoPlan::DeclinePending)
                 );
                 let previous_chibi = self.chibi_plan;
+                let previous_jieting = self.jieting_plan;
                 self.start_battle(node);
+                if previous_jieting != self.jieting_plan {
+                    msg.push_str(match self.jieting_plan {
+                        Some(JietingPlan::WaterResolved) => "；街亭守水：我军护甲+14、敌前锋虚弱",
+                        Some(JietingPlan::HillResolved) => "；街亭据山：我军护甲+20、敌前锋武勇+1",
+                        Some(JietingPlan::RetreatResolved) => "；街亭撤退：我军护甲+6、敌前锋护甲+8",
+                        Some(JietingPlan::WaterSettled) => "；街亭守水兑现：第五幕护甲+8",
+                        Some(JietingPlan::HillSettled) => "；街亭断水债务：损失至多12金",
+                        Some(JietingPlan::RetreatSettled) => "；街亭撤退兑现：恢复至多8体力",
+                        _ => "",
+                    });
+                }
                 if previous_chibi != self.chibi_plan {
                     let outcome = match self.chibi_plan {
                         Some(ChibiPlan::FireBattleResolved) =>
@@ -2417,11 +2481,18 @@ impl Game {
             Some("召开乌巢军议")
         } else if self.can_open_chibi_council() {
             Some("议定赤壁东风与水军部署")
+        } else if self.can_open_jieting_council() {
+            Some("召开街亭供水与退路军议")
         } else {
             None
         }
     }
 
+    fn can_open_jieting_council(&self) -> bool {
+        self.difficulty.is_some() && self.hero == Hero::ZhugeLiang
+            && self.stage == Stage::Story && (25..=32).contains(&self.floor)
+            && self.jieting_plan.is_none()
+    }
     fn can_open_yizhou_archive(&self) -> bool {
         self.stage == Stage::Story && self.hero == Hero::ZhugeLiang
             && self.lore_flags.iter().any(|flag| flag == "leiyang_case_record")
@@ -2465,6 +2536,9 @@ impl Game {
         Some(next)
     }
     pub fn lore_hint(&self) -> String {
+        if self.jieting_plan == Some(JietingPlan::Council) {
+            return "【街亭失守·军议】游戏虚构战术推演：\n  1. 扼守水源：耗20金，第四幕下战获14护甲、敌前锋虚弱；第五幕首战护甲+8\n  2. 上山据险：耗8体力，第四幕下战获20护甲、敌前锋武勇+1；第五幕首战损失至多12金\n  3. 及时撤退：第四幕下战我军护甲+6、敌前锋护甲+8；第五幕首战恢复至多8体力".into();
+        }
         if self.chibi_plan == Some(ChibiPlan::Council) {
             return "【赤壁东风·水陆军议】以下为游戏架空战术抉择：\n  1. 借东风火攻：耗20金；第三幕下次战斗敌前锋损8体力并易伤2，己军承担1层可扑灭火势；第四幕首战耗至多12金\n  2. 稳守水军：耗8体力；第三幕下次战斗我军获12护甲，敌前锋虚弱1；第四幕首战获6护甲\n  3. 不介入：第三幕下次战斗敌前锋获12护甲，第四幕首战敌前锋武勇+1".into();
         }
@@ -2481,6 +2555,8 @@ impl Game {
                 "\n  4. 召开乌巢军议（转入有代价的三选一，原事件不领取奖励）"
             } else if self.can_open_chibi_council() {
                 "\n  4. 议定赤壁东风与水军部署（独立三选一，放弃本卷即时奖励）"
+            } else if self.can_open_jieting_council() {
+                "\n  4. 召开街亭供水与退路军议（独立三选一，放弃本卷即时奖励）"
             } else { "" };
             return format!("【演义残卷·第{}回】{}——{}：{}\n  1. {}（结缘并记下因果）\n  2. {}（获得金银，错过羁绊）\n  3. 不介入{}",
                 b.chapter,b.title,b.character,b.premise,b.vow,b.bargain,alternative);
@@ -2490,6 +2566,8 @@ impl Game {
             hint.push_str("\n  4. 召开乌巢军议（转入有代价的三选一）");
         } else if self.can_open_chibi_council() {
             hint.push_str("\n  4. 议定赤壁东风与水军部署（独立三选一）");
+        } else if self.can_open_jieting_council() {
+            hint.push_str("\n  4. 召开街亭供水与退路军议（独立三选一）");
         }
         hint
     }
@@ -2557,6 +2635,25 @@ impl Game {
         Ok(result)
     }
     fn choose_story(&mut self, index: usize) -> Result<String, String> {
+        if self.jieting_plan == Some(JietingPlan::Council) {
+            let (plan, message) = match index {
+                1 if self.gold >= 20 => {
+                    self.gold -= 20;
+                    (JietingPlan::WaterPending, "街亭守水：耗20金布防；第四幕下战护甲+14、敌前锋虚弱；第五幕首战护甲+8。")
+                }
+                1 => return Err("街亭守水需要20金".into()),
+                2 if self.hp > 8 => {
+                    self.hp -= 8;
+                    (JietingPlan::HillPending, "街亭据山：耗8体力；第四幕下战护甲+20、敌前锋武勇+1；第五幕首战负担12金断水债务。")
+                }
+                2 => return Err("街亭据山至少需要剩余9体力".into()),
+                3 => (JietingPlan::RetreatPending, "街亭撤退：第四幕下战我军护甲+6、敌前锋护甲+8；第五幕首战恢复至多8体力。"),
+                _ => return Err("街亭军议请选1、2或3".into()),
+            };
+            self.jieting_plan = Some(plan);
+            self.finish_scene();
+            return Ok(message.into());
+        }
         if self.chibi_plan == Some(ChibiPlan::Council) {
             let (plan, message) = match index {
                 1 if self.gold >= 20 => {
@@ -2612,6 +2709,10 @@ impl Game {
             if self.can_open_chibi_council() {
                 self.chibi_plan = Some(ChibiPlan::Council);
                 return Ok("赤壁水陆军议开启：请独立选择1借东风、2稳守水军或3不介入。".into());
+            }
+            if self.can_open_jieting_council() {
+                self.jieting_plan = Some(JietingPlan::Council);
+                return Ok("街亭军议开启：请独立选择1守水、2据山或3撤退。".into());
             }
             return Err("当前没有可选的历史军议或责任案卷".into());
         }
