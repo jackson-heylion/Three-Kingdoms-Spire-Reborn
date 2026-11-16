@@ -2192,8 +2192,11 @@ impl Game {
             }
             self.combat_event(EventKind::EnemyTechnique, "convoy_raided",
                 i32::from(actual), Some("convoy".into()));
-            messages.push(format!("{}遭劫{actual}点，剩余{}点",
-                if self.floor == 26 && self.hero == Hero::ZhugeLiang { "水源" } else { "粮车" }, hp - actual));
+            messages.push(if self.floor == 26 && self.hero == Hero::ZhugeLiang {
+                format!("水源遭劫{actual}点，剩余{}点", hp - actual)
+            } else {
+                format!("粮车遭劫{actual}体力，剩余{}体力", hp - actual)
+            });
             if actual == hp {
                 self.record_metric(|c| c.battles_lost = c.battles_lost.saturating_add(1));
                 self.capture_turn_metrics(true);
