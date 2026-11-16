@@ -722,10 +722,9 @@ impl Game {
         if self.difficulty.is_some()
             && (25..=32).contains(&self.floor)
             && self.chibi_plan == Some(ChibiPlan::DeclineBattleResolved)
+            && let Some(front) = self.battle.as_mut().and_then(|b| b.foes.first_mut())
         {
-            if let Some(front) = self.battle.as_mut().and_then(|b| b.foes.first_mut()) {
-                front.strength += 1;
-            }
+            front.strength += 1;
         }
         self.roll_intents();
         let extra_draw = usize::from(self.relics.iter().any(|r| r == "虎翼"));
