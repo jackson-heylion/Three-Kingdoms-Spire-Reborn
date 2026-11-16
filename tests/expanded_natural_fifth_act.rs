@@ -271,18 +271,24 @@ fn natural_expanded_defeat_is_recorded_once_without_unlocking_a_clear() {
 // Natural player choices, not injected lore flags, must carry the Wuchao plan
 // from an act-II Story node to the first actual battle in act III.
 #[test]
-fn natural_cao_cao_wuchao_raid_changes_a_later_battle_once() {
+fn natural_cao_cao_wuchao_three_choices_change_later_battle_once() {
+    for choice in [1, 2, 3] {
+        verify_natural_wuchao_choice(choice);
+    }
+}
+
+fn verify_natural_wuchao_choice(choice: usize) {
     let mut attempts = Vec::new();
     for seed in 247_510..247_526 {
         let mut game = Game::new_with_campaign_difficulty(
-            Hero::CaoCao, seed, Difficulty::Warlords, format!("wuchao-{seed}"),
+            Hero::CaoCao, seed, Difficulty::Warlords, format!("wuchao-{choice}-{seed}"),
         );
         game.apply(Action::Choose { index: 1 }).expect("natural opening");
         let mut planned = false;
         for _ in 0..900 {
             if game.stage == Stage::Story && game.floor >= 9 && game.floor <= 16
                 && game.lore_hint().contains("4. 召开乌巢军议")
-                && game.gold >= 20
+                && (choice != 1 || game.gold >= 20) && (choice != 2 || game.hp > 8)
             {
                 game.apply(Action::Choose { index: 4 }).expect("enter council");
                 assert_eq!(game.wuchao_plan, Some(WuchaoPlan::Council));
@@ -290,16 +296,34 @@ fn natural_cao_cao_wuchao_raid_changes_a_later_battle_once() {
                 assert!(game.apply(Action::Choose { index: 99 }).is_err());
                 assert_eq!(game.to_json().unwrap(), before_invalid);
                 let before_gold = game.gold;
-                game.apply(Action::Choose { index: 1 }).expect("fund raid");
-                assert_eq!(game.gold, before_gold - 20);
-                assert_eq!(game.wuchao_plan, Some(WuchaoPlan::RaidPending));
+                let before_hp = game.hp;
+                game.apply(Action::Choose { index: choice }).expect("choose council tactic");
+                assert_eq!(game.gold, before_gold - if choice == 1 { 20 } else { 0 });
+                assert_eq!(game.hp, before_hp - if choice == 2 { 8 } else { 0 });
+                let pending = match choice {
+                    1 => WuchaoPlan::RaidPending,
+                    2 => WuchaoPlan::FortifyPending,
+                    _ => WuchaoPlan::DeclinePending,
+                };
+                assert_eq!(game.wuchao_plan, Some(pending));
                 planned = true;
             } else if planned && game.stage == Stage::Combat && game.floor >= 17 {
-                assert_eq!(game.wuchao_plan, Some(WuchaoPlan::RaidResolved));
+                let resolved = match choice {
+                    1 => WuchaoPlan::RaidResolved,
+                    2 => WuchaoPlan::FortifyResolved,
+                    _ => WuchaoPlan::DeclineResolved,
+                };
+                assert_eq!(game.wuchao_plan, Some(resolved));
                 let battle = game.battle.as_ref().unwrap();
-                assert_eq!(battle.vulnerable, 1);
-                assert_eq!(battle.foes[0].block, 0);
-                assert!(battle.foes[0].hp < battle.foes[0].max_hp);
+                match choice {
+                    1 => {
+                        assert_eq!(battle.vulnerable, 1);
+                        assert_eq!(battle.foes[0].block, 0);
+                        assert!(battle.foes[0].hp < battle.foes[0].max_hp);
+                    }
+                    2 => assert!(battle.block >= 12),
+                    _ => assert!(battle.foes[0].block >= 12),
+                }
                 game.audit_campaign_authority().expect("wuchao campaign audit");
                 game.verify_action_replay().expect("wuchao natural replay");
                 let saved = game.to_json().expect("cross-act save");
@@ -316,5 +340,5 @@ fn natural_cao_cao_wuchao_raid_changes_a_later_battle_once() {
         }
         attempts.push(format!("seed {seed}: floor {} {:?}, planned={planned}", game.floor, game.stage));
     }
-    panic!("no natural Cao Cao Wuchao council -> act-III battle: {}", attempts.join(" | "));
+    panic!("no natural Cao Cao Wuchao choice {choice} -> act-III battle: {}", attempts.join(" | "));
 }
