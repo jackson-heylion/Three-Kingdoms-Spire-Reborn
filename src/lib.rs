@@ -766,8 +766,10 @@ impl Game {
             }
         }
         // Pay off the optional act-II Wuchao decision only when a later battle
-        // actually begins. This is a one-shot state transition, not a HUD bonus.
-        if self.difficulty.is_some() && self.floor >= 17 {
+        // actually begins in act III (floors 17–24). Never defer a missed
+        // act-III opportunity into a historically unrelated later act.
+        // This is a one-shot state transition, not a HUD bonus.
+        if self.difficulty.is_some() && (17..=24).contains(&self.floor) {
             let resolved = match self.wuchao_plan {
                 Some(WuchaoPlan::RaidPending) => {
                     if let Some(battle) = self.battle.as_mut() {
