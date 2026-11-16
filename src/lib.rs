@@ -1346,7 +1346,8 @@ impl Game {
         let convoy_note = if let Some(hp) = convoy_hp {
             let bonus = i32::from(hp) * 2; // Never more than 24, once per victory.
             self.gold += bonus;
-            format!("保住粮车{hp}/12，额外获得{bonus}金，")
+            format!("保住{}{hp}/12，额外获得{bonus}金，",
+                if self.floor == 26 && self.hero == Hero::ZhugeLiang { "水源" } else { "粮车" })
         } else {
             String::new()
         };
@@ -2191,15 +2192,18 @@ impl Game {
             }
             self.combat_event(EventKind::EnemyTechnique, "convoy_raided",
                 i32::from(actual), Some("convoy".into()));
-            messages.push(format!("粮车遭劫{actual}体力，剩余{}体力", hp - actual));
+            messages.push(format!("{}遭劫{actual}点，剩余{}点",
+                if self.floor == 26 && self.hero == Hero::ZhugeLiang { "水源" } else { "粮车" }, hp - actual));
             if actual == hp {
                 self.record_metric(|c| c.battles_lost = c.battles_lost.saturating_add(1));
                 self.capture_turn_metrics(true);
                 self.combat_event(EventKind::BattleEnded, "defeat", 0, None);
                 self.stage = Stage::Lost;
                 self.battle = None;
-                return Ok(format!("{}。粮道保卫失败，粮车被毁，征途结束。",
-                    messages.join("；")));
+                return Ok(format!("{}。{}，征途结束。", messages.join("；"),
+                    if self.floor == 26 && self.hero == Hero::ZhugeLiang {
+                        "街亭水源保卫失败，水源耗尽"
+                    } else { "粮道保卫失败，粮车被毁" }));
             }
         }
         // A siege is won by breaching the gate, not merely clearing defenders.
