@@ -1,7 +1,7 @@
 //! Natural fifth-act full-victory acceptance. All four earlier bosses must be won to reach floor 40. No checkpoint injection or fabricated battle state.
 //! This is intentionally strict: defeats at earlier bosses cannot count as fifth-act progress.
 use three_kingdoms_spire_reborn::{
-    Action, Difficulty, Game, Node, Stage, WuchaoPlan, content::{Effect, Hero, card_spec}, progression::Profile,
+    Action, ChibiPlan, Difficulty, Game, Node, Stage, WuchaoPlan, content::{Effect, Hero, card_spec}, progression::Profile,
 };
 
 fn fight(game: &mut Game) -> Result<(), String> {
@@ -341,4 +341,111 @@ fn verify_natural_wuchao_choice(choice: usize) {
         attempts.push(format!("seed {seed}: floor {} {:?}, planned={planned}", game.floor, game.stage));
     }
     panic!("no natural Cao Cao Wuchao choice {choice} -> act-III battle: {}", attempts.join(" | "));
+}
+
+
+// Red Cliffs must be entered by a real third-act Story choice, then alter an
+// actual battle and retain its fourth-act obligation. A stored plan alone is
+// not evidence that the player could ever reach the decision.
+#[test]
+fn natural_chibi_east_wind_three_choices_replay_through_fourth_act() {
+    for choice in [1, 2, 3] {
+        let mut attempts = Vec::new();
+        let mut completed = false;
+        // A bounded, fixed regression cohort, not a hidden-state seed injector.
+        for seed in 247_510..247_526 {
+            let mut game = Game::new_with_campaign_difficulty(
+                Hero::SunShangxiang, seed, Difficulty::Warlords,
+                format!("chibi-{choice}-{seed}"),
+            );
+            game.apply(Action::Choose { index: 1 }).expect("natural opening");
+            let mut planned = false;
+            let mut battle_paid = false;
+            let mut error = None;
+            for _ in 0..900 {
+                if !planned && game.stage == Stage::Story
+                    && (17..=24).contains(&game.floor)
+                    && game.lore_hint().contains("4. 议定赤壁东风")
+                    && (choice != 1 || game.gold >= 20)
+                    && (choice != 2 || game.hp > 8)
+                {
+                    game.apply(Action::Choose { index: 4 }).expect("open Red Cliffs council");
+                    assert_eq!(game.chibi_plan, Some(ChibiPlan::Council));
+                    let before_bad_choice = game.to_json().unwrap();
+                    assert!(game.apply(Action::Choose { index: 99 }).is_err());
+                    assert_eq!(game.to_json().unwrap(), before_bad_choice);
+                    let gold = game.gold;
+                    let hp = game.hp;
+                    game.apply(Action::Choose { index: choice }).expect("select Red Cliffs tactic");
+                    assert_eq!(game.gold, gold - if choice == 1 { 20 } else { 0 });
+                    assert_eq!(game.hp, hp - if choice == 2 { 8 } else { 0 });
+                    assert_eq!(game.chibi_plan, Some(match choice {
+                        1 => ChibiPlan::FirePending,
+                        2 => ChibiPlan::FleetPending,
+                        _ => ChibiPlan::DeclinePending,
+                    }));
+                    planned = true;
+                } else if planned && !battle_paid && game.stage == Stage::Combat
+                    && (17..=24).contains(&game.floor)
+                {
+                    assert_eq!(game.chibi_plan, Some(match choice {
+                        1 => ChibiPlan::FireBattleResolved,
+                        2 => ChibiPlan::FleetBattleResolved,
+                        _ => ChibiPlan::DeclineBattleResolved,
+                    }));
+                    let battle = game.battle.as_ref().unwrap();
+                    match choice {
+                        1 => {
+                            assert!(battle.foes[0].hp < battle.foes[0].max_hp);
+                            assert!(battle.foes[0].vulnerable >= 2);
+                            assert!(battle.wildfire >= 1);
+                        }
+                        2 => {
+                            assert!(battle.block >= 12);
+                            assert!(battle.foes[0].weak >= 1);
+                        }
+                        _ => assert!(battle.foes[0].block >= 12),
+                    }
+                    game.audit_campaign_authority().expect("Chibi battle authority");
+                    game.verify_action_replay().expect("Chibi battle action replay");
+                    battle_paid = true;
+                } else if battle_paid && game.stage == Stage::Combat
+                    && (25..=32).contains(&game.floor)
+                {
+                    assert_eq!(game.chibi_plan, Some(match choice {
+                        1 => ChibiPlan::FireSettled,
+                        2 => ChibiPlan::FleetSettled,
+                        _ => ChibiPlan::DeclineSettled,
+                    }));
+                    let battle = game.battle.as_ref().unwrap();
+                    match choice {
+                        1 => {}
+                        2 => assert!(battle.block >= 6),
+                        _ => assert!(battle.foes[0].strength >= 1),
+                    }
+                    game.audit_campaign_authority().expect("Chibi aftermath authority");
+                    game.verify_action_replay().expect("Chibi aftermath action replay");
+                    let snapshot = game.to_json().expect("Chibi fourth-act save");
+                    let restored = Game::from_json(&snapshot).expect("Chibi fourth-act restore");
+                    assert_eq!(restored.to_json().unwrap(), snapshot);
+                    restored.verify_action_replay().expect("restored Chibi action replay");
+                    completed = true;
+                    break;
+                } else if matches!(game.stage, Stage::Won | Stage::Lost) {
+                    break;
+                } else if let Err(e) = advance(&mut game) {
+                    error = Some(e);
+                    break;
+                }
+            }
+            if completed { break; }
+            attempts.push(format!(
+                "seed {seed}: floor {} stage {:?}, planned={planned}, battle_paid={battle_paid}, error={error:?}",
+                game.floor, game.stage
+            ));
+        }
+        assert!(completed,
+            "no natural Red Cliffs choice {choice} reached third-/fourth-act battle: {}",
+            attempts.join(" | "));
+    }
 }
