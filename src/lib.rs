@@ -2190,8 +2190,11 @@ impl Game {
                 b.convoy_hp = Some(hp - actual);
                 b.convoy_cover = Some(0);
             }
-            self.combat_event(EventKind::EnemyTechnique, "convoy_raided",
-                i32::from(actual), Some("convoy".into()));
+            let water_objective = self.difficulty.is_some() && self.floor == 26
+                && self.hero == Hero::ZhugeLiang;
+            self.combat_event(EventKind::EnemyTechnique,
+                if water_objective { "water_raided" } else { "convoy_raided" },
+                i32::from(actual), Some(if water_objective { "water" } else { "convoy" }.into()));
             messages.push(if self.floor == 26 && self.hero == Hero::ZhugeLiang {
                 format!("水源遭劫{actual}点，剩余{}点", hp - actual)
             } else {
