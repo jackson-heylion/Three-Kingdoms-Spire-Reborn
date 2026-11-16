@@ -1,7 +1,7 @@
 //! Optional full-keyboard terminal menu for macOS/Linux without platform crates.
 //! Raw mode is scoped by RAII, and the existing plain line CLI remains supported.
 use super::{App, Stage, Card, card_label, card_spec, hud, potion_name};
-use three_kingdoms_spire_reborn::{ChibiPlan, WuchaoPlan, challenges::ChallengeModifier, content::Effect};
+use three_kingdoms_spire_reborn::{ChibiPlan, WuchaoPlan, JietingPlan, challenges::ChallengeModifier, content::Effect};
 use unicode_width::UnicodeWidthChar;
 #[cfg(test)] use unicode_width::UnicodeWidthStr;
 use std::{fs::File,io::{self, Read, Write, IsTerminal},process::{Command,Stdio}};
@@ -96,7 +96,13 @@ pub(super) fn choices(app:&App,target:usize)->Vec<(String,String)> {
             offers
         }
         Stage::Story=>{
-            let mut options = if game.chibi_plan == Some(ChibiPlan::Council) {
+            let mut options = if game.jieting_plan == Some(JietingPlan::Council) {
+                vec![
+                    ("扼守水源 · 耗20金 / 第四幕护甲+14、第五幕护甲+8".into(), "choose 1".into()),
+                    ("上山据险 · 耗8体力 / 当前敌军武勇+1、第五幕损至多12金".into(), "choose 2".into()),
+                    ("及时撤退 · 第四幕敌获盾、第五幕恢复至多8体力".into(), "choose 3".into()),
+                ]
+            } else if game.chibi_plan == Some(ChibiPlan::Council) {
                 vec![
                     ("借东风火攻 · 耗20金 / 敌受创、我方须扑火；第四幕有后勤债务".into(), "choose 1".into()),
                     ("稳守水军 · 耗8体力 / 第三幕获盾、第四幕留存舰队".into(), "choose 2".into()),
