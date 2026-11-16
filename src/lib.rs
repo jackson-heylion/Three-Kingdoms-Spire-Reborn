@@ -717,6 +717,16 @@ impl Game {
             siege_gate_hp: (self.difficulty.is_some() && self.floor == 4 && node == Node::Battle).then_some(12),
             turn: 1,
         });
+        // Strength is part of the generated first-turn enemy intent. Apply
+        // the act-IV strategic setback BEFORE rolling, never after preview.
+        if self.difficulty.is_some()
+            && (25..=32).contains(&self.floor)
+            && self.chibi_plan == Some(ChibiPlan::DeclineBattleResolved)
+        {
+            if let Some(front) = self.battle.as_mut().and_then(|b| b.foes.first_mut()) {
+                front.strength += 1;
+            }
+        }
         self.roll_intents();
         let extra_draw = usize::from(self.relics.iter().any(|r| r == "虎翼"));
         let boon_draw = usize::from(self.boons.iter().any(|b| b == "strategist")) * 2;
@@ -850,9 +860,6 @@ impl Game {
                     Some(ChibiPlan::FleetSettled)
                 }
                 (25..=32, Some(ChibiPlan::DeclineBattleResolved)) => {
-                    if let Some(front) = self.battle.as_mut().and_then(|b| b.foes.first_mut()) {
-                        front.strength += 1;
-                    }
                     Some(ChibiPlan::DeclineSettled)
                 }
                 _ => None,
