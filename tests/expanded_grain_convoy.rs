@@ -300,3 +300,28 @@ fn natural_convoy_victory_requires_real_attacks_and_survives_replay() {
     }
     panic!("no unmodified natural convoy victory found in 200 Lu Bu seeds with starter attacks");
 }
+
+#[test]
+fn jieting_checkpoint_reports_water_not_grain_in_real_turn_outcome() {
+    // Controlled floor-26 entry: this tests battle settlement language only,
+    // not natural 1->26 reachability or the three historical choices.
+    let mut game = Game::new_with_campaign_difficulty(
+        Hero::ZhugeLiang, 247_526, Difficulty::Warlords, "jieting-water-outcome".into(),
+    );
+    game.floor = 25;
+    game.act_map = Some(map::ActMap::generate_expanded(|_| 0, 0));
+    game.map_lane = None;
+    game.route = vec![Node::Battle];
+    game.route_lanes = vec![0];
+    game.apply(Action::Choose { index: 1 }).expect("enter water battle via Action");
+    assert_eq!(game.floor, 26);
+    assert_eq!(game.battle.as_ref().unwrap().convoy_hp, Some(12));
+    assert!(game.tactical_objective().unwrap().contains("街亭水源"));
+    // Only the loss threshold is controlled. All actual raid/defeat transitions
+    // must still pass through Game::apply(Action::EndTurn).
+    game.battle.as_mut().unwrap().convoy_hp = Some(4);
+    let result = game.apply(Action::EndTurn).expect("resolve water raid");
+    assert_eq!(game.stage, Stage::Lost);
+    assert!(result.contains("水源遭劫") && result.contains("街亭水源保卫失败"), "{result}");
+    assert!(!result.contains("粮车") && !result.contains("粮道保卫"), "{result}");
+}
