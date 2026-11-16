@@ -99,7 +99,8 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
 
     let mut combat = false;
     if let Some(g) = &app.game {
-        let act = (g.floor.saturating_sub(1) / 7 + 1).min(3);
+        let act = (g.floor.saturating_sub(1) / g.campaign_rows() + 1)
+            .min(g.campaign_max_floor() / g.campaign_rows());
         let hp_tone = if g.hp * 4 <= g.max_hp { Tone::Danger }
             else if g.hp * 2 <= g.max_hp { Tone::Warning } else { Tone::Good };
         if columns < 48 {
