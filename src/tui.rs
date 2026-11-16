@@ -95,11 +95,17 @@ pub(super) fn choices(app:&App,target:usize)->Vec<(String,String)> {
             ]);
             offers
         }
-        Stage::Story=>vec![
-            ("选择奇遇结果1".into(),"choose 1".into()),
-            ("选择奇遇结果2".into(),"choose 2".into()),
-            ("选择奇遇结果3".into(),"choose 3".into()),
-        ],
+        Stage::Story=>{
+            let mut options = vec![
+                ("选择奇遇结果1".into(), "choose 1".into()),
+                ("选择奇遇结果2".into(), "choose 2".into()),
+                ("选择奇遇结果3".into(), "choose 3".into()),
+            ];
+            if let Some(label) = game.story_fourth_option() {
+                options.push((label.into(), "choose 4".into()));
+            }
+            options
+        },
         Stage::Ancient=>game.boon_choices.iter().enumerate()
             .map(|(idx,id)|(format!("先贤赐福：{}",three_kingdoms_spire_reborn::items::boon_name(id)),
                 format!("choose {}",idx+1))).collect(),

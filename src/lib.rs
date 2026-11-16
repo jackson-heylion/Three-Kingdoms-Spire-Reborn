@@ -2306,6 +2306,20 @@ impl Game {
             && self.wuchao_plan.is_none()
     }
 
+    /// One typed source of truth for the optional fourth Story choice in both
+    /// plain CLI and keyboard TUI. Council subchoices are already options 1–3.
+    pub fn story_fourth_option(&self) -> Option<&'static str> {
+        if self.optional_responsibility_successor().is_some() {
+            Some("保留责任并继续核审")
+        } else if self.can_open_yizhou_archive() {
+            Some("改查西川责任案卷")
+        } else if self.can_open_wuchao_council() {
+            Some("召开乌巢军议")
+        } else {
+            None
+        }
+    }
+
     fn can_open_yizhou_archive(&self) -> bool {
         self.stage == Stage::Story && self.hero == Hero::ZhugeLiang
             && self.lore_flags.iter().any(|flag| flag == "leiyang_case_record")
