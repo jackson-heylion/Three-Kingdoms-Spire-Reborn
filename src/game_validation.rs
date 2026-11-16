@@ -94,6 +94,15 @@ impl Game {
         {
             return Err("赤壁水陆军议只能在新制第三幕奇遇中决策".into());
         }
+        if self.jieting_plan.is_some() && self.difficulty.is_none() {
+            return Err("旧制战役不能携带街亭军议状态".into());
+        }
+        if self.jieting_plan == Some(JietingPlan::Council)
+            && (self.stage != Stage::Story || self.hero != Hero::ZhugeLiang
+                || !(25..=32).contains(&self.floor))
+        {
+            return Err("街亭军议只能在新制第四幕诸葛亮奇遇中决策".into());
+        }
         for boon in self.boons.iter().chain(self.boon_choices.iter()) {
             if !items::BOONS.iter().any(|(id,_)| id == boon) { return Err(format!("未知赐福: {boon}")); }
         }
