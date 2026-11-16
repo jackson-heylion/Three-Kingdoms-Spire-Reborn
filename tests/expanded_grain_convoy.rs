@@ -320,7 +320,7 @@ fn jieting_checkpoint_reports_water_not_grain_in_real_turn_outcome() {
     // Only the loss threshold is controlled. All actual raid/defeat transitions
     // must still pass through Game::apply(Action::EndTurn).
     game.battle.as_mut().unwrap().convoy_hp = Some(4);
-    let result = game.apply(Action::EndTurn).expect("resolve water raid");
+    let result = game.apply(Action::EndTurn).expect("resolve water raid").join("；");
     assert_eq!(game.stage, Stage::Lost);
     assert!(result.contains("水源遭劫") && result.contains("街亭水源保卫失败"), "{result}");
     assert!(!result.contains("粮车") && !result.contains("粮道保卫"), "{result}");
