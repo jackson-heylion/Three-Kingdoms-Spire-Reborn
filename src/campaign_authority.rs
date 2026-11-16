@@ -107,7 +107,9 @@ impl CampaignState {
                     && (plan != ChibiPlan::Council || self.stage == Stage::Story)
             })
             && self.jieting_plan.is_none_or(|plan| {
-                self.identity.as_ref().is_some_and(|identity| identity.difficulty.is_some())
+                self.identity.as_ref().is_some_and(|identity| identity.difficulty.is_some()
+                    && identity.hero == Hero::ZhugeLiang)
+                    && self.floor >= 25
                     && (plan != JietingPlan::Council || self.stage == Stage::Story)
             })
             && self.potions <= 3 && self.potion_bag.len() == usize::from(self.potions)
