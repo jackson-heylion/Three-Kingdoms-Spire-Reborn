@@ -158,6 +158,12 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
                 line(&mut out, app, &format!("反击 {} ·可中断后续战技", b.thorns),
                     columns, Tone::Warning);
             }
+            if b.wildfire > 0 {
+                line(&mut out, app,
+                    &format!("焚营火势 {}层 ·回合末无视护甲损失最多{}生命 ·防御牌可扑灭",
+                        b.wildfire, u32::from(b.wildfire) * 2),
+                    columns, Tone::Danger);
+            }
             if b.turn >= 35 {
                 let warning = if b.turn < 40 { format!("军粮告急 · 距损耗{}回合", 40 - b.turn) }
                 else { format!("军粮枯竭 · 回合末损失{}生命", 1 + (b.turn - 40) / 4) };
