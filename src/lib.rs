@@ -2468,12 +2468,14 @@ impl Game {
             return Ok(message.into());
         }
         if index == 4 {
+            // Keep action dispatch in the same priority order as
+            // story_fourth_option() and lore_hint().
+            if self.optional_responsibility_successor().is_some() {
+                return self.choose_lore(index);
+            }
             if self.can_open_wuchao_council() {
                 self.wuchao_plan = Some(WuchaoPlan::Council);
                 return Ok("乌巢战术军议开启：请独立选择1夜袭、2固守或3不介入。".into());
-            }
-            if self.optional_responsibility_successor().is_some() {
-                return self.choose_lore(index);
             }
             if !self.can_open_yizhou_archive() {
                 return Err("当前没有可选的西川责任案卷".into());
