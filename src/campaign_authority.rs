@@ -110,7 +110,8 @@ impl CampaignState {
                 self.identity.as_ref().is_some_and(|identity| identity.difficulty.is_some()
                     && identity.hero == Hero::ZhugeLiang)
                     && self.floor >= 25
-                    && (plan != JietingPlan::Council || self.stage == Stage::Story)
+                    && (plan != JietingPlan::Council
+                        || (self.stage == Stage::Story && (25..=32).contains(&self.floor)))
             })
             && self.potions <= 3 && self.potion_bag.len() == usize::from(self.potions)
             && self.rewards.iter().chain(&self.market).all(|card| !card.temporary)
