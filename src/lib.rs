@@ -371,7 +371,10 @@ impl Game {
         if self.stage != Stage::Map || self.difficulty.is_none() || node != Node::Battle {
             return None;
         }
+        // The map cursor is the last completed floor; a route enters floor + 1.
+        // Keep forecasts aligned with authoritative combat objectives.
         match self.floor {
+            0 => Some("突围：下一层须在第4回合结束前击退全部围军，否则战败"),
             1 => Some("粮道保卫：下一层护送粮车；存活敌军每回合劫粮，防御牌可护粮"),
             2 => Some("伏击：下一层敌军前锋以8点护甲设伏；破甲后击退敌军可获16金反制赏金"),
             3 => Some("攻城：下一层须在第5回合前以 assault 指令消耗2军令攻城，每次削减4点城门耐久；城门破即获胜"),
