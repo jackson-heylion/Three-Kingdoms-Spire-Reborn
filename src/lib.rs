@@ -390,6 +390,7 @@ impl Game {
             1 => Some("粮道保卫：下一层护送粮车；存活敌军每回合劫粮，防御牌可护粮"),
             2 => Some("伏击：下一层敌军前锋以8点护甲设伏；破甲后击退敌军可获16金反制赏金"),
             3 => Some("攻城：下一层须在第5回合前以 assault 指令消耗2军令攻城，每次削减4点城门耐久；城门破即获胜"),
+            25 if self.hero == Hero::ZhugeLiang => Some("街亭水源：下一层守住水源；敌军每回合劫水，防御牌可掩护水源，水源耗尽立即战败"),
             _ => None,
         }
     }
@@ -410,8 +411,9 @@ impl Game {
             } else {
                 ""
             };
+            let objective = if self.floor == 26 { "街亭水源" } else { "粮道保卫" };
             return Some(format!(
-                "粮道保卫：粮车剩余{hp}/12体力；每名存活敌军在回合末劫粮4点，打出防御牌每张可护粮2点（本回合已护{cover}点，上限8点）；本回合预计劫粮{raid}点。{lethal_warning}粮车耗尽立即战败，击退所有敌人即可保住粮道。"
+                "{objective}：补给剩余{hp}/12体力；每名存活敌军在回合末劫粮4点，打出防御牌每张可护粮2点（本回合已护{cover}点，上限8点）；本回合预计劫粮{raid}点。{lethal_warning}补给耗尽立即战败，击退所有敌人即可守住补给线。"
             ));
         }
         if self.difficulty.is_some() && self.floor == 3
@@ -708,10 +710,10 @@ impl Game {
             combo: 0, command: 0, fury: 0, thorns: 0, played: 0,
             played_this_turn: 0, last_turn_cards: 0, next_turn_energy_penalty: 0,
             wildfire: 0,
-            convoy_hp: (self.difficulty.is_some() && self.floor == 2
-                && node == Node::Battle).then_some(12),
-            convoy_cover: (self.difficulty.is_some() && self.floor == 2
-                && node == Node::Battle).then_some(0),
+            convoy_hp: (self.difficulty.is_some() && node == Node::Battle
+                && (self.floor == 2 || (self.floor == 26 && self.hero == Hero::ZhugeLiang))).then_some(12),
+            convoy_cover: (self.difficulty.is_some() && node == Node::Battle
+                && (self.floor == 2 || (self.floor == 26 && self.hero == Hero::ZhugeLiang))).then_some(0),
             troops_hp: if self.hero == Hero::CaoCao { 12 } else { 0 },
             troops_attack: if self.hero == Hero::CaoCao { 2 } else { 0 },
             discard_tokens: 0,
