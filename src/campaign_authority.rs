@@ -1,7 +1,7 @@
 //! Action-boundary authority for noncombat campaign state. No action replay.
 //! Each successful revision is recorded; unchanged revisions carry no snapshot.
 //! This covers map, route, narrative and inventory, but not full Game sourcing.
-use crate::{Game, Stage, Node, Card, RunMode, MAX_FLOOR, EXPANDED_MAX_FLOOR, map, archetypes, challenges, difficulty::Difficulty, content::Hero};
+use crate::{Game, Stage, Node, Card, WuchaoPlan, RunMode, MAX_FLOOR, EXPANDED_MAX_FLOOR, map, archetypes, challenges, difficulty::Difficulty, content::Hero};
 use serde::{Deserialize, Serialize};
 
 /// Immutable rules identity anchored at revision zero, independently of the
@@ -43,6 +43,8 @@ pub struct CampaignState {
     pub lore_flags: Vec<String>,
     pub lore_seen: Vec<String>,
     pub lore_current: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wuchao_plan: Option<WuchaoPlan>,
     pub easter_unlocked: Vec<String>,
     pub event_id: u8,
     pub victories: u32,
@@ -68,6 +70,7 @@ impl CampaignState {
             boon_choices: game.boon_choices.clone(), rewards: game.rewards.clone(),
             market: game.market.clone(), lore_flags: game.lore_flags.clone(),
             lore_seen: game.lore_seen.clone(), lore_current: game.lore_current.clone(),
+            wuchao_plan: game.wuchao_plan,
             easter_unlocked: game.easter_unlocked.clone(), event_id: game.event_id,
             victories: game.victories, variants: game.variants,
             doctrine: game.doctrine, modifiers: game.modifiers.clone(),
@@ -90,6 +93,10 @@ impl CampaignState {
             && self.act_map.as_ref().is_none_or(map::ActMap::is_valid)
             && (self.stage != Stage::Combat || self.floor > 0)
             && (self.lore_current.is_none() || self.stage == Stage::Story)
+            && self.wuchao_plan.is_none_or(|plan| {
+                self.identity.as_ref().is_some_and(|identity| identity.difficulty.is_some())
+                    && (plan != WuchaoPlan::Council || self.stage == Stage::Story)
+            })
             && self.potions <= 3 && self.potion_bag.len() == usize::from(self.potions)
             && self.rewards.iter().chain(&self.market).all(|card| !card.temporary)
     }

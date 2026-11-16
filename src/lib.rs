@@ -77,6 +77,20 @@ impl Card {
 #[serde(rename_all = "snake_case")]
 pub enum Stage { Map, Combat, Reward, Camp, Market, Story, Ancient, Won, Lost }
 
+/// Optional Wuchao war council for opt-in 40-floor campaigns only.
+/// A pending plan is paid for during act II and settles on the first act-III battle.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WuchaoPlan {
+    Council,
+    RaidPending,
+    FortifyPending,
+    DeclinePending,
+    RaidResolved,
+    FortifyResolved,
+    DeclineResolved,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Node { Battle, Elite, Camp, Market, Story, Boss }
@@ -321,6 +335,8 @@ pub struct Game {
     #[serde(default)] pub lore_flags: Vec<String>,
     #[serde(default)] pub lore_seen: Vec<String>,
     #[serde(default)] pub lore_current: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wuchao_plan: Option<WuchaoPlan>,
     #[serde(default)] pub easter_unlocked: Vec<String>,
 }
 
@@ -749,6 +765,38 @@ impl Game {
                 b.strength += 1;
             }
         }
+        // Pay off the optional act-II Wuchao decision only when a later battle
+        // actually begins. This is a one-shot state transition, not a HUD bonus.
+        if self.difficulty.is_some() && self.floor >= 17 {
+            let resolved = match self.wuchao_plan {
+                Some(WuchaoPlan::RaidPending) => {
+                    if let Some(battle) = self.battle.as_mut() {
+                        if let Some(front) = battle.foes.first_mut() {
+                            front.hp = (front.hp - 10).max(1);
+                            front.block = 0;
+                        }
+                        battle.vulnerable = 1;
+                    }
+                    Some(WuchaoPlan::RaidResolved)
+                }
+                Some(WuchaoPlan::FortifyPending) => {
+                    if let Some(battle) = self.battle.as_mut() {
+                        battle.block += 12;
+                    }
+                    Some(WuchaoPlan::FortifyResolved)
+                }
+                Some(WuchaoPlan::DeclinePending) => {
+                    if let Some(front) = self.battle.as_mut().and_then(|b| b.foes.first_mut()) {
+                        front.block += 12;
+                    }
+                    Some(WuchaoPlan::DeclineResolved)
+                }
+                _ => None,
+            };
+            if let Some(plan) = resolved {
+                self.wuchao_plan = Some(plan);
+            }
+        }
         self.stage = Stage::Combat;
     }
     fn finish_scene(&mut self) {
@@ -786,7 +834,23 @@ impl Game {
             map::Terrain::Road|map::Terrain::Closed => {}
         }
         match node {
-            Node::Battle | Node::Elite | Node::Boss => self.start_battle(node),
+            Node::Battle | Node::Elite | Node::Boss => {
+                let awaiting_wuchao = matches!(
+                    self.wuchao_plan,
+                    Some(WuchaoPlan::RaidPending | WuchaoPlan::FortifyPending | WuchaoPlan::DeclinePending)
+                );
+                self.start_battle(node);
+                if awaiting_wuchao {
+                    let explanation = match self.wuchao_plan {
+                        Some(WuchaoPlan::RaidResolved) => "；乌巢夜袭兑现：敌前锋受损且失甲，己方暴露易伤1",
+                        Some(WuchaoPlan::FortifyResolved) => "；乌巢守粮兑现：本战额外获得12护甲",
+                        Some(WuchaoPlan::DeclineResolved) => "；乌巢未备军粮：敌前锋获得12护甲",
+                        _ => "",
+                    };
+                    msg.push_str(explanation);
+                }
+            }
+
             Node::Camp => self.stage = Stage::Camp,
             Node::Market => {
                 self.market = self.pick_reward_cards();
@@ -2232,6 +2296,16 @@ impl Game {
     // Optional, player-initiated alternative at a *real* third-act Story node.
     // Never replace the default scene: existing V1/V2 action replays must retain
     // their historical choice sequence, including Jiang Wei and Wuzhang.
+    /// An optional act-II Story-node branch, with three different downstream
+    /// tactics. It cannot replace literary decisions or appear in legacy runs.
+    fn can_open_wuchao_council(&self) -> bool {
+        self.difficulty.is_some()
+            && self.hero == Hero::CaoCao
+            && self.stage == Stage::Story
+            && (self.floor.saturating_sub(1) / self.campaign_rows()) == 1
+            && self.wuchao_plan.is_none()
+    }
+
     fn can_open_yizhou_archive(&self) -> bool {
         self.stage == Stage::Story && self.hero == Hero::ZhugeLiang
             && self.lore_flags.iter().any(|flag| flag == "leiyang_case_record")
@@ -2275,17 +2349,26 @@ impl Game {
         Some(next)
     }
     pub fn lore_hint(&self) -> String {
+        if self.wuchao_plan == Some(WuchaoPlan::Council) {
+            return "【官渡乌巢·战术军议】以第030回小说中的袭粮之议为背景；以下均为游戏架空抉择，不改史实。\n  1. 夜袭粮仓：耗20金；下一幕首战前锋失10体力及全部护甲，我军暴露易伤1\n  2. 固守粮道：耗8体力；下一幕首战获得12护甲\n  3. 不介入：保留当前资源，但下一幕首战敌前锋增加12护甲".into();
+        }
         if let Some(id) = &self.lore_current
             && let Some(b) = lore::beat(id) {
             let alternative = if self.optional_responsibility_successor().is_some() {
                 "\n  4. 保留本卷责任并接续核审下一卷（放弃本卷即时奖励，下一卷仍须独立选择）"
             } else if self.can_open_yizhou_archive() {
                 "\n  4. 改查西川图责任案卷（先换卷，再独立选择1/2/3）"
+            } else if self.can_open_wuchao_council() {
+                "\n  4. 召开乌巢军议（转入有代价的三选一，原事件不领取奖励）"
             } else { "" };
             return format!("【演义残卷·第{}回】{}——{}：{}\n  1. {}（结缘并记下因果）\n  2. {}（获得金银，错过羁绊）\n  3. 不介入{}",
                 b.chapter,b.title,b.character,b.premise,b.vow,b.bargain,alternative);
         }
-        self.story_options().to_string()
+        let mut hint = self.story_options().to_string();
+        if self.can_open_wuchao_council() {
+            hint.push_str("\n  4. 召开乌巢军议（转入有代价的三选一）");
+        }
+        hint
     }
     fn choose_lore(&mut self, index: usize) -> Result<String, String> {
         let continuation = if index == 4 { self.optional_responsibility_successor() } else { None };
@@ -2351,7 +2434,30 @@ impl Game {
         Ok(result)
     }
     fn choose_story(&mut self, index: usize) -> Result<String, String> {
+        if self.wuchao_plan == Some(WuchaoPlan::Council) {
+            let (plan, message) = match index {
+                1 if self.gold >= 20 => {
+                    self.gold -= 20;
+                    (WuchaoPlan::RaidPending, "乌巢夜袭：已投入20金，第三幕首战将先破敌阵；己军亦将暴露易伤1。")
+                }
+                1 => return Err("夜袭乌巢需要20金".into()),
+                2 if self.hp > 8 => {
+                    self.hp -= 8;
+                    (WuchaoPlan::FortifyPending, "乌巢守粮：已耗8体力，第三幕首战将获得12护甲。")
+                }
+                2 => return Err("守粮至少需要剩余9体力".into()),
+                3 => (WuchaoPlan::DeclinePending, "放弃乌巢军议：保留眼前军资，但第三幕首战敌前锋将增加12护甲。"),
+                _ => return Err("乌巢军议请选1、2或3".into()),
+            };
+            self.wuchao_plan = Some(plan);
+            self.finish_scene();
+            return Ok(message.into());
+        }
         if index == 4 {
+            if self.can_open_wuchao_council() {
+                self.wuchao_plan = Some(WuchaoPlan::Council);
+                return Ok("乌巢战术军议开启：请独立选择1夜袭、2固守或3不介入。".into());
+            }
             if self.optional_responsibility_successor().is_some() {
                 return self.choose_lore(index);
             }

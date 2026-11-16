@@ -75,6 +75,15 @@ impl Game {
         if self.lore_current.is_some() && self.stage != Stage::Story {
             return Err("仅奇遇场景可拥有当前演义剧情".into());
         }
+        if self.wuchao_plan.is_some() && self.difficulty.is_none() {
+            return Err("旧制战役不能携带乌巢军议状态".into());
+        }
+        if self.wuchao_plan == Some(crate::WuchaoPlan::Council)
+            && (self.stage != Stage::Story || self.hero != Hero::CaoCao
+                || !(9..=16).contains(&self.floor))
+        {
+            return Err("乌巢军议只能在新制第二幕奇遇中决策".into());
+        }
         for boon in self.boons.iter().chain(self.boon_choices.iter()) {
             if !items::BOONS.iter().any(|(id,_)| id == boon) { return Err(format!("未知赐福: {boon}")); }
         }

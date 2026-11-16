@@ -70,7 +70,7 @@ impl Game {
             mode: RunMode::Standard, run_id: String::new(), profile_start_receipt: false,
             act_map: None, map_lane: None, route_lanes: Vec::new(),
             lore_flags: vec![], lore_seen: vec![], lore_current: None,
-            easter_unlocked: Vec::new(),
+            wuchao_plan: None, easter_unlocked: Vec::new(),
         };
         game.refresh_route();
         // Map generation consumes RNG before revision zero is committed.
