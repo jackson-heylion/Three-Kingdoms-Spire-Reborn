@@ -350,3 +350,25 @@ fn jieting_council_remains_available_when_literary_fourth_choice_is_occupied() {
     assert_eq!(game.jieting_plan, Some(JietingPlan::RetreatPending));
     assert_eq!(game.stage, Stage::Map);
 }
+
+#[test]
+fn chibi_council_remains_available_when_literary_fourth_choice_is_occupied() {
+    // Controlled act-III Story checkpoint, NOT natural 1->17 reachability.
+    let mut game = Game::new_with_campaign_difficulty(
+        Hero::ZhugeLiang, 247_517, Difficulty::Warlords, "chibi-fifth-choice".into(),
+    );
+    game.floor = 17;
+    game.stage = Stage::Story;
+    game.lore_current = Some("fu_pass_review".into());
+    game.lore_flags.push("leiyang_case_record".into());
+    game.lore_flags.push("yizhou_map_record".into());
+    assert_eq!(game.story_fourth_option(), Some("保留责任并继续核审"));
+    assert_eq!(game.story_fifth_option(), Some("议定赤壁东风与水军部署"));
+    assert!(game.lore_hint().contains("5. 议定赤壁"));
+    game.apply(Action::Choose { index: 5 }).expect("open Chibi council");
+    assert!(game.lore_hint().contains("赤壁东风"));
+    assert!(game.story_fourth_option().is_none());
+    assert!(game.story_fifth_option().is_none());
+    game.apply(Action::Choose { index: 3 }).expect("decline through authoritative action");
+    assert_eq!(game.stage, Stage::Map);
+}

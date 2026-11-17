@@ -2521,14 +2521,15 @@ impl Game {
         }
     }
 
-    /// When a naturally reached Story node also offers a responsibility archive,
-    /// keep that fourth choice intact while allowing the independent Jieting council.
-    /// Only act-IV Zhuge Liang can expose this fifth option.
+    /// Preserve an existing literary fourth choice while exposing an independent
+    /// historical council in the fifth slot. Council subchoices only use 1–3.
     pub fn story_fifth_option(&self) -> Option<&'static str> {
-        if self.can_open_jieting_council()
-            && (self.optional_responsibility_successor().is_some()
-                || self.can_open_yizhou_archive())
-        {
+        let literary_fourth = self.optional_responsibility_successor().is_some()
+            || self.can_open_yizhou_archive();
+        if !literary_fourth { return None; }
+        if self.can_open_chibi_council() {
+            Some("议定赤壁东风与水军部署")
+        } else if self.can_open_jieting_council() {
             Some("召开街亭供水与退路军议")
         } else {
             None
@@ -2604,9 +2605,10 @@ impl Game {
             } else if self.can_open_jieting_council() {
                 "\n  4. 召开街亭供水与退路军议（独立三选一，放弃本卷即时奖励）"
             } else { "" };
-            let fifth = if self.story_fifth_option().is_some() {
-                "\n  5. 召开街亭供水与退路军议（保留第4项历史责任选择）"
-            } else { "" };
+            let fifth = match self.story_fifth_option() {
+                Some(label) => format!("\n  5. {label}（保留第4项历史责任选择）"),
+                None => String::new(),
+            };
             return format!("【演义残卷·第{}回】{}——{}：{}\n  1. {}（结缘并记下因果）\n  2. {}（获得金银，错过羁绊）\n  3. 不介入{}{}",
                 b.chapter,b.title,b.character,b.premise,b.vow,b.bargain,alternative,fifth);
         }
@@ -2618,8 +2620,8 @@ impl Game {
         } else if self.can_open_jieting_council() {
             hint.push_str("\n  4. 召开街亭供水与退路军议（独立三选一）");
         }
-        if self.story_fifth_option().is_some() {
-            hint.push_str("\n  5. 召开街亭供水与退路军议（保留第4项历史责任选择）");
+        if let Some(label) = self.story_fifth_option() {
+            hint.push_str(&format!("\n  5. {label}（保留第4项历史责任选择）"));
         }
         hint
     }
@@ -2745,6 +2747,10 @@ impl Game {
             return Ok(message.into());
         }
         if index == 5 && self.story_fifth_option().is_some() {
+            if self.can_open_chibi_council() {
+                self.chibi_plan = Some(ChibiPlan::Council);
+                return Ok("赤壁水陆军议开启：请独立选择1借东风、2稳守水军或3不介入。".into());
+            }
             self.jieting_plan = Some(JietingPlan::Council);
             return Ok("街亭军议开启：请独立选择1守水、2据山或3撤退。".into());
         }
