@@ -730,9 +730,13 @@ impl Game {
             played_this_turn: 0, last_turn_cards: 0, next_turn_energy_penalty: 0,
             wildfire: 0,
             convoy_hp: (self.difficulty.is_some() && node == Node::Battle
-                && (self.floor == 2 || (self.floor == 26 && self.hero == Hero::ZhugeLiang))).then_some(12),
+                && (self.floor == 2 || (self.floor == 26 && self.hero == Hero::ZhugeLiang
+                    && matches!(self.jieting_plan, Some(JietingPlan::WaterPending
+                        | JietingPlan::HillPending | JietingPlan::RetreatPending))))).then_some(12),
             convoy_cover: (self.difficulty.is_some() && node == Node::Battle
-                && (self.floor == 2 || (self.floor == 26 && self.hero == Hero::ZhugeLiang))).then_some(0),
+                && (self.floor == 2 || (self.floor == 26 && self.hero == Hero::ZhugeLiang
+                    && matches!(self.jieting_plan, Some(JietingPlan::WaterPending
+                        | JietingPlan::HillPending | JietingPlan::RetreatPending))))).then_some(0),
             troops_hp: if self.hero == Hero::CaoCao { 12 } else { 0 },
             troops_attack: if self.hero == Hero::CaoCao { 2 } else { 0 },
             discard_tokens: 0,
