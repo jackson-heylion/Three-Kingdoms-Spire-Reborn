@@ -102,7 +102,7 @@ impl Game {
         }
         if self.jieting_plan == Some(JietingPlan::Council)
             && (self.stage != Stage::Story || self.hero != Hero::ZhugeLiang
-                || !(25..=32).contains(&self.floor))
+                || !(25..=31).contains(&self.floor))
         {
             return Err("街亭军议只能在新制第四幕诸葛亮奇遇中决策".into());
         }
