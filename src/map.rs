@@ -86,6 +86,15 @@ impl ActMap {
                     _ => Terrain::Road,
                 };
             }
+            // The fourth act opens with an optional Story council on floor 25.
+            // Its next floor must actually offer the Jieting water-defense
+            // encounter: otherwise a seeded Camp/Market/Story row can silently
+            // skip the tactical consequence of the player's council decision.
+            // Keep all three lanes and their terrain/forks, only pin the
+            // encounter type. Legacy 7-row maps are unaffected.
+            if row_count == EXPANDED_ROWS && act == 3 && row == 1 {
+                choices = [Node::Battle; 3];
+            }
             // Never close both entrances available to a right-hand lane.
             if ground[1]==Terrain::Closed && ground[2]==Terrain::Closed {
                 ground[2]=Terrain::Road;
@@ -240,6 +249,23 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn fourth_act_second_floor_always_offers_jieting_water_defense() {
+        for seed in 1..=250u64 {
+            let mut state = seed.wrapping_mul(1597334677);
+            let map = ActMap::generate_expanded(|n| {
+                state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+                ((state >> 32) as usize) % n
+            }, 3);
+            assert_eq!(map.rows[0][1], Node::Story, "seed={seed}");
+            assert_eq!(map.rows[1], [Node::Battle; 3], "seed={seed}");
+            assert!(map.is_valid(), "seed={seed}");
+            // The council's central Story lane must have a legal route into
+            // a water-defense battle, without injecting route or battle state.
+            assert!(!map.routes(1, Some(1)).is_empty(), "seed={seed}");
+        }
+    }
+
     #[test]
     fn expanded_maps_have_five_distinct_eight_row_acts_and_replayable_routes() {
         for seed in 1..=250u64 {
