@@ -900,6 +900,11 @@ impl Game {
                 (25..=32, Some(JietingPlan::WaterPending)) => {
                     if let Some(b) = self.battle.as_mut() {
                         b.block += 14;
+                        // Guarding the wells also protects the actual water objective,
+                        // not just the hero's health. The cover is consumed by raids.
+                        if self.floor == 26 && b.convoy_hp.is_some() {
+                            b.convoy_cover = Some(4);
+                        }
                         if let Some(front) = b.foes.first_mut() { front.weak = front.weak.saturating_add(1); }
                     }
                     Some(JietingPlan::WaterResolved)
