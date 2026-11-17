@@ -917,6 +917,13 @@ impl Game {
                     if let Some(b) = self.battle.as_mut() {
                         b.block += 6;
                         if let Some(front) = b.foes.first_mut() { front.block += 8; }
+                        // A planned retreat evacuates a small water reserve before
+                        // the enemy raid. Unlike guarding the wells (+4 cover),
+                        // retreat preserves only +2 and gives the foe +8 armor.
+                        // The ordinary end-turn objective still decides victory.
+                        if self.floor == 26 && b.convoy_hp.is_some() {
+                            b.convoy_cover = Some(2);
+                        }
                     }
                     Some(JietingPlan::RetreatResolved)
                 }
@@ -985,7 +992,7 @@ impl Game {
                     msg.push_str(match self.jieting_plan {
                         Some(JietingPlan::WaterResolved) => "；街亭守水：我军护甲+14、敌前锋虚弱",
                         Some(JietingPlan::HillResolved) => "；街亭据山：我军护甲+20、敌前锋武勇+1",
-                        Some(JietingPlan::RetreatResolved) => "；街亭撤退：我军护甲+6、敌前锋护甲+8",
+                        Some(JietingPlan::RetreatResolved) => "；街亭撤退：我军护甲+6、敌前锋护甲+8；第26层预留水源掩护2点",
                         Some(JietingPlan::WaterSettled) => "；街亭守水兑现：第五幕护甲+8",
                         Some(JietingPlan::HillSettled) => "；街亭断水债务：损失至多12金",
                         Some(JietingPlan::RetreatSettled) => "；街亭撤退兑现：恢复至多8体力",
@@ -2584,7 +2591,7 @@ impl Game {
     }
     pub fn lore_hint(&self) -> String {
         if self.jieting_plan == Some(JietingPlan::Council) {
-            return "【街亭失守·军议】游戏虚构战术推演：\n  1. 扼守水源：耗20金，第四幕下战获14护甲、敌前锋虚弱；第五幕首战护甲+8\n  2. 上山据险：耗8体力，第四幕下战获20护甲、敌前锋武勇+1；第五幕首战损失至多12金\n  3. 及时撤退：第四幕下战我军护甲+6、敌前锋护甲+8；第五幕首战恢复至多8体力".into();
+            return "【街亭失守·军议】游戏虚构战术推演：\n  1. 扼守水源：耗20金，第四幕下战获14护甲、敌前锋虚弱；第五幕首战护甲+8\n  2. 上山据险：耗8体力，第四幕下战获20护甲、敌前锋武勇+1；第五幕首战损失至多12金\n  3. 及时撤退：第四幕下战我军护甲+6、敌前锋护甲+8；若为第26层水源战则预留2点掩护；第五幕首战恢复至多8体力".into();
         }
         if self.chibi_plan == Some(ChibiPlan::Council) {
             return "【赤壁东风·水陆军议】以下为游戏架空战术抉择：\n  1. 借东风火攻：耗20金；第三幕下次战斗敌前锋损8体力并易伤2，己军承担1层可扑灭火势；第四幕首战耗至多12金\n  2. 稳守水军：耗8体力；第三幕下次战斗我军获12护甲，敌前锋虚弱1；第四幕首战获6护甲\n  3. 不介入：第三幕下次战斗敌前锋获12护甲，第四幕首战敌前锋武勇+1".into();
@@ -2701,7 +2708,7 @@ impl Game {
                     (JietingPlan::HillPending, "街亭据山：耗8体力；第四幕下战护甲+20、敌前锋武勇+1；第五幕首战负担12金断水债务。")
                 }
                 2 => return Err("街亭据山至少需要剩余9体力".into()),
-                3 => (JietingPlan::RetreatPending, "街亭撤退：第四幕下战我军护甲+6、敌前锋护甲+8；第五幕首战恢复至多8体力。"),
+                3 => (JietingPlan::RetreatPending, "街亭撤退：第四幕下战我军护甲+6、敌前锋护甲+8；第26层水源战预留2点掩护；第五幕首战恢复至多8体力。"),
                 _ => return Err("街亭军议请选1、2或3".into()),
             };
             self.jieting_plan = Some(plan);

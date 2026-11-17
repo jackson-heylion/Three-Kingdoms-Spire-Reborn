@@ -372,3 +372,36 @@ fn chibi_council_remains_available_when_literary_fourth_choice_is_occupied() {
     game.apply(Action::Choose { index: 3 }).expect("decline through authoritative action");
     assert_eq!(game.stage, Stage::Map);
 }
+
+#[test]
+fn jieting_retreat_evacuation_reduces_real_water_raid_and_survives_restore() {
+    // Controlled fourth-act checkpoint, NOT natural 1->26 evidence.
+    // The branch choice and subsequent raid still go through Game::apply.
+    let mut game = Game::new_with_campaign_difficulty(
+        Hero::ZhugeLiang, 247_527, Difficulty::Warlords, "jieting-retreat-water".into(),
+    );
+    game.floor = 25;
+    game.stage = Stage::Story;
+    game.apply(Action::Choose { index: 4 }).expect("open fourth-act council");
+    assert_eq!(game.jieting_plan, Some(JietingPlan::Council));
+    game.apply(Action::Choose { index: 3 }).expect("choose evacuation");
+    assert_eq!(game.jieting_plan, Some(JietingPlan::RetreatPending));
+    game.act_map = Some(map::ActMap::generate_expanded(|_| 0, 0));
+    game.map_lane = None;
+    game.route = vec![Node::Battle];
+    game.route_lanes = vec![0];
+    game.apply(Action::Choose { index: 1 }).expect("enter water battle");
+    assert_eq!(game.floor, 26);
+    assert_eq!(game.jieting_plan, Some(JietingPlan::RetreatResolved));
+    assert_eq!(game.battle.as_ref().unwrap().convoy_cover, Some(2));
+    let warning = game.tactical_objective().expect("read-only water raid preview");
+    assert!(warning.contains("本回合预计劫水2点"), "{warning}");
+    let checkpoint = game.to_json().unwrap();
+    let mut restored = Game::from_json(&checkpoint).expect("restore active water objective");
+    assert_eq!(restored.to_json().unwrap(), checkpoint);
+    game.apply(Action::EndTurn).expect("raid through authority");
+    restored.apply(Action::EndTurn).expect("restored raid through authority");
+    assert_eq!(game.battle.as_ref().unwrap().convoy_hp, Some(10));
+    assert_eq!(game.battle.as_ref().unwrap().convoy_cover, Some(0));
+    assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
+}
