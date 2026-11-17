@@ -395,7 +395,10 @@ fn jieting_retreat_evacuation_reduces_real_water_raid_and_survives_restore() {
     assert_eq!(game.jieting_plan, Some(JietingPlan::RetreatResolved));
     assert_eq!(game.battle.as_ref().unwrap().convoy_cover, Some(2));
     let warning = game.tactical_objective().expect("read-only water raid preview");
-    assert!(warning.contains("本回合预计劫水2点"), "{warning}");
+    assert!(warning.contains("本回合已护2点"), "{warning}");
+    let living = game.battle.as_ref().unwrap().foes.iter().filter(|foe| foe.hp > 0).count();
+    let expected_raid = (living as u8).saturating_mul(4).saturating_sub(2).min(12);
+    assert!(warning.contains(&format!("本回合预计失水{expected_raid}点")), "{warning}");
     let checkpoint = game.to_json().unwrap();
     let mut restored = Game::from_json(&checkpoint).expect("restore active water objective");
     assert_eq!(restored.to_json().unwrap(), checkpoint);
