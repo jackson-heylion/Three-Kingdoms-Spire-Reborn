@@ -2509,7 +2509,7 @@ impl Game {
 
     fn can_open_jieting_council(&self) -> bool {
         self.difficulty.is_some() && self.hero == Hero::ZhugeLiang
-            && self.stage == Stage::Story && (25..=32).contains(&self.floor)
+            && self.stage == Stage::Story && (25..=31).contains(&self.floor)
             && self.jieting_plan.is_none()
     }
     fn can_open_yizhou_archive(&self) -> bool {
