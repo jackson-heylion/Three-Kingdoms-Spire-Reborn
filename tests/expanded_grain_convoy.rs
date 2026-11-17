@@ -311,8 +311,8 @@ fn jieting_checkpoint_reports_water_not_grain_in_real_turn_outcome() {
     game.floor = 25;
     game.stage = Stage::Story;
     game.apply(Action::Choose { index: 4 }).expect("open street pavilion council");
-    game.apply(Action::Choose { index: 3 }).expect("commit retreat plan through Action");
-    assert_eq!(game.jieting_plan, Some(JietingPlan::RetreatPending));
+    game.apply(Action::Choose { index: 2 }).expect("commit hill plan through Action");
+    assert_eq!(game.jieting_plan, Some(JietingPlan::HillPending));
     game.act_map = Some(map::ActMap::generate_expanded(|_| 0, 0));
     game.map_lane = None;
     game.route = vec![Node::Battle];
