@@ -109,7 +109,7 @@ impl Game {
         // committed Jieting council, not a global map mutation affecting all
         // heroes and seeds. Preserve the seeded topology and terrain.
         if self.difficulty.is_some() && self.hero == Hero::ZhugeLiang
-            && next == 26 && matches!(self.jieting_plan,
+            && (26..=31).contains(&next) && matches!(self.jieting_plan,
                 Some(crate::JietingPlan::WaterPending
                     | crate::JietingPlan::HillPending
                     | crate::JietingPlan::RetreatPending))
