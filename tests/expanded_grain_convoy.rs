@@ -1,7 +1,7 @@
 //! Second-floor convoy defense through the public Game::apply(Action) seam.
 //! This deliberately isolated entry first proves the missing objective;
 //! natural 1->2 action reachability is a separate acceptance requirement.
-use three_kingdoms_spire_reborn::{Action, Difficulty, Game, Node, Stage, content::Hero, map};
+use three_kingdoms_spire_reborn::{Action, Difficulty, Game, JietingPlan, Node, Stage, content::Hero, map};
 
 #[test]
 fn grain_convoy_is_announced_before_players_act() {
@@ -324,4 +324,26 @@ fn jieting_checkpoint_reports_water_not_grain_in_real_turn_outcome() {
     assert_eq!(game.stage, Stage::Lost);
     assert!(result.contains("水源遭劫") && result.contains("街亭水源保卫失败"), "{result}");
     assert!(!result.contains("粮车") && !result.contains("粮道保卫"), "{result}");
+}
+
+#[test]
+fn jieting_council_remains_available_when_literary_fourth_choice_is_occupied() {
+    // Controlled fourth-act Story checkpoint. This verifies choice collision
+    // handling; it is NOT evidence of natural 1->25 reachability.
+    let mut game = Game::new_with_campaign_difficulty(
+        Hero::ZhugeLiang, 247_525, Difficulty::Warlords, "jieting-fifth-choice".into(),
+    );
+    game.floor = 25;
+    game.stage = Stage::Story;
+    game.lore_current = Some("fu_pass_review".into());
+    game.lore_flags.push("leiyang_case_record".into());
+    assert!(game.story_fourth_option().is_some(), "the literary fourth choice should remain available");
+    assert_eq!(game.story_fifth_option(), Some("召开街亭供水与退路军议"));
+    assert!(game.lore_hint().contains("5. 召开街亭"));
+    game.apply(Action::Choose { index: 5 }).expect("open independent Jieting council");
+    assert_eq!(game.jieting_plan, Some(JietingPlan::Council));
+    assert_eq!(game.stage, Stage::Story);
+    game.apply(Action::Choose { index: 3 }).expect("choose retreat through Game::apply");
+    assert_eq!(game.jieting_plan, Some(JietingPlan::RetreatPending));
+    assert_eq!(game.stage, Stage::Map);
 }

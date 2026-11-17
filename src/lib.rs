@@ -2512,6 +2512,19 @@ impl Game {
         }
     }
 
+    /// When a naturally reached Story node also offers a responsibility archive,
+    /// keep that fourth choice intact while allowing the independent Jieting council.
+    /// Only act-IV Zhuge Liang can expose this fifth option.
+    pub fn story_fifth_option(&self) -> Option<&'static str> {
+        if self.can_open_jieting_council()
+            && (self.optional_responsibility_successor().is_some()
+                || self.can_open_yizhou_archive())
+        {
+            Some("召开街亭供水与退路军议")
+        } else {
+            None
+        }
+    }
     fn can_open_jieting_council(&self) -> bool {
         self.difficulty.is_some() && self.hero == Hero::ZhugeLiang
             && self.stage == Stage::Story && (25..=31).contains(&self.floor)
@@ -2582,8 +2595,11 @@ impl Game {
             } else if self.can_open_jieting_council() {
                 "\n  4. 召开街亭供水与退路军议（独立三选一，放弃本卷即时奖励）"
             } else { "" };
-            return format!("【演义残卷·第{}回】{}——{}：{}\n  1. {}（结缘并记下因果）\n  2. {}（获得金银，错过羁绊）\n  3. 不介入{}",
-                b.chapter,b.title,b.character,b.premise,b.vow,b.bargain,alternative);
+            let fifth = if self.story_fifth_option().is_some() {
+                "\n  5. 召开街亭供水与退路军议（保留第4项历史责任选择）"
+            } else { "" };
+            return format!("【演义残卷·第{}回】{}——{}：{}\n  1. {}（结缘并记下因果）\n  2. {}（获得金银，错过羁绊）\n  3. 不介入{}{}",
+                b.chapter,b.title,b.character,b.premise,b.vow,b.bargain,alternative,fifth);
         }
         let mut hint = self.story_options().to_string();
         if self.can_open_wuchao_council() {
@@ -2592,6 +2608,9 @@ impl Game {
             hint.push_str("\n  4. 议定赤壁东风与水军部署（独立三选一）");
         } else if self.can_open_jieting_council() {
             hint.push_str("\n  4. 召开街亭供水与退路军议（独立三选一）");
+        }
+        if self.story_fifth_option().is_some() {
+            hint.push_str("\n  5. 召开街亭供水与退路军议（保留第4项历史责任选择）");
         }
         hint
     }
@@ -2715,6 +2734,10 @@ impl Game {
             self.wuchao_plan = Some(plan);
             self.finish_scene();
             return Ok(message.into());
+        }
+        if index == 5 && self.story_fifth_option().is_some() {
+            self.jieting_plan = Some(JietingPlan::Council);
+            return Ok("街亭军议开启：请独立选择1守水、2据山或3撤退。".into());
         }
         if index == 4 {
             // Keep action dispatch in the same priority order as

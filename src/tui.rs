@@ -124,6 +124,9 @@ pub(super) fn choices(app:&App,target:usize)->Vec<(String,String)> {
             if let Some(label) = game.story_fourth_option() {
                 options.push((label.into(), "choose 4".into()));
             }
+            if let Some(label) = game.story_fifth_option() {
+                options.push((label.into(), "choose 5".into()));
+            }
             options
         },
         Stage::Ancient=>game.boon_choices.iter().enumerate()
