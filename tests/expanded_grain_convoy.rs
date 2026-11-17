@@ -337,6 +337,7 @@ fn jieting_council_remains_available_when_literary_fourth_choice_is_occupied() {
     game.stage = Stage::Story;
     game.lore_current = Some("fu_pass_review".into());
     game.lore_flags.push("leiyang_case_record".into());
+    game.lore_flags.push("yizhou_map_record".into());
     assert!(game.story_fourth_option().is_some(), "the literary fourth choice should remain available");
     assert_eq!(game.story_fifth_option(), Some("召开街亭供水与退路军议"));
     assert!(game.lore_hint().contains("5. 召开街亭"));
