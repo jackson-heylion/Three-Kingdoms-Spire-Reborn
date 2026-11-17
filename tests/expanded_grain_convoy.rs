@@ -404,7 +404,7 @@ fn jieting_retreat_evacuation_reduces_real_water_raid_and_survives_restore() {
     assert_eq!(restored.to_json().unwrap(), checkpoint);
     game.apply(Action::EndTurn).expect("raid through authority");
     restored.apply(Action::EndTurn).expect("restored raid through authority");
-    assert_eq!(game.battle.as_ref().unwrap().convoy_hp, Some(10));
+    assert_eq!(game.battle.as_ref().unwrap().convoy_hp, Some(12 - expected_raid));
     assert_eq!(game.battle.as_ref().unwrap().convoy_cover, Some(0));
     assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
 }
