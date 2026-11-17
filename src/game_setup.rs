@@ -105,5 +105,16 @@ impl Game {
         let choices = self.act_map.as_ref().expect("generated").routes(row,self.map_lane);
         self.route_lanes = choices.iter().map(|(lane,_)| *lane).collect();
         self.route = choices.iter().map(|(_,node)| *node).collect();
+        // The water-defense encounter is a consequence of Zhuge Liang's
+        // committed Jieting council, not a global map mutation affecting all
+        // heroes and seeds. Preserve the seeded topology and terrain.
+        if self.difficulty.is_some() && self.hero == Hero::ZhugeLiang
+            && next == 26 && matches!(self.jieting_plan,
+                Some(crate::JietingPlan::WaterPending
+                    | crate::JietingPlan::HillPending
+                    | crate::JietingPlan::RetreatPending))
+        {
+            self.route.fill(crate::Node::Battle);
+        }
     }
 }

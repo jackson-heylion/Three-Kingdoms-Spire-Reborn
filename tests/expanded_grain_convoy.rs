@@ -386,6 +386,9 @@ fn jieting_retreat_evacuation_reduces_real_water_raid_and_survives_restore() {
     assert_eq!(game.jieting_plan, Some(JietingPlan::Council));
     game.apply(Action::Choose { index: 3 }).expect("choose evacuation");
     assert_eq!(game.jieting_plan, Some(JietingPlan::RetreatPending));
+    // The authoritative route now guarantees a battle only after a council
+    // decision; the generated map itself remains unchanged for other heroes.
+    assert!(game.route.iter().all(|node| *node == Node::Battle));
     game.act_map = Some(map::ActMap::generate_expanded(|_| 0, 0));
     game.map_lane = None;
     game.route = vec![Node::Battle];
