@@ -2206,7 +2206,7 @@ impl Game {
                 b.convoy_hp = Some(hp - actual);
                 b.convoy_cover = Some(0);
             }
-            let water_objective = self.difficulty.is_some() && self.floor == 26
+            let water_objective = self.difficulty.is_some() && (26..=31).contains(&self.floor)
                 && self.hero == Hero::ZhugeLiang;
             self.combat_event(EventKind::EnemyTechnique,
                 if water_objective { "water_raided" } else { "convoy_raided" },
