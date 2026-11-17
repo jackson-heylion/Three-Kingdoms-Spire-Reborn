@@ -416,7 +416,7 @@ impl Game {
         {
             let living = b.foes.iter().filter(|foe| foe.hp > 0).count();
             let raid = (living as u8).saturating_mul(4).saturating_sub(cover).min(hp);
-            if self.floor == 26 {
+            if (26..=31).contains(&self.floor) {
                 let lethal_warning = if hp > 0 && raid >= hp {
                     "警告：本回合水源将被夺！请击退敌人或打出防御牌。"
                 } else {
@@ -730,11 +730,11 @@ impl Game {
             played_this_turn: 0, last_turn_cards: 0, next_turn_energy_penalty: 0,
             wildfire: 0,
             convoy_hp: (self.difficulty.is_some() && node == Node::Battle
-                && (self.floor == 2 || (self.floor == 26 && self.hero == Hero::ZhugeLiang
+                && (self.floor == 2 || ((26..=31).contains(&self.floor) && self.hero == Hero::ZhugeLiang
                     && matches!(self.jieting_plan, Some(JietingPlan::WaterPending
                         | JietingPlan::HillPending | JietingPlan::RetreatPending))))).then_some(12),
             convoy_cover: (self.difficulty.is_some() && node == Node::Battle
-                && (self.floor == 2 || (self.floor == 26 && self.hero == Hero::ZhugeLiang
+                && (self.floor == 2 || ((26..=31).contains(&self.floor) && self.hero == Hero::ZhugeLiang
                     && matches!(self.jieting_plan, Some(JietingPlan::WaterPending
                         | JietingPlan::HillPending | JietingPlan::RetreatPending))))).then_some(0),
             troops_hp: if self.hero == Hero::CaoCao { 12 } else { 0 },
@@ -906,7 +906,7 @@ impl Game {
                         b.block += 14;
                         // Guarding the wells also protects the actual water objective,
                         // not just the hero's health. The cover is consumed by raids.
-                        if self.floor == 26 && b.convoy_hp.is_some() {
+                        if (26..=31).contains(&self.floor) && b.convoy_hp.is_some() {
                             b.convoy_cover = Some(4);
                         }
                         if let Some(front) = b.foes.first_mut() { front.weak = front.weak.saturating_add(1); }
@@ -925,7 +925,7 @@ impl Game {
                         // the enemy raid. Unlike guarding the wells (+4 cover),
                         // retreat preserves only +2 and gives the foe +8 armor.
                         // The ordinary end-turn objective still decides victory.
-                        if self.floor == 26 && b.convoy_hp.is_some() {
+                        if (26..=31).contains(&self.floor) && b.convoy_hp.is_some() {
                             b.convoy_cover = Some(2);
                         }
                     }
@@ -1363,7 +1363,7 @@ impl Game {
             let bonus = i32::from(hp) * 2; // Never more than 24, once per victory.
             self.gold += bonus;
             format!("保住{}{hp}/12，额外获得{bonus}金，",
-                if self.floor == 26 && self.hero == Hero::ZhugeLiang { "水源" } else { "粮车" })
+                if (26..=31).contains(&self.floor) && self.hero == Hero::ZhugeLiang { "水源" } else { "粮车" })
         } else {
             String::new()
         };
@@ -2211,7 +2211,7 @@ impl Game {
             self.combat_event(EventKind::EnemyTechnique,
                 if water_objective { "water_raided" } else { "convoy_raided" },
                 i32::from(actual), Some(if water_objective { "water" } else { "convoy" }.into()));
-            messages.push(if self.floor == 26 && self.hero == Hero::ZhugeLiang {
+            messages.push(if (26..=31).contains(&self.floor) && self.hero == Hero::ZhugeLiang {
                 format!("水源遭劫{actual}点，剩余{}点", hp - actual)
             } else {
                 format!("粮车遭劫{actual}体力，剩余{}体力", hp - actual)
@@ -2223,7 +2223,7 @@ impl Game {
                 self.stage = Stage::Lost;
                 self.battle = None;
                 return Ok(format!("{}。{}，征途结束。", messages.join("；"),
-                    if self.floor == 26 && self.hero == Hero::ZhugeLiang {
+                    if (26..=31).contains(&self.floor) && self.hero == Hero::ZhugeLiang {
                         "街亭水源保卫失败，水源耗尽"
                     } else { "粮道保卫失败，粮车被毁" }));
             }
@@ -2548,7 +2548,7 @@ impl Game {
     }
     fn can_open_jieting_council(&self) -> bool {
         self.difficulty.is_some() && self.hero == Hero::ZhugeLiang
-            && self.stage == Stage::Story && (25..=31).contains(&self.floor)
+            && self.stage == Stage::Story && (25..=30).contains(&self.floor)
             && self.jieting_plan.is_none()
     }
     fn can_open_yizhou_archive(&self) -> bool {
