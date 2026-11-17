@@ -344,6 +344,8 @@ fn jieting_council_remains_available_when_literary_fourth_choice_is_occupied() {
     game.apply(Action::Choose { index: 5 }).expect("open independent Jieting council");
     assert_eq!(game.jieting_plan, Some(JietingPlan::Council));
     assert_eq!(game.stage, Stage::Story);
+    assert!(game.story_fourth_option().is_none(), "council must not show an invalid fourth choice");
+    assert!(game.story_fifth_option().is_none(), "council must not show an invalid fifth choice");
     game.apply(Action::Choose { index: 3 }).expect("choose retreat through Game::apply");
     assert_eq!(game.jieting_plan, Some(JietingPlan::RetreatPending));
     assert_eq!(game.stage, Stage::Map);

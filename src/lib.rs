@@ -2497,6 +2497,15 @@ impl Game {
     }
 
     pub fn story_fourth_option(&self) -> Option<&'static str> {
+        // Council subchoices exclusively own indices 1–3. Do not leak a
+        // historical fourth choice into TUI while the council is active:
+        // choose_story would reject it, despite the button being visible.
+        if self.jieting_plan == Some(JietingPlan::Council)
+            || self.chibi_plan == Some(ChibiPlan::Council)
+            || self.wuchao_plan == Some(WuchaoPlan::Council)
+        {
+            return None;
+        }
         if self.optional_responsibility_successor().is_some() {
             Some("保留责任并继续核审")
         } else if self.can_open_yizhou_archive() {
