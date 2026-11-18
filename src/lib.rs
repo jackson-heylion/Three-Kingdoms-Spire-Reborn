@@ -1979,11 +1979,13 @@ impl Game {
                     b.foes[idx].block = b.foes[idx].block.saturating_add(8 + i32::from(phase) * 4);
                     // Cap the entire active curse pool, not only discard: a
                     // reshuffle must not let repeated omens create unlimited curses.
-                    if b.draw.iter().chain(b.hand.iter()).chain(b.discard.iter())
-                        .filter(|c| c.id == "cursed").count() < 4 {
+                    let curses = b.draw.iter().chain(b.hand.iter()).chain(b.discard.iter())
+                        .filter(|c| c.id == "cursed").count();
+                    if curses < 4 {
                         b.discard.push(Card::new("cursed"));
                     }
-                    format!("星象幻阵生效（需护甲{required}）：左慈获得护甲，弃牌堆混入军心涣散")
+                    format!("星象幻阵生效（需护甲{required}）：左慈获得护甲{}",
+                        if curses < 4 { "，弃牌堆混入军心涣散" } else { "，军心涣散已达上限" })
                 }
             }
             BossMove::Mirage(amount) => {
