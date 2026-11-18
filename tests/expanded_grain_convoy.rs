@@ -415,3 +415,36 @@ fn jieting_retreat_evacuation_reduces_real_water_raid_and_survives_restore() {
     assert_eq!(game.battle.as_ref().unwrap().convoy_cover, Some(0));
     assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
 }
+
+#[test]
+fn jieting_hill_sacrifices_water_at_real_battle_entry_and_survives_restore() {
+    // A controlled floor-25 Story checkpoint, NOT natural 1->25 evidence.
+    // Council, route, battle settlement and resumed turn all use Game::apply.
+    let mut game = Game::new_with_campaign_difficulty(
+        Hero::ZhugeLiang, 247_528, Difficulty::Warlords,
+        "jieting-hill-water-cost".into(),
+    );
+    game.floor = 25;
+    game.stage = Stage::Story;
+    game.apply(Action::Choose { index: 4 }).expect("open Jieting council");
+    game.apply(Action::Choose { index: 2 }).expect("choose high ground");
+    assert_eq!(game.jieting_plan, Some(JietingPlan::HillPending));
+    assert!(game.route.iter().all(|node| *node == Node::Battle));
+    assert!(game.route_objective_hint(Node::Battle).unwrap().contains("先损失4点水源"));
+
+    let entry = game.apply(Action::Choose { index: 1 }).expect("enter water battle");
+    assert_eq!(game.floor, 26);
+    assert_eq!(game.jieting_plan, Some(JietingPlan::HillResolved));
+    assert_eq!(game.battle.as_ref().unwrap().convoy_hp, Some(8));
+    assert!(game.tactical_objective().unwrap().contains("水源剩余8/12"));
+    assert!(entry.join("；").contains("先失水4点"));
+    assert!(game.battle.as_ref().unwrap().events.iter().any(|e|
+        e.source == "jieting_hill_abandons_wells" && e.amount == 4));
+
+    let saved = game.to_json().expect("save exposed wells");
+    let mut restored = Game::from_json(&saved).expect("restore exposed wells");
+    assert_eq!(restored.to_json().unwrap(), saved);
+    game.apply(Action::EndTurn).expect("real water raid");
+    restored.apply(Action::EndTurn).expect("restored water raid");
+    assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
+}
