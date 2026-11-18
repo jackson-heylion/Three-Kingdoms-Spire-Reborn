@@ -639,7 +639,7 @@ impl Game {
                     "dongzhuo" => Some(BossMove::TyrantLevy((attack-3).max(3)+second*2)),
                     "yuanshao" => Some(BossMove::GrandAlliance(7+act*2+second*4)),
                     "simayi" => Some(BossMove::HiddenScheme(1+foe.phase.min(1))),
-                    "zuoci" if self.difficulty.is_some() && act == 4 => Some(BossMove::StarOmen(foe.phase)),
+                    "zuoci" if difficulty.is_some() && act == 4 => Some(BossMove::StarOmen(foe.phase)),
                     "zuoci" => Some(BossMove::Mirage(7+act*2+second*3)),
                     "luxun" => Some(BossMove::FireCamp(2+foe.phase)),
                     "lumeng" => Some(BossMove::WhiteClothes),
