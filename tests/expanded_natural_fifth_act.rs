@@ -28,9 +28,15 @@ fn fight(game: &mut Game) -> Result<(), String> {
                 // A guard card protects the objective even when the hero already
                 // has armor, and several guards can be necessary in one turn.
                 let raiders = b.foes.iter().filter(|foe| foe.hp > 0).count() as u8;
-                let threatened_objective = b.convoy_hp.is_some_and(|hp| {
-                    raiders.saturating_mul(4).saturating_sub(b.convoy_cover.unwrap_or(0)) >= hp
-                });
+                // Scope objective-first defense to the Jieting water battle.
+                // Applying it to the ordinary early-floor grain convoy changed
+                // card ordering and caused every fixed Zhuge Liang seed to die
+                // before the council in the previous two-platform CI.
+                let threatened_objective = game.hero == Hero::ZhugeLiang
+                    && (26..=31).contains(&game.floor)
+                    && b.convoy_hp.is_some_and(|hp| {
+                        raiders.saturating_mul(4).saturating_sub(b.convoy_cover.unwrap_or(0)) >= hp
+                    });
                 let defend = threatened_objective || (!guarded && b.block < 8
                     && b.foes.iter().any(|foe| foe.hp > 0 && matches!(
                         foe.intent, three_kingdoms_spire_reborn::Intent::Attack(_)
