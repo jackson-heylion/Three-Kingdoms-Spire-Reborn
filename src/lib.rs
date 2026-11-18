@@ -133,7 +133,8 @@ pub enum BossMove {
     Mirage(i32),       // 左慈：回复并立盾
     FireCamp(u8),      // 陆逊：积累可用防御牌扑灭的焚营火势
     WhiteClothes,      // 吕蒙：按回合末护甲判定是否识破白衣伏兵
-    NorthernExpedition(u8), // 姜维：兵粮封锁，可用护甲识破并反制
+    NorthernExpedition(u8),
+    StarOmen(u8), // Fifth-act celestial omen; defend to expose the illusion // 姜维：兵粮封锁，可用护甲识破并反制
 }
 impl BossMove {
     pub fn label(&self) -> String {
@@ -147,6 +148,7 @@ impl BossMove {
             Self::FireCamp(n) => format!("焚营火攻：增添{n}层火势（每层回合末灼伤2体力；打出防御牌可扑灭）"),
             Self::WhiteClothes => "白衣渡江：回合末护甲至少8可识破伏兵并使吕蒙易伤；否则下回合军令-1".into(),
             Self::NorthernExpedition(n) => format!("北伐断粮：回合末护甲至少{}可守住粮道并使姜维易伤；否则下回合军令-1并混入军心涣散", 8 + i32::from(*n) * 2),
+            Self::StarOmen(phase) => format!("星象幻阵：回合末护甲至少{}可识破幻象并使左慈易伤；否则左慈加甲且弃牌堆混入军心涣散", 9 + i32::from(*phase) * 2),
         }
     }
 }
@@ -637,6 +639,7 @@ impl Game {
                     "dongzhuo" => Some(BossMove::TyrantLevy((attack-3).max(3)+second*2)),
                     "yuanshao" => Some(BossMove::GrandAlliance(7+act*2+second*4)),
                     "simayi" => Some(BossMove::HiddenScheme(1+foe.phase.min(1))),
+                    "zuoci" if self.difficulty.is_some() && act == 4 => Some(BossMove::StarOmen(foe.phase)),
                     "zuoci" => Some(BossMove::Mirage(7+act*2+second*3)),
                     "luxun" => Some(BossMove::FireCamp(2+foe.phase)),
                     "lumeng" => Some(BossMove::WhiteClothes),
@@ -1964,6 +1967,20 @@ impl Game {
                         b.discard.push(Card::new("cursed"));
                     }
                     format!("北伐断粮成功（需护甲{required}）：下回合军令-1，军心受扰")
+                }
+            }
+            BossMove::StarOmen(phase) => {
+                let required = 9 + i32::from(phase) * 2;
+                if self.battle.as_ref().is_some_and(|b| b.block >= required) {
+                    self.apply_foe_status(idx, "vulnerable", 3);
+                    format!("星象幻阵被护阵识破（护甲达到{required}）：左慈显露破绽")
+                } else {
+                    let b = self.battle.as_mut().expect("battle");
+                    b.foes[idx].block = b.foes[idx].block.saturating_add(8 + i32::from(phase) * 4);
+                    if b.discard.iter().filter(|c| c.id == "cursed").count() < 4 {
+                        b.discard.push(Card::new("cursed"));
+                    }
+                    format!("星象幻阵生效（需护甲{required}）：左慈获得护甲，弃牌堆混入军心涣散")
                 }
             }
             BossMove::Mirage(amount) => {
