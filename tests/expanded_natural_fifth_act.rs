@@ -32,12 +32,20 @@ fn fight(game: &mut Game) -> Result<(), String> {
                 // Applying it to the ordinary early-floor grain convoy changed
                 // card ordering and caused every fixed Zhuge Liang seed to die
                 // before the council in the previous two-platform CI.
-                let threatened_objective = game.hero == Hero::ZhugeLiang
+                let incoming_water_loss = raiders.saturating_mul(4)
+                    .saturating_sub(b.convoy_cover.unwrap_or(0));
+                let water_objective = game.hero == Hero::ZhugeLiang
                     && (26..=31).contains(&game.floor)
-                    && b.convoy_hp.is_some_and(|hp| {
-                        raiders.saturating_mul(4).saturating_sub(b.convoy_cover.unwrap_or(0)) >= hp
-                    });
-                let defend = threatened_objective || (!guarded && b.block < 8
+                    && b.convoy_hp.is_some();
+                let threatened_objective = water_objective
+                    && b.convoy_hp.is_some_and(|hp| incoming_water_loss >= hp);
+                // Preserve water before it reaches the lethal threshold. Waiting
+                // until the last four points cannot recover already-lost supply.
+                // One proactive guard per turn avoids starving damage cards; a
+                // lethal raid permits additional guards through Game::apply.
+                let protect_water = water_objective && incoming_water_loss > 0
+                    && (!guarded || threatened_objective);
+                let defend = protect_water || (!guarded && b.block < 8
                     && b.foes.iter().any(|foe| foe.hp > 0 && matches!(
                         foe.intent, three_kingdoms_spire_reborn::Intent::Attack(_)
                             | three_kingdoms_spire_reborn::Intent::MultiAttack(_, _)
@@ -66,7 +74,7 @@ fn fight(game: &mut Game) -> Result<(), String> {
                         | Effect::HitVulnerable(_, _) | Effect::Leech(_)
                         | Effect::HitPoison(_, _) => 2,
                         Effect::Guard(_) | Effect::GuardEnergy(_) | Effect::XGuard(_)
-                            if threatened_objective => 1,
+                            if protect_water => 1,
                         Effect::Guard(_) | Effect::GuardEnergy(_) | Effect::XGuard(_) => 3,
                         _ => 4,
                     };
