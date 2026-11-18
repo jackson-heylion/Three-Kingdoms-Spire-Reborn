@@ -5122,7 +5122,7 @@ mod p1_event_cursor_tests {
                 covered+=1;
             }
         }
-        assert_eq!(covered,32*5);
+        assert_eq!(covered,33*5);
     }
 
 }
@@ -5238,7 +5238,7 @@ mod p1_enemy_potion_matrix_regression {
 
     #[test]
     fn every_enemy_and_boss_phase_resolves_three_real_turns_for_each_class_at_low_and_high_ascension() {
-        assert_eq!(content::ENEMY_IDS.len(),32,"update matrix when enemy roster changes");
+        assert_eq!(content::ENEMY_IDS.len(),33,"update matrix when enemy roster changes");
         let mut cases=0;
         let mut turns=0;
         for hero in HEROES {
@@ -5305,7 +5305,7 @@ mod p1_enemy_potion_matrix_regression {
                 }
             }
         }
-        assert_eq!(cases,1600);
+        assert_eq!(cases,1650);
     }
 }
 
