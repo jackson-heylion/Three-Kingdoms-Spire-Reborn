@@ -133,6 +133,7 @@ pub enum BossMove {
     Mirage(i32),       // 左慈：回复并立盾
     FireCamp(u8),      // 陆逊：积累可用防御牌扑灭的焚营火势
     WhiteClothes,      // 吕蒙：按回合末护甲判定是否识破白衣伏兵
+    NorthernExpedition(u8), // 姜维：兵粮封锁，可用护甲识破并反制
 }
 impl BossMove {
     pub fn label(&self) -> String {
@@ -145,6 +146,7 @@ impl BossMove {
             Self::Mirage(n) => format!("幻身遁甲 回复{n}并获得护甲"),
             Self::FireCamp(n) => format!("焚营火攻：增添{n}层火势（每层回合末灼伤2体力；打出防御牌可扑灭）"),
             Self::WhiteClothes => "白衣渡江：回合末护甲至少8可识破伏兵并使吕蒙易伤；否则下回合军令-1".into(),
+            Self::NorthernExpedition(n) => format!("北伐断粮：回合末护甲至少{}可守住粮道并使姜维易伤；否则下回合军令-1并混入军心涣散", 8 + i32::from(*n) * 2),
         }
     }
 }
@@ -559,6 +561,7 @@ impl Game {
                 (1,0) => "dongzhuo", (1,_) => "yuanshao",
                 (2,0) => "simayi", (3,0) if self.difficulty.is_some() => "luxun",
                 (3,_) if self.difficulty.is_some() => "lumeng",
+                (4,0) if self.difficulty.is_some() => "jiangwei",
                 _ => "zuoci",
             }],
             Node::Elite => {
@@ -637,6 +640,7 @@ impl Game {
                     "zuoci" => Some(BossMove::Mirage(7+act*2+second*3)),
                     "luxun" => Some(BossMove::FireCamp(2+foe.phase)),
                     "lumeng" => Some(BossMove::WhiteClothes),
+                    "jiangwei" => Some(BossMove::NorthernExpedition(foe.phase)),
                     _ => None,
                 }
             } else { None };
@@ -1943,6 +1947,25 @@ impl Game {
                     "白衣渡江潜袭成功：下回合军令-1".into()
                 }
             }
+            BossMove::NorthernExpedition(phase) => {
+                // This is a committed intent: the player sees the shield
+                // threshold before ending the turn. A successful defense
+                // opens a counterattack window; failure taxes next-turn energy.
+                let required = 8 + i32::from(phase) * 2;
+                let guarded = self.battle.as_ref().is_some_and(|b| b.block >= required);
+                if guarded {
+                    self.apply_foe_status(idx, "vulnerable", 3);
+                    format!("北伐粮道守住（护甲至少{required}）：姜维阵线暴露，获得易伤")
+                } else {
+                    let b = self.battle.as_mut().expect("battle");
+                    b.next_turn_energy_penalty = b.next_turn_energy_penalty.max(1);
+                    if b.draw.iter().chain(b.hand.iter()).chain(b.discard.iter())
+                        .filter(|c| c.id == "cursed").count() < 4 {
+                        b.discard.push(Card::new("cursed"));
+                    }
+                    format!("北伐断粮成功（需护甲{required}）：下回合军令-1，军心受扰")
+                }
+            }
             BossMove::Mirage(amount) => {
                 let b = self.battle.as_mut().expect("battle");
                 let foe = &mut b.foes[idx];
@@ -1959,7 +1982,7 @@ impl Game {
             .iter().enumerate().filter(|(_,foe)|
                 foe.hp > 0 && foe.phase == 0 && foe.hp * 2 <= foe.max_hp
                 && matches!(foe.id.as_str(),"zhangjiao"|"sunjian"|"dongzhuo"|"yuanshao"|"simayi"|"zuoci"
-                    |"luxun"|"lumeng"|"elite"|"war_elephant"|"royal_guard"|"tiger_general"|"sacred_beast"))
+                    |"luxun"|"lumeng"|"jiangwei"|"elite"|"war_elephant"|"royal_guard"|"tiger_general"|"sacred_beast"))
             .map(|(i,foe)| (i,foe.id.clone())).collect();
         let mut messages = vec![];
         for (idx,id) in changes {
@@ -1995,6 +2018,11 @@ impl Game {
                     b.foes[idx].strength += 2;
                     b.foes[idx].block += 10;
                     messages.push("吕蒙整顿白衣精兵：武勇+2、护甲+10；继续留意敌军伏袭预告".into());
+                }
+                "jiangwei" => {
+                    b.foes[idx].strength += 2;
+                    b.foes[idx].block += 10;
+                    messages.push("姜维北伐进入第二阶段：武勇+2、护甲+10；守粮所需护甲升至10".into());
                 }
                 "luxun" => {
                     b.foes[idx].strength += 2;
