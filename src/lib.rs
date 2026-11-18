@@ -400,7 +400,7 @@ impl Game {
             1 => Some("粮道保卫：下一层护送粮车；存活敌军每回合劫粮，防御牌可护粮"),
             2 => Some("伏击：下一层敌军前锋以8点护甲设伏；破甲后击退敌军可获16金反制赏金"),
             3 => Some("攻城：下一层须在第5回合前以 assault 指令消耗2军令攻城，每次削减4点城门耐久；城门破即获胜"),
-            25 if self.hero == Hero::ZhugeLiang => Some("街亭水源：下一层守住水源；敌军每回合劫水，防御牌可掩护水源，水源耗尽立即战败"),
+            25..=30 if self.hero == Hero::ZhugeLiang && matches!(self.jieting_plan, Some(JietingPlan::WaterPending | JietingPlan::HillPending | JietingPlan::RetreatPending)) => Some("街亭水源：下一层守住水源；敌军每回合劫水，防御牌可掩护水源，水源耗尽立即战败"),
             _ => None,
         }
     }
@@ -996,7 +996,7 @@ impl Game {
                     msg.push_str(match self.jieting_plan {
                         Some(JietingPlan::WaterResolved) => "；街亭守水：我军护甲+14、敌前锋虚弱",
                         Some(JietingPlan::HillResolved) => "；街亭据山：我军护甲+20、敌前锋武勇+1",
-                        Some(JietingPlan::RetreatResolved) => "；街亭撤退：我军护甲+6、敌前锋护甲+8；第26层预留水源掩护2点",
+                        Some(JietingPlan::RetreatResolved) => "；街亭撤退：我军护甲+6、敌前锋护甲+8；本场水源战预留掩护2点",
                         Some(JietingPlan::WaterSettled) => "；街亭守水兑现：第五幕护甲+8",
                         Some(JietingPlan::HillSettled) => "；街亭断水债务：损失至多12金",
                         Some(JietingPlan::RetreatSettled) => "；街亭撤退兑现：恢复至多8体力",
@@ -2595,7 +2595,7 @@ impl Game {
     }
     pub fn lore_hint(&self) -> String {
         if self.jieting_plan == Some(JietingPlan::Council) {
-            return "【街亭失守·军议】游戏虚构战术推演：\n  1. 扼守水源：耗20金，第四幕下战获14护甲、敌前锋虚弱；第五幕首战护甲+8\n  2. 上山据险：耗8体力，第四幕下战获20护甲、敌前锋武勇+1；第五幕首战损失至多12金\n  3. 及时撤退：第四幕下战我军护甲+6、敌前锋护甲+8；若为第26层水源战则预留2点掩护；第五幕首战恢复至多8体力".into();
+            return "【街亭失守·军议】游戏虚构战术推演：\n  1. 扼守水源：耗20金，第四幕下战获14护甲、敌前锋虚弱；第五幕首战护甲+8\n  2. 上山据险：耗8体力，第四幕下战获20护甲、敌前锋武勇+1；第五幕首战损失至多12金\n  3. 及时撤退：第四幕下战我军护甲+6、敌前锋护甲+8；若为下一场水源战则预留2点掩护；第五幕首战恢复至多8体力".into();
         }
         if self.chibi_plan == Some(ChibiPlan::Council) {
             return "【赤壁东风·水陆军议】以下为游戏架空战术抉择：\n  1. 借东风火攻：耗20金；第三幕下次战斗敌前锋损8体力并易伤2，己军承担1层可扑灭火势；第四幕首战耗至多12金\n  2. 稳守水军：耗8体力；第三幕下次战斗我军获12护甲，敌前锋虚弱1；第四幕首战获6护甲\n  3. 不介入：第三幕下次战斗敌前锋获12护甲，第四幕首战敌前锋武勇+1".into();
@@ -2712,7 +2712,7 @@ impl Game {
                     (JietingPlan::HillPending, "街亭据山：耗8体力；第四幕下战护甲+20、敌前锋武勇+1；第五幕首战负担12金断水债务。")
                 }
                 2 => return Err("街亭据山至少需要剩余9体力".into()),
-                3 => (JietingPlan::RetreatPending, "街亭撤退：第四幕下战我军护甲+6、敌前锋护甲+8；第26层水源战预留2点掩护；第五幕首战恢复至多8体力。"),
+                3 => (JietingPlan::RetreatPending, "街亭撤退：第四幕下战我军护甲+6、敌前锋护甲+8；下一场水源战预留2点掩护；第五幕首战恢复至多8体力。"),
                 _ => return Err("街亭军议请选1、2或3".into()),
             };
             self.jieting_plan = Some(plan);
