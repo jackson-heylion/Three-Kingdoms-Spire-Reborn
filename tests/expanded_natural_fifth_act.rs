@@ -24,10 +24,18 @@ fn fight(game: &mut Game) -> Result<(), String> {
                     .filter(|(_, foe)| foe.hp > 0)
                     .min_by_key(|(_, foe)| foe.hp)
                     .map(|(index, _)| index + 1)?;
-                let defend = !guarded && b.block < 8 && b.foes.iter().any(|foe|
-                    foe.hp > 0 && matches!(foe.intent, three_kingdoms_spire_reborn::Intent::Attack(_)
-                        | three_kingdoms_spire_reborn::Intent::MultiAttack(_, _))
-                );
+                // The water/convoy objective is independent of hero block.
+                // A guard card protects the objective even when the hero already
+                // has armor, and several guards can be necessary in one turn.
+                let raiders = b.foes.iter().filter(|foe| foe.hp > 0).count() as u8;
+                let threatened_objective = b.convoy_hp.is_some_and(|hp| {
+                    raiders.saturating_mul(4).saturating_sub(b.convoy_cover.unwrap_or(0)) >= hp
+                });
+                let defend = threatened_objective || (!guarded && b.block < 8
+                    && b.foes.iter().any(|foe| foe.hp > 0 && matches!(
+                        foe.intent, three_kingdoms_spire_reborn::Intent::Attack(_)
+                            | three_kingdoms_spire_reborn::Intent::MultiAttack(_, _)
+                    )));
                 // Use the cards actually acquired during the 40-floor campaign.
                 // The former driver ignored every reward card except wushuang,
                 // so its late-game survival did not measure the available build.
@@ -51,6 +59,8 @@ fn fight(game: &mut Game) -> Result<(), String> {
                         | Effect::Pierce(_) | Effect::HitWeak(_, _)
                         | Effect::HitVulnerable(_, _) | Effect::Leech(_)
                         | Effect::HitPoison(_, _) => 2,
+                        Effect::Guard(_) | Effect::GuardEnergy(_) | Effect::XGuard(_)
+                            if threatened_objective => 1,
                         Effect::Guard(_) | Effect::GuardEnergy(_) | Effect::XGuard(_) => 3,
                         _ => 4,
                     };
