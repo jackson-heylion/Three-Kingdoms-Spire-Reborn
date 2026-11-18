@@ -5272,8 +5272,8 @@ mod p1_enemy_potion_matrix_regression {
                 }
             }
         }
-        assert_eq!(cases,440);
-        assert_eq!(turns,1320);
+        assert_eq!(cases,450);
+        assert_eq!(turns,1350);
     }
 
     #[test]
