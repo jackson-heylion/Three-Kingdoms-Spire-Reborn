@@ -319,7 +319,8 @@ fn jieting_checkpoint_reports_water_not_grain_in_real_turn_outcome() {
     game.route_lanes = vec![0];
     game.apply(Action::Choose { index: 1 }).expect("enter water battle via Action");
     assert_eq!(game.floor, 26);
-    assert_eq!(game.battle.as_ref().unwrap().convoy_hp, Some(12));
+    // 据山放弃水路，开战时已实际失去4点水源。
+    assert_eq!(game.battle.as_ref().unwrap().convoy_hp, Some(8));
     assert!(game.tactical_objective().unwrap().contains("街亭水源"));
     // Only the loss threshold is controlled. All actual raid/defeat transitions
     // must still pass through Game::apply(Action::EndTurn).
