@@ -150,7 +150,7 @@ impl BossMove {
             Self::WhiteClothes => "白衣渡江：回合末护甲至少8可识破伏兵并使吕蒙易伤；否则下回合军令-1".into(),
             Self::NorthernExpedition(n) => format!("北伐断粮：回合末护甲至少{}可守住粮道并使姜维易伤；否则下回合军令-1并混入军心涣散", 8 + i32::from(*n) * 2),
             Self::StarOmen(phase) => format!("星象幻阵：回合末护甲至少{}可识破幻象并使左慈易伤；否则左慈加甲且弃牌堆混入军心涣散", 9 + i32::from(*phase) * 2),
-            Self::YinpingFlank(phase) => format!("阴平偷渡：本回合打出至少{}张牌或回合末护甲达到{}可截击并对邓艾造成{}点无视护甲伤害、使其易伤；仅靠护甲封锁还能令邓艾下回合攻击虚弱；否则损失至多{}金且敌军加甲{}", 3 + u32::from(*phase), 10 + 2 * i32::from(*phase), 4 + 2 * i32::from(*phase), 10 + 5 * i32::from(*phase > 0), if *phase > 0 { "；二阶段首次失守还会召集援兵（下回合才行动）" } else { "" }),
+            Self::YinpingFlank(phase) => format!("阴平偷渡：本回合打出至少{}张牌或回合末护甲达到{}可截击并对邓艾造成{}点无视护甲伤害、使其易伤；仅靠护甲封锁还能令邓艾下回合攻击虚弱；否则损失至多{}金且敌军加甲{}", 3 + u32::from(*phase), 10 + 2 * i32::from(*phase), 4 + 2 * i32::from(*phase), 10 + 5 * i32::from(*phase > 0), if *phase > 0 { "；二阶段首次失守还会召集援兵（下回合才行动）；已有援军时护甲达10可牵制援军（未截击仍会失金）" } else { "" }),
         }
     }
 }
@@ -447,7 +447,7 @@ impl Game {
                 Some(JietingPlan::RetreatSettled) => "街亭撤退先机兑现：额外军令+1、邓艾护甲+6；成功截击阴平偷渡额外反击2点；亲自击败山道援军并伤及邓艾可回收1点军令（至多5点）",
                 _ => "未携带街亭军议后果",
             };
-            return Some(format!("阴平史诗关底：回合末出牌至少3/4张或护甲达10/12可截击；第二阶段仅凭护阵截击还能压制存活山道援军，使其下次攻击虚弱；击败真实援军可截断山道并重创邓艾。{jieting}。"));
+            return Some(format!("阴平史诗关底：回合末出牌至少3/4张或护甲达10/12可截击；第二阶段护甲达12且未凑够4牌可截击并压制援军；若仅有10护甲，仍可牵制已有援军，但无法阻止邓艾掠金；击败真实援军可截断山道并重创邓艾。{jieting}。"));
         }
         if self.stage == Stage::Combat && let Some(hp) = self.battle.as_ref().and_then(|b| b.siege_gate_hp) {
             let turn = self.battle.as_ref().expect("battle").turn;
@@ -2364,6 +2364,25 @@ impl Game {
                         if defense_only { "；坚守扰乱偷渡军，下回合邓艾攻击虚弱" } else { "" },
                         if pinned_raider.is_some() { "；山道援军也被压制，下次攻击虚弱" } else { "" })
                 } else {
+                    // A failed interception is not an all-or-nothing defense.
+                    // On the resource-starved turn after an earlier raid, two
+                    // actual defense cards can still raise ten armor. If an
+                    // existing raider is visible, that shield screens its
+                    // forthcoming attack even though Deng Ai still steals gold.
+                    // Check BEFORE summoning; unseen reinforcements may not
+                    // receive a retroactive counterplay effect.
+                    let screened_raider = if phase > 0
+                        && self.battle.as_ref().is_some_and(|b| b.block >= 10)
+                    {
+                        self.battle.as_ref().and_then(|b| b.foes.iter()
+                            .position(|foe| foe.id == "assassin" && foe.hp > 0))
+                    } else { None };
+                    if let Some(raider_idx) = screened_raider {
+                        self.apply_foe_status(raider_idx, "weak", 2);
+                        self.combat_event(EventKind::PowerTriggered,
+                            "yinping_raider_screened", 1,
+                            Some(format!("foe:{raider_idx}")));
+                    }
                     let stolen = self.gold.min(10 + 5 * i32::from(phase > 0));
                     self.gold -= stolen;
                     let shield = 6 + 3 * i32::from(phase);
@@ -2398,9 +2417,10 @@ impl Game {
                         self.combat_event(EventKind::FoeSummoned, "assassin", 1,
                             Some(format!("foe:{new_index}")));
                     }
-                    format!("阴平偷渡得手：本回合出牌{played}/{required}，失去{stolen}金，邓艾护甲+{shield}{}{}",
+                    format!("阴平偷渡得手：本回合出牌{played}/{required}，失去{stolen}金，邓艾护甲+{shield}{}{}{}",
                         if phase > 0 { "，下回合军令-1" } else { "" },
-                        if summoned.is_some() { "，山道援兵已出现（下回合才行动）" } else { "" })
+                        if summoned.is_some() { "，山道援兵已出现（下回合才行动）" } else { "" },
+                        if screened_raider.is_some() { "，护阵牵制已有山道援军，攻击虚弱" } else { "" })
                 }
             }
             BossMove::StarOmen(phase) => {
