@@ -341,6 +341,46 @@ fn jieting_hill_risk_unlocks_eight_damage_when_player_breaks_yinping_vanguard() 
 }
 
 #[test]
+fn jieting_retreat_reserve_rewards_actual_yinping_interception_after_restore() {
+    use three_kingdoms_spire_reborn::JietingPlan;
+    // Tactical fixture at the real boss entrance. The separate natural
+    // floor-zero driver proves how the RetreatSettled flag is earned.
+    let mut game = Game::new_with_campaign_difficulty(
+        Hero::ZhugeLiang, 1_u64 << 44, Difficulty::Warlords,
+        "retreat-yinping-interception".into(),
+    );
+    game.floor = 39;
+    game.stage = Stage::Map;
+    game.jieting_plan = Some(JietingPlan::RetreatSettled);
+    game.act_map = Some(map::ActMap::generate_expanded(|_| 0, 4));
+    game.map_lane = None;
+    game.route = vec![Node::Boss];
+    game.route_lanes = vec![0];
+    assert!(game.route_objective_hint(Node::Boss).unwrap()
+        .contains("成功截击阴平偷渡额外反击2点"));
+    game.apply(Action::Choose { index: 1 }).expect("enter real boss via legal route");
+    assert_eq!(game.battle.as_ref().unwrap().energy, 4);
+    assert!(game.tactical_objective().unwrap().contains("额外反击2点"));
+    // A controlled pre-committed defensive position isolates the actual
+    // boss interception, not a claim of a natural full-campaign win.
+    game.battle.as_mut().unwrap().block = 12;
+    let hp = game.battle.as_ref().unwrap().foes[0].hp;
+    let saved = game.to_json().expect("save before real turn action");
+    let mut resumed = Game::from_json(&saved).expect("restore before interception");
+    let actual = game.apply(Action::EndTurn).expect("guarded interception");
+    let replay = resumed.apply(Action::EndTurn).expect("identical restored interception");
+    assert_eq!(actual, replay);
+    assert!(actual.join("；").contains("反击造成6点无视护甲伤害"));
+    assert_eq!(game.battle.as_ref().unwrap().foes[0].hp, hp - 6);
+    assert_eq!(game.battle.as_ref().unwrap().events.iter().filter(|event|
+        event.source == "yinping_interception"
+            && event.kind == three_kingdoms_spire_reborn::combat::EventKind::DamageDealt
+            && event.amount == 6
+    ).count(), 1);
+    assert_eq!(game.to_json().unwrap(), resumed.to_json().unwrap());
+}
+
+#[test]
 fn old_campaign_bosses_never_use_yinping_infiltration() {
     let mut old = Game::new(Hero::GuanYu, 1_u64 << 44);
     old.floor = 20;
