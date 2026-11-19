@@ -290,6 +290,57 @@ fn jieting_three_decisions_have_distinct_replayable_fifth_act_boss_consequences(
 }
 
 #[test]
+fn jieting_hill_risk_unlocks_eight_damage_when_player_breaks_yinping_vanguard() {
+    use three_kingdoms_spire_reborn::JietingPlan;
+    // Controlled tactical late-game fixture. Earlier Jieting decision
+    // naturally reachable only in the separate floor-zero acceptance driver.
+    let mut game = Game::new_with_campaign_difficulty(
+        Hero::ZhugeLiang, 1_u64 << 44, Difficulty::Warlords,
+        "jieting-yinping-flank-counter".into(),
+    );
+    game.floor = 39;
+    game.stage = Stage::Map;
+    game.jieting_plan = Some(JietingPlan::HillSettled);
+    game.act_map = Some(map::ActMap::generate_expanded(|_| 0, 4));
+    game.map_lane = None;
+    game.route = vec![Node::Boss];
+    game.route_lanes = vec![0];
+    game.apply(Action::Choose { index: 1 }).expect("enter alternate fifth boss");
+    {
+        let b = game.battle.as_mut().unwrap();
+        b.foes[0].phase = 1;
+        b.foes[0].intent = Intent::Boss(BossMove::YinpingFlank(1));
+    }
+    game.apply(Action::EndTurn).expect("summon mountain raider after an unblocked raid");
+    {
+        let b = game.battle.as_mut().unwrap();
+        assert_eq!(b.foes[1].id, "assassin");
+        b.foes[1].hp = 1;
+        b.foes[1].block = 0;
+        b.hand.push(three_kingdoms_spire_reborn::Card::new("strike"));
+    }
+    let before_boss = game.battle.as_ref().unwrap().foes[0].hp;
+    let card_index = game.battle.as_ref().unwrap().hand.len();
+    let snapshot = game.to_json().expect("save before actual vanguard attack");
+    let mut restored = Game::from_json(&snapshot).expect("restore tactical target");
+    let first = game.apply(Action::Play { index: card_index, target: 2 })
+        .expect("strike real mountain raider");
+    let second = restored.apply(Action::Play { index: card_index, target: 2 })
+        .expect("replay the identical attack");
+    assert_eq!(first, second);
+    assert!(first.join("；").contains("邓艾遭反击8点无视护甲伤害"), "{first:?}");
+    let battle = game.battle.as_ref().unwrap();
+    assert_eq!(battle.foes[0].hp, before_boss - 8);
+    assert_eq!(battle.foes[1].hp, 0);
+    assert_eq!(battle.events.iter().filter(|event|
+        event.source == "yinping_supply_cut"
+            && event.kind == three_kingdoms_spire_reborn::combat::EventKind::DamageDealt
+            && event.amount == 8
+    ).count(), 1);
+    assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
+}
+
+#[test]
 fn old_campaign_bosses_never_use_yinping_infiltration() {
     let mut old = Game::new(Hero::GuanYu, 1_u64 << 44);
     old.floor = 20;
