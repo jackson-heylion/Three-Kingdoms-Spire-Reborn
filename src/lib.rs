@@ -2008,6 +2008,13 @@ impl Game {
         if pass_cut > 0 {
             msg.push_str(&format!("夺回阴平山道，邓艾遭反击{pass_cut}点无视护甲伤害。"));
         }
+        let water_screen = self.battle.as_ref().map_or(0, |b| b.events.iter()
+            .filter(|e| e.seq > event_before && e.source == "jieting_yinping_water_screen"
+                && e.kind == EventKind::PowerTriggered)
+            .map(|e| e.amount).sum::<i32>());
+        if water_screen > 0 {
+            msg.push_str(&format!("街亭守水旧部夺回掩护，护甲+{water_screen}。"));
+        }
         if !attack && self.jieting_plan == Some(JietingPlan::RetreatResolved)
             && self.difficulty.is_some() && self.hero == Hero::ZhugeLiang
             && (26..=31).contains(&self.floor)
