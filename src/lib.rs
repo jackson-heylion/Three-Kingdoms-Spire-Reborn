@@ -2253,8 +2253,17 @@ impl Game {
                 // A defensive build can also seal the mountain pass. Unlike
                 // the former post-enemy-turn block reward, this check consumes
                 // actual armor earned by legal cards before the turn reset.
-                let guarded = self.battle.as_ref().is_some_and(|b|
-                    b.block >= 10 + 2 * i32::from(phase));
+                // Streeting's ten-point starting cover is a historical grant,
+// not armor actively raised to intercept this raid. On the opening
+// turn exclude it from the defense-only threshold; later turns use
+// the full player-held block after the normal end-turn reset.
+let free_water_cover = self.hero == Hero::ZhugeLiang
+    && self.floor == 40
+    && self.jieting_plan == Some(JietingPlan::WaterSettled)
+    && self.battle.as_ref().is_some_and(|b| b.turn == 1);
+let guarded = self.battle.as_ref().is_some_and(|b|
+    b.block >= 10 + 2 * i32::from(phase)
+        + if free_water_cover { 10 } else { 0 });
                 if played >= required || guarded {
                     self.apply_foe_status(idx, "vulnerable", 3);
                     // A defense-first player takes a real alternate route:
