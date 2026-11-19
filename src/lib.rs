@@ -1306,6 +1306,31 @@ impl Game {
         };
         let actual = self.deal_enemy_damage(idx, damage, "hero");
         self.suppress_jieting_water(idx, actual);
+        // A player who focuses and defeats Deng Ai's real summoned
+        // assassin severs the infiltration route and strikes the commander.
+        // This cannot be farmed: dead foes cannot take damage twice, and only
+        // the fifth-act alternate boss encounter offers this chain.
+        // Poison ticks, troop attacks and passive reflections do not count
+        // as the player's direct raid against the vanguard.
+        let commander = if actual > 0 && self.difficulty.is_some()
+            && self.floor == 40 && self.last_node == Some(Node::Boss)
+        {
+            self.battle.as_ref().and_then(|b| {
+                if b.foes[idx].id != "assassin" || b.foes[idx].hp > 0 {
+                    return None;
+                }
+                b.foes.iter().position(|foe| foe.id == "dengai" && foe.hp > 0)
+            })
+        } else { None };
+        if let Some(boss_idx) = commander {
+            let inflicted = self.deal_enemy_damage_unblockable(
+                boss_idx, 6, "yinping_supply_cut");
+            if inflicted > 0 {
+                self.combat_event(EventKind::PowerTriggered,
+                    "yinping_vanguard_broken", inflicted,
+                    Some(format!("foe:{boss_idx}")));
+            }
+        }
     }
 
     /// Only real player attack damage pins down Jieting water raiders.
@@ -1550,6 +1575,7 @@ impl Game {
         let b = self.battle.as_ref().ok_or("当前不在战斗中")?;
         let cover_before = b.convoy_cover.unwrap_or(0);
         let water_before = b.convoy_hp.unwrap_or(0);
+        let event_before = b.event_seq;
         let hand_idx = index.checked_sub(1).ok_or("手牌编号从1开始")?;
         let card = b.hand.get(hand_idx).ok_or("无效手牌编号")?.clone();
         let spec = card_spec(&card.id).ok_or("未知卡牌")?;
@@ -1866,6 +1892,16 @@ impl Game {
                 .unwrap_or(0).saturating_sub(water_before)
         } else { 0 };
         let mut msg = format!("使用了【{}】。", card.name());
+        // The commander suffers a visible consequence when a real card
+        // defeats his summoned vanguard. Count only this action's combat
+        // events; restored actions produce the same bounded event stream.
+        let pass_cut = self.battle.as_ref().map_or(0, |b| b.events.iter()
+            .filter(|e| e.seq > event_before && e.source == "yinping_supply_cut"
+                && e.kind == EventKind::DamageDealt)
+            .map(|e| e.amount).sum::<i32>());
+        if pass_cut > 0 {
+            msg.push_str(&format!("夺回阴平山道，邓艾遭反击{pass_cut}点无视护甲伤害。"));
+        }
         if !attack && self.jieting_plan == Some(JietingPlan::RetreatResolved)
             && self.difficulty.is_some() && self.hero == Hero::ZhugeLiang
             && (26..=31).contains(&self.floor)
