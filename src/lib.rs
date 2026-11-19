@@ -1302,6 +1302,8 @@ impl Game {
             && self.hero == Hero::ZhugeLiang
             && (26..=31).contains(&self.floor)
             && self.jieting_plan == Some(JietingPlan::HillResolved)
+            && self.battle.as_ref().is_some_and(|b|
+                b.convoy_hp.is_some() && b.convoy_cover.is_some())
         {
             let gained = {
                 let b = self.battle.as_mut().expect("battle");
