@@ -115,7 +115,27 @@ fn fight(game: &mut Game) -> Result<(), String> {
                         .collect::<Vec<_>>()
                 ))
             } else { None };
+            // On a genuinely reached fifth-act boss, replay the actual
+            // player-built turn across a process-compatible JSON boundary.
+            // No fixture injection: the restored engine executes the same
+            // Game::apply action and must produce identical feedback and
+            // state, including any Deng Ai raid, summoned escort, or gold.
+            let resume = if game.floor == 40
+                && game.last_node == Some(Node::Boss)
+            {
+                let snapshot = game.to_json()?;
+                Some(Game::from_json(&snapshot)?)
+            } else { None };
             let outcome = game.apply(Action::EndTurn)?;
+            if let Some(mut restored) = resume {
+                let replayed = restored.apply(Action::EndTurn)?;
+                if outcome != replayed || game.to_json()? != restored.to_json()? {
+                    return Err(format!(
+                        "natural floor-40 turn {} diverged after JSON resume",
+                        restored.battle.as_ref().map_or(0, |b| b.turn)
+                    ));
+                }
+            }
             if let Some(before) = trace_before {
                 hill_water_trace.push(format!("{before} => {}", outcome.join("；")));
                 if game.stage == Stage::Lost {
