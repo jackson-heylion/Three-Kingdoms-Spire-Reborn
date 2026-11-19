@@ -210,6 +210,42 @@ fn guarded_second_phase_interception_pins_visible_raider_and_replays() {
 }
 
 #[test]
+fn surviving_raider_escorts_extra_gold_unless_defeated_or_guarded() {
+    // Tactical phase-two staging only: the vanguard itself must still
+    // appear from the authoritative failed Yinping raid. No fake foe,
+    // history receipt, RNG, or terminal result is injected.
+    let mut game = fifth_act_alternate_boss();
+    game.apply(Action::Choose { index: 1 }).unwrap();
+    {
+        let battle = game.battle.as_mut().unwrap();
+        battle.foes[0].phase = 1;
+        battle.foes[0].intent = Intent::Boss(BossMove::YinpingFlank(1));
+    }
+    game.apply(Action::EndTurn).expect("real raid summons visible vanguard");
+    assert_eq!(game.battle.as_ref().unwrap().foes[1].id, "assassin");
+    assert!(game.battle.as_ref().unwrap().foes[1].hp > 0);
+    // The raider is left alive and no defense is played. This is a genuine
+    // tactical opportunity cost, not a hidden extra penalty on first summon.
+    game.battle.as_mut().unwrap().foes[0].intent =
+        Intent::Boss(BossMove::YinpingFlank(1));
+    let before = game.gold;
+    assert!(before >= 20, "the fixture must expose the full escort levy");
+    let saved = game.to_json().expect("save prior to escorted raid");
+    let mut restored = Game::from_json(&saved).expect("restore before raid");
+    let messages = game.apply(Action::EndTurn).expect("unopposed escorted raid");
+    assert_eq!(messages, restored.apply(Action::EndTurn).unwrap());
+    assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
+    assert_eq!(game.gold, before - 20, "15 base and 5 escorted gold");
+    assert!(messages.join("；").contains("山道援军协同多掠金5"), "{messages:?}");
+    let after = game.battle.as_ref().expect("surviving foe encounter");
+    assert_eq!(after.events.iter().filter(|e|
+        e.kind == three_kingdoms_spire_reborn::combat::EventKind::EnemyTechnique
+            && e.source == "yinping_raider_escort_levy"
+            && e.amount == 5
+    ).count(), 1, "escort levy must have one stable journal event");
+}
+
+#[test]
 fn ten_armor_after_a_failed_raid_screens_existing_vanguard_without_free_interception() {
     // Controlled second-phase opponent and cards; energy stays on the real
     // two-point penalty from the first failed raid. This is not 0→40 evidence.
@@ -245,7 +281,10 @@ fn ten_armor_after_a_failed_raid_screens_existing_vanguard_without_free_intercep
     let report = messages.join("；");
     assert!(report.contains("护阵牵制已有山道援军，攻击虚弱"), "{report}");
     assert!(report.contains("阴平偷渡得手"), "boss must still succeed");
-    assert_eq!(game.gold, gold_before - gold_before.min(15));
+    assert_eq!(game.gold, gold_before - gold_before.min(15),
+        "ten-armor screen stops the five-gold escort levy, not the base loss");
+    assert!(game.battle.as_ref().unwrap().events.iter().all(|event|
+        event.source != "yinping_raider_escort_levy"));
     let after = game.battle.as_ref().unwrap();
     assert_eq!(after.foes[0].hp, boss_hp, "partial screen cannot claim intercept damage");
     assert_eq!(after.foes[1].weak, 1, "screen persists past turn-end decay");
