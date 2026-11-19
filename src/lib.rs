@@ -1998,6 +1998,38 @@ impl Game {
                 _ => {}
             }
         }
+        // A four-card Yinping interception must break the visible escort's
+        // armor when the fourth paid card resolves. Enemy armor is normally
+        // cleared at the START of EndTurn; delaying this break until the
+        // boss intent executes would always report zero and provide no
+        // player-facing tactical value. Keep the existing EndTurn exposure
+        // and counterattack, but commit the shield break at the actual
+        // Game::apply(Action::Play) boundary, before another card may target
+        // the now-unshielded raider. Existing save/event journals persist it.
+        let yinping_armor_target = if self.difficulty.is_some() && self.floor == 40 {
+            self.battle.as_ref().and_then(|b| {
+                let boss = b.foes.iter().find(|f| f.id == "dengai" && f.hp > 0)?;
+                if boss.phase == 0 || b.played_this_turn != 4
+                    || !matches!(boss.intent, Intent::Boss(BossMove::YinpingFlank(_))) {
+                    return None;
+                }
+                b.foes.iter().position(|f| f.id == "assassin" && f.hp > 0 && f.block > 0)
+            })
+        } else { None };
+        if let Some(raider_idx) = yinping_armor_target {
+            let broken = {
+                let b = self.battle.as_mut().expect("battle");
+                let foe = &mut b.foes[raider_idx];
+                let broken = foe.block.min(6);
+                foe.block -= broken;
+                broken
+            };
+            if broken > 0 {
+                self.combat_event(EventKind::PowerTriggered,
+                    "yinping_raider_armor_broken", broken,
+                    Some(format!("foe:{raider_idx}")));
+            }
+        }
         if self.hero == Hero::ZhugeLiang && self.battle.as_ref().expect("battle").scheme >= 3 {
             self.battle.as_mut().expect("battle").scheme -= 3;
             self.battle.as_mut().expect("battle").energy += 1;
