@@ -209,6 +209,19 @@ fn jieting_three_decisions_have_distinct_replayable_fifth_act_boss_consequences(
     // proves the earlier council can be chosen from floor zero; this
     // tactical matrix only proves what its three settled outcomes do
     // after entering Deng Ai through an ordinary Action::Choose.
+    // The forecast uses the same act_variant(4) resolver as boss spawning,
+    // even when no explicit variant was selected at floor zero.
+    for (seed, expected_alternate) in [(1_u64 << 44, true), (0_u64, false)] {
+        let mut seeded = Game::new_with_campaign_difficulty(
+            Hero::ZhugeLiang, seed, Difficulty::Warlords,
+            format!("seeded-jieting-yinping-{seed}"),
+        );
+        seeded.floor = 39;
+        seeded.jieting_plan = Some(JietingPlan::WaterSettled);
+        let saved = seeded.to_json().unwrap();
+        assert_eq!(seeded.route_objective_hint(Node::Boss).is_some(), expected_alternate);
+        assert_eq!(seeded.to_json().unwrap(), saved, "seed forecast must be read-only");
+    }
     let cases = [
         (JietingPlan::WaterSettled, "街亭守水", "jieting_yinping_wells"),
         (JietingPlan::HillSettled, "街亭据山", "jieting_yinping_hills"),
