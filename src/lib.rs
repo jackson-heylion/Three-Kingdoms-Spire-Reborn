@@ -2415,17 +2415,36 @@ impl Game {
                         self.battle.as_ref().and_then(|b| b.foes.iter()
                             .position(|foe| foe.id == "assassin" && foe.hp > 0))
                     } else { None };
-                    if let Some(raider_idx) = exposed_raider {
+                    // The offensive interception also opens the escort's
+                    // actual shield line. Removing existing armor here makes
+                    // the four-card route useful against an already fortified
+                    // raider, without inventing an attack, a new resource, or
+                    // a persistent flag. This is committed only after legal
+                    // cards have satisfied the displayed raid threshold.
+                    let broken_raider_armor = if let Some(raider_idx) = exposed_raider {
                         self.apply_foe_status(raider_idx, "vulnerable", 3);
                         self.combat_event(EventKind::PowerTriggered,
                             "yinping_raider_exposed", 1,
                             Some(format!("foe:{raider_idx}")));
-                    }
+                        let broken = {
+                            let battle = self.battle.as_mut().expect("battle");
+                            let foe = &mut battle.foes[raider_idx];
+                            let broken = foe.block.min(6);
+                            foe.block -= broken;
+                            broken
+                        };
+                        if broken > 0 {
+                            self.combat_event(EventKind::PowerTriggered,
+                                "yinping_raider_armor_broken", broken,
+                                Some(format!("foe:{raider_idx}")));
+                        }
+                        broken
+                    } else { 0 };
                     format!("阴平偷渡被截击：本回合出牌{played}/{required}{}，反击造成{inflicted}点无视护甲伤害，邓艾阵线暴露并易伤{}{}{}",
                         if guarded { "，护阵封锁山道" } else { "" },
                         if defense_only { "；坚守扰乱偷渡军，下回合邓艾攻击虚弱" } else { "" },
                         if pinned_raider.is_some() { "；山道援军也被压制，下次攻击虚弱" } else { "" },
-                        if exposed_raider.is_some() { "；连环出牌识破山道援军，援军易伤，可优先击破" } else { "" })
+                        if exposed_raider.is_some() { format!("；连环出牌识破山道援军，援军易伤，击破现有护甲{broken_raider_armor}，可优先击破") } else { String::new() })
                 } else {
                     // A failed interception is not an all-or-nothing defense.
                     // On the resource-starved turn after an earlier raid, two
