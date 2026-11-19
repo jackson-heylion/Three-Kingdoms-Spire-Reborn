@@ -150,7 +150,7 @@ impl BossMove {
             Self::WhiteClothes => "白衣渡江：回合末护甲至少8可识破伏兵并使吕蒙易伤；否则下回合军令-1".into(),
             Self::NorthernExpedition(n) => format!("北伐断粮：回合末护甲至少{}可守住粮道并使姜维易伤；否则下回合军令-1并混入军心涣散", 8 + i32::from(*n) * 2),
             Self::StarOmen(phase) => format!("星象幻阵：回合末护甲至少{}可识破幻象并使左慈易伤；否则左慈加甲且弃牌堆混入军心涣散", 9 + i32::from(*phase) * 2),
-            Self::YinpingFlank(phase) => format!("阴平偷渡：本回合打出至少{}张牌或回合末护甲达到{}可截击并对邓艾造成{}点无视护甲伤害、使其易伤；否则损失至多{}金且敌军加甲{}", 3 + u32::from(*phase), 10 + 2 * i32::from(*phase), 4 + 2 * i32::from(*phase), 10 + 5 * i32::from(*phase > 0), if *phase > 0 { "；二阶段首次失守还会召集援兵（下回合才行动）" } else { "" }),
+            Self::YinpingFlank(phase) => format!("阴平偷渡：本回合打出至少{}张牌或回合末护甲达到{}可截击并对邓艾造成{}点无视护甲伤害、使其易伤；仅靠护甲封锁还能令邓艾下回合攻击虚弱；否则损失至多{}金且敌军加甲{}", 3 + u32::from(*phase), 10 + 2 * i32::from(*phase), 4 + 2 * i32::from(*phase), 10 + 5 * i32::from(*phase > 0), if *phase > 0 { "；二阶段首次失守还会召集援兵（下回合才行动）" } else { "" }),
         }
     }
 }
@@ -2169,6 +2169,16 @@ impl Game {
                     b.block >= 10 + 2 * i32::from(phase));
                 if played >= required || guarded {
                     self.apply_foe_status(idx, "vulnerable", 3);
+                    // A defense-first player takes a real alternate route:
+                    // sealing the pass without meeting the card-count threshold
+                    // disrupts Deng Ai's next attack. Two weak stacks are applied
+                    // before EndTurn decrements one, leaving one for the next
+                    // actual enemy action. Existing status/event/foe-board
+                    // journaling covers save, restore and replay.
+                    let defense_only = guarded && played < required;
+                    if defense_only {
+                        self.apply_foe_status(idx, "weak", 2);
+                    }
                     // A solo boss has no other enemy intent after this raid:
                     // end_turn clears hero block before the next player turn.
                     // Settling real piercing damage here (rather than awarding
@@ -2178,8 +2188,9 @@ impl Game {
                     let counter = 4 + 2 * i32::from(phase);
                     let inflicted = self.deal_enemy_damage_unblockable(
                         idx, counter, "yinping_interception");
-                    format!("阴平偷渡被截击：本回合出牌{played}/{required}{}，反击造成{inflicted}点无视护甲伤害，邓艾阵线暴露并易伤",
-                        if guarded { "，护阵封锁山道" } else { "" })
+                    format!("阴平偷渡被截击：本回合出牌{played}/{required}{}，反击造成{inflicted}点无视护甲伤害，邓艾阵线暴露并易伤{}",
+                        if guarded { "，护阵封锁山道" } else { "" },
+                        if defense_only { "；坚守扰乱偷渡军，下回合邓艾攻击虚弱" } else { "" })
                 } else {
                     let stolen = self.gold.min(10 + 5 * i32::from(phase > 0));
                     self.gold -= stolen;
