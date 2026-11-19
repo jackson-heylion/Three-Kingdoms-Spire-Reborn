@@ -1306,6 +1306,12 @@ impl Game {
         };
         let actual = self.deal_enemy_damage(idx, damage, "hero");
         self.suppress_jieting_water(idx, actual);
+        self.cut_yinping_supply(idx, actual);
+    }
+
+    /// Direct player attacks, including armor-piercing cards, can break the
+    /// vanguard. Non-card sources (poison, potions, thorns, allies) cannot.
+    fn cut_yinping_supply(&mut self, idx: usize, actual: i32) {
         // A player who focuses and defeats Deng Ai's real summoned
         // assassin severs the infiltration route and strikes the commander.
         // This cannot be farmed: dead foes cannot take damage twice, and only
@@ -1714,6 +1720,7 @@ impl Game {
                 let idx = target_idx.expect("target");
                 let actual = self.deal_enemy_damage_unblockable(idx, n.saturating_add(bonus), "pierce");
                 self.suppress_jieting_water(idx, actual);
+                self.cut_yinping_supply(idx, actual);
             }
             Effect::DrawEnergy(n, energy) => {
                 self.battle.as_mut().expect("battle").energy += energy;
