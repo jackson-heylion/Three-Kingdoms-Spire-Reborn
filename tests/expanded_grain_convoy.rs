@@ -431,6 +431,60 @@ fn jieting_retreat_evacuation_reduces_real_water_raid_and_survives_restore() {
     assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
 }
 
+
+#[test]
+fn jieting_guarded_wells_repair_only_after_survived_real_raid_and_restore() {
+    // Controlled act-IV tactical checkpoint, NOT a natural 1->26 campaign.
+    // Choices, enemy raid, repair and restored continuation use Game::apply.
+    let mut game = Game::new_with_campaign_difficulty(
+        Hero::ZhugeLiang, 247_531, Difficulty::Warlords,
+        "jieting-guarded-repair".into(),
+    );
+    game.floor = 25;
+    game.stage = Stage::Story;
+    game.apply(Action::Choose { index: 4 }).expect("open water council");
+    game.apply(Action::Choose { index: 1 }).expect("pay for guarding wells");
+    assert_eq!(game.jieting_plan, Some(JietingPlan::WaterPending));
+    assert!(game.route_objective_hint(Node::Battle).unwrap().contains("抢修至多2点"));
+    game.apply(Action::Choose { index: 1 }).expect("enter real water battle");
+    assert_eq!(game.jieting_plan, Some(JietingPlan::WaterResolved));
+    assert!(game.tactical_objective().unwrap().contains("劫水后抢修至多2点"));
+
+    // Fix only the tactical risk boundary. Never claim that this was a
+    // naturally drawn hand or an untouched natural campaign.
+    let raiders = {
+        let b = game.battle.as_mut().expect("water battle");
+        b.convoy_hp = Some(12);
+        b.convoy_cover = Some(2);
+        for foe in &mut b.foes {
+            foe.intent = three_kingdoms_spire_reborn::Intent::Guard(0);
+        }
+        b.foes.iter().filter(|foe| foe.hp > 0).count() as u8
+    };
+    let raid = raiders.saturating_mul(4).saturating_sub(2);
+    assert!(raid > 0 && raid < 12, "controlled raid must be real and survivable");
+    let checkpoint = game.to_json().expect("save before raid");
+    let mut restored = Game::from_json(&checkpoint).expect("restore before raid");
+    let original = game.apply(Action::EndTurn).expect("guarded raid and repair");
+    let replayed = restored.apply(Action::EndTurn).expect("restored guarded raid");
+    assert_eq!(original, replayed);
+    assert_eq!(game.battle.as_ref().unwrap().convoy_hp, Some(12 - raid + 2));
+    assert!(original.join("；").contains("守水布防抢修水源2点"));
+    assert!(game.event_history.as_ref().unwrap().iter().any(|e|
+        e.event.source == "jieting_water_wells_repaired" && e.event.amount == 2));
+    assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
+
+    // A lethal raid must settle defeat BEFORE any water repair, even if
+    // the guards supplied positive cover. No reward or false recovery event.
+    let mut lethal = Game::from_json(&checkpoint).expect("restore lethal branch");
+    lethal.battle.as_mut().unwrap().convoy_hp = Some(1);
+    let loss = lethal.apply(Action::EndTurn).expect("lethal raid");
+    assert_eq!(lethal.stage, Stage::Lost);
+    assert!(loss.join("；").contains("水源耗尽"), "{loss:?}");
+    assert!(!lethal.event_history.as_ref().unwrap().iter().any(|e|
+        e.event.source == "jieting_water_wells_repaired"));
+}
+
 #[test]
 fn jieting_hill_sacrifices_water_at_real_battle_entry_and_survives_restore() {
     // A controlled floor-25 Story checkpoint, NOT natural 1->25 evidence.

@@ -407,6 +407,8 @@ impl Game {
             25..=30 if self.hero == Hero::ZhugeLiang && matches!(self.jieting_plan, Some(JietingPlan::WaterPending | JietingPlan::HillPending | JietingPlan::RetreatPending)) => {
                 if self.jieting_plan == Some(JietingPlan::HillPending) {
                     Some("街亭据山：下一场水源战开场先损失4点水源；敌军每回合劫水，防御牌可护水，水源耗尽立即战败")
+                } else if self.jieting_plan == Some(JietingPlan::WaterPending) {
+                    Some("街亭守水：下一层守住水源；防御掩护实际抵消劫水且水源未耗尽时，可在回合末抢修至多2点水源")
                 } else {
                     Some("街亭水源：下一层守住水源；敌军每回合劫水，防御牌可掩护水源，水源耗尽立即战败")
                 }
@@ -433,6 +435,8 @@ impl Game {
                     ""
                 };
                 let high_ground = match self.jieting_plan {
+                    Some(JietingPlan::WaterResolved) =>
+                        "；守水布防若掩护成功且本回合水源未耗尽，劫水后抢修至多2点水源",
                     Some(JietingPlan::HillResolved) =>
                         "；据山进攻命中敌军可额外掩护水源2点，亲自击败敌军还能夺回至多4点水源",
                     Some(JietingPlan::RetreatResolved) =>
@@ -2413,6 +2417,27 @@ impl Game {
                         "街亭水源保卫失败，水源耗尽"
                     } else { "粮道保卫失败，粮车被毁" }));
             }
+            // Only the paid Jieting water-defense plan can repair its wells.
+            // A guard must have contributed cover to a real nonlethal raid;
+            // water lost to a lethal raid is never retroactively restored.
+            // This is a committed EndTurn effect, not a UI-only forecast.
+            if water_objective && self.jieting_plan == Some(JietingPlan::WaterResolved)
+                && cover > 0 && actual > 0
+            {
+                let repaired = {
+                    let water = self.battle.as_mut().expect("battle").convoy_hp
+                        .as_mut().expect("Jieting water");
+                    let before = *water;
+                    *water = water.saturating_add(2).min(12);
+                    *water - before
+                };
+                if repaired > 0 {
+                    self.combat_event(EventKind::PowerTriggered,
+                        "jieting_water_wells_repaired", i32::from(repaired),
+                        Some("water".into()));
+                    messages.push(format!("守水布防抢修水源{repaired}点"));
+                }
+            }
         }
         // A siege is won by breaching the gate, not merely clearing defenders.
         // The fifth turn deadline is visible before the player commits to the route.
@@ -2781,7 +2806,7 @@ impl Game {
     }
     pub fn lore_hint(&self) -> String {
         if self.jieting_plan == Some(JietingPlan::Council) {
-            return "【街亭失守·军议】游戏虚构战术推演：\n  1. 扼守水源：耗20金，第四幕下战获14护甲、敌前锋虚弱；第五幕首战护甲+8\n  2. 上山据险：耗8体力，第四幕下战获20护甲、敌前锋武勇+1；水源战开场先损失4点水源，命中敌军可掩护2点水源、亲自击败敌军可夺回至多4点水源；第五幕首战损失至多12金\n  3. 及时撤退：第四幕下战我军护甲+6、敌前锋护甲+8；若为下一场水源战则预留2点掩护，防御牌实际增加掩护时抢救2点水源；第五幕首战恢复至多8体力".into();
+            return "【街亭失守·军议】游戏虚构战术推演：\n  1. 扼守水源：耗20金，第四幕下战获14护甲、敌前锋虚弱；有掩护且劫水后未败可抢修至多2点水源；第五幕首战护甲+8\n  2. 上山据险：耗8体力，第四幕下战获20护甲、敌前锋武勇+1；水源战开场先损失4点水源，命中敌军可掩护2点水源、亲自击败敌军可夺回至多4点水源；第五幕首战损失至多12金\n  3. 及时撤退：第四幕下战我军护甲+6、敌前锋护甲+8；若为下一场水源战则预留2点掩护，防御牌实际增加掩护时抢救2点水源；第五幕首战恢复至多8体力".into();
         }
         if self.chibi_plan == Some(ChibiPlan::Council) {
             return "【赤壁东风·水陆军议】以下为游戏架空战术抉择：\n  1. 借东风火攻：耗20金；第三幕下次战斗敌前锋损8体力并易伤2，己军承担1层可扑灭火势；第四幕首战耗至多12金\n  2. 稳守水军：耗8体力；第三幕下次战斗我军获12护甲，敌前锋虚弱1；第四幕首战获6护甲\n  3. 不介入：第三幕下次战斗敌前锋获12护甲，第四幕首战敌前锋武勇+1".into();
@@ -2890,7 +2915,7 @@ impl Game {
             let (plan, message) = match index {
                 1 if self.gold >= 20 => {
                     self.gold -= 20;
-                    (JietingPlan::WaterPending, "街亭守水：耗20金布防；第四幕下战护甲+14、敌前锋虚弱；第五幕首战护甲+8。")
+                    (JietingPlan::WaterPending, "街亭守水：耗20金布防；第四幕下战护甲+14、敌前锋虚弱；回合末有掩护并成功守住水源时可抢修至多2点；第五幕首战护甲+8。")
                 }
                 1 => return Err("街亭守水需要20金".into()),
                 2 if self.hp > 8 => {
