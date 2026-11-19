@@ -886,24 +886,35 @@ impl Game {
             && self.battle.as_ref().is_some_and(|b|
                 b.foes.first().is_some_and(|f| f.id == "dengai"))
         {
-            let b = self.battle.as_mut().expect("historical final battle");
-            match self.jieting_plan {
-                Some(JietingPlan::WaterSettled) => {
-                    b.block += 10;
-                    // Two stacks survive the current Yinping signature's
-                    // EndTurn tick, so the next genuine attack is weaker.
-                    b.foes[0].weak = b.foes[0].weak.saturating_add(2);
+            let effect = {
+                let b = self.battle.as_mut().expect("historical final battle");
+                match self.jieting_plan {
+                    Some(JietingPlan::WaterSettled) => {
+                        b.block += 10;
+                        // Two stacks survive this Yinping signature's
+                        // EndTurn tick, so the next genuine attack is weaker.
+                        b.foes[0].weak = b.foes[0].weak.saturating_add(2);
+                        Some(("jieting_yinping_wells", 10))
+                    }
+                    Some(JietingPlan::HillSettled) => {
+                        b.foes[0].strength += 2;
+                        b.foes[0].block += 10;
+                        b.strength += 1;
+                        Some(("jieting_yinping_hills", 10))
+                    }
+                    Some(JietingPlan::RetreatSettled) => {
+                        b.energy += 1;
+                        b.foes[0].block += 6;
+                        Some(("jieting_yinping_retreat", 1))
+                    }
+                    _ => None,
                 }
-                Some(JietingPlan::HillSettled) => {
-                    b.foes[0].strength += 2;
-                    b.foes[0].block += 10;
-                    b.strength += 1;
-                }
-                Some(JietingPlan::RetreatSettled) => {
-                    b.energy += 1;
-                    b.foes[0].block += 6;
-                }
-                _ => {}
+            };
+            if let Some((source, amount)) = effect {
+                // Actual cross-act consequences are journaled once with the
+                // same authoritative battle entry as the changed resources.
+                self.combat_event(EventKind::PowerTriggered, source, amount,
+                    Some("yinping".into()));
             }
         }
         // Pay off the optional act-II Wuchao decision only when a later battle
