@@ -5332,7 +5332,7 @@ mod p1_event_cursor_tests {
                 covered+=1;
             }
         }
-        assert_eq!(covered,33*5);
+        assert_eq!(covered,35*5);
     }
 
 }
@@ -5419,9 +5419,10 @@ mod p1_enemy_potion_matrix_regression {
     const HEROES: [Hero; 5] = [
         Hero::GuanYu, Hero::ZhugeLiang, Hero::SunShangxiang, Hero::CaoCao, Hero::LuBu,
     ];
-    const SECOND_PHASE: [&str; 12] = [
+    const SECOND_PHASE: [&str; 15] = [
         "elite", "war_elephant", "royal_guard", "tiger_general", "sacred_beast",
         "zhangjiao", "sunjian", "dongzhuo", "yuanshao", "simayi", "zuoci", "luxun",
+        "lumeng", "jiangwei", "dengai",
     ];
 
     fn versus(hero: Hero, foe_id: &str, ascension: u8, seed: u64) -> Game {
@@ -5448,7 +5449,7 @@ mod p1_enemy_potion_matrix_regression {
 
     #[test]
     fn every_enemy_and_boss_phase_resolves_three_real_turns_for_each_class_at_low_and_high_ascension() {
-        assert_eq!(content::ENEMY_IDS.len(),33,"update matrix when enemy roster changes");
+        assert_eq!(content::ENEMY_IDS.len(),35,"update matrix when enemy roster changes");
         let mut cases=0;
         let mut turns=0;
         for hero in HEROES {
@@ -5482,8 +5483,8 @@ mod p1_enemy_potion_matrix_regression {
                 }
             }
         }
-        assert_eq!(cases,450);
-        assert_eq!(turns,1350);
+        assert_eq!(cases,500);
+        assert_eq!(turns,1500);
     }
 
     #[test]
@@ -5515,7 +5516,7 @@ mod p1_enemy_potion_matrix_regression {
                 }
             }
         }
-        assert_eq!(cases,1650);
+        assert_eq!(cases,1750);
     }
 }
 
