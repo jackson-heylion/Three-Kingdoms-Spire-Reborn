@@ -163,6 +163,47 @@ fn player_attack_on_summoned_vanguard_cuts_yinping_supply_route_once() {
 }
 
 #[test]
+fn guarded_second_phase_interception_pins_visible_raider_and_replays() {
+    // Controlled phase-two tactical fixture, never a floor-zero victory.
+    // The assassin is summoned by the real EndTurn action, not injected.
+    let mut game = fifth_act_alternate_boss();
+    game.apply(Action::Choose { index: 1 }).unwrap();
+    {
+        let battle = game.battle.as_mut().unwrap();
+        battle.foes[0].phase = 1;
+        battle.foes[0].intent = Intent::Boss(BossMove::YinpingFlank(1));
+    }
+    game.apply(Action::EndTurn).expect("real failed infiltration summons raider");
+    assert_eq!(game.battle.as_ref().unwrap().foes[1].id, "assassin");
+    // Three legal defensive plays reach 12 armor but not four-card threshold.
+    // The controlled hand fixture isolates the new player-choice branch.
+    for _ in 0..3 {
+        let battle = game.battle.as_mut().unwrap();
+        battle.hand.push(three_kingdoms_spire_reborn::Card::new("defend"));
+        let index = battle.hand.len();
+        game.apply(Action::Play { index, target: 1 }).unwrap();
+    }
+    assert_eq!(game.battle.as_ref().unwrap().played_this_turn, 3);
+    assert!(game.battle.as_ref().unwrap().block >= 12);
+    // The boss's next intent is deliberately fixed to the same second-phase
+    // raid, not a random new battle or forged enemy.
+    game.battle.as_mut().unwrap().foes[0].intent =
+        Intent::Boss(BossMove::YinpingFlank(1));
+    let saved = game.to_json().unwrap();
+    let mut restored = Game::from_json(&saved).unwrap();
+    let output = game.apply(Action::EndTurn).unwrap();
+    let replayed = restored.apply(Action::EndTurn).unwrap();
+    assert_eq!(output, replayed);
+    assert!(output.join("；").contains("山道援军也被压制"), "{output:?}");
+    let battle = game.battle.as_ref().unwrap();
+    assert_eq!(battle.foes[1].weak, 1);
+    assert_eq!(battle.events.iter().filter(|event|
+        event.source == "yinping_raider_pinned"
+    ).count(), 1);
+    assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
+}
+
+#[test]
 fn defense_only_yinping_interception_weakens_next_attack_and_replays_after_restore() {
     // A controlled floor-40 encounter proves the alternative, defense-focused
     // player action path. This is not natural floor-zero campaign evidence.
