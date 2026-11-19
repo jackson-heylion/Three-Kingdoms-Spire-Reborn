@@ -433,7 +433,7 @@ impl Game {
                     ""
                 };
                 return Some(format!(
-                    "街亭水源：水源剩余{hp}/12；每名存活敌军回合末劫水4点，防御牌每张掩护水源2点（本回合已护{cover}点，上限8点）；本回合预计失水{raid}点。{lethal_warning}水源耗尽立即战败，击退所有敌人即可守住水源。"
+                    "街亭水源：水源剩余{hp}/12；每名存活敌军回合末劫水4点，防御牌每张掩护水源4点（本回合已护{cover}点，上限8点）；本回合预计失水{raid}点。{lethal_warning}水源耗尽立即战败，击退所有敌人即可守住水源。"
                 ));
             }
             let lethal_warning = if hp > 0 && raid >= hp {
