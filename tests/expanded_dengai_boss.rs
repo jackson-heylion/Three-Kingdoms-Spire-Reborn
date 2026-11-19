@@ -201,6 +201,81 @@ fn defense_only_yinping_interception_weakens_next_attack_and_replays_after_resto
     ));
 }
 
+
+#[test]
+fn jieting_three_decisions_have_distinct_replayable_fifth_act_boss_consequences() {
+    use three_kingdoms_spire_reborn::JietingPlan;
+    // Controlled floor-39 staging. The independent natural Jieting test
+    // proves the earlier council can be chosen from floor zero; this
+    // tactical matrix only proves what its three settled outcomes do
+    // after entering Deng Ai through an ordinary Action::Choose.
+    let cases = [
+        (JietingPlan::WaterSettled, "街亭守水", "jieting_yinping_wells"),
+        (JietingPlan::HillSettled, "街亭据山", "jieting_yinping_hills"),
+        (JietingPlan::RetreatSettled, "街亭撤退", "jieting_yinping_retreat"),
+    ];
+    for (plan, warning, event_source) in cases {
+        let mut game = Game::new_with_campaign_difficulty(
+            Hero::ZhugeLiang, 1_u64 << 44, Difficulty::Warlords,
+            format!("jieting-yinping-{event_source}"),
+        );
+        game.apply(Action::SetVariants { act1: 0, act2: 0, act3: 1 })
+            .expect("legal variant choice at floor zero");
+        game.floor = 39;
+        game.stage = Stage::Map;
+        game.jieting_plan = Some(plan);
+        game.act_map = Some(map::ActMap::generate_expanded(|_| 0, 4));
+        game.map_lane = None;
+        game.route = vec![Node::Boss];
+        game.route_lanes = vec![0];
+        let pre = game.to_json().unwrap();
+        let hint = game.route_objective_hint(Node::Boss).expect("read-only boss warning");
+        assert!(hint.contains(warning), "{hint}");
+        assert_eq!(game.to_json().unwrap(), pre, "route preview must not alter state");
+        let feedback = game.apply(Action::Choose { index: 1 })
+            .expect("naturally valid map action enters alternate boss");
+        assert_eq!(game.floor, 40);
+        assert_eq!(game.stage, Stage::Combat);
+        assert!(feedback.join("；").contains(warning), "{feedback:?}");
+        let battle = game.battle.as_ref().unwrap();
+        assert_eq!(battle.foes[0].id, "dengai");
+        assert_eq!(game.jieting_plan, Some(plan), "historical receipt remains stable");
+        assert!(game.tactical_objective().unwrap().contains(warning));
+        assert_eq!(battle.events.iter().filter(|event|
+            event.kind == three_kingdoms_spire_reborn::combat::EventKind::PowerTriggered
+                && event.source == event_source
+        ).count(), 1, "only one cross-act history consequence");
+        match plan {
+            JietingPlan::WaterSettled => {
+                assert!(battle.block >= 10);
+                assert_eq!(battle.foes[0].weak, 2);
+                assert_eq!(battle.foes[0].strength, 0);
+            }
+            JietingPlan::HillSettled => {
+                assert_eq!(battle.strength, 1);
+                assert_eq!(battle.foes[0].strength, 2);
+                assert!(battle.foes[0].block >= 10);
+            }
+            JietingPlan::RetreatSettled => {
+                assert_eq!(battle.energy, 4);
+                assert!(battle.foes[0].block >= 6);
+            }
+            _ => unreachable!(),
+        }
+        let saved = game.to_json().unwrap();
+        let mut restored = Game::from_json(&saved).expect("save retains real boss and history effect");
+        assert_eq!(restored.to_json().unwrap(), saved);
+        let first = game.apply(Action::EndTurn).expect("end real first boss turn");
+        let repeated = restored.apply(Action::EndTurn).expect("same historical boss after resume");
+        assert_eq!(first, repeated);
+        assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
+        if plan == JietingPlan::WaterSettled {
+            assert_eq!(game.battle.as_ref().unwrap().foes[0].weak, 1,
+                "water decision should weaken the next enemy attack, not only the first signature");
+        }
+    }
+}
+
 #[test]
 fn old_campaign_bosses_never_use_yinping_infiltration() {
     let mut old = Game::new(Hero::GuanYu, 1_u64 << 44);
