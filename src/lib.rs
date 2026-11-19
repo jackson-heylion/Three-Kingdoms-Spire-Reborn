@@ -1442,7 +1442,7 @@ impl Game {
                     b.events.iter().rev().find(|event|
                         event.kind == EventKind::EnemyTechnique
                             && event.source == "yinping_raider_escort_levy"
-                    ).map(|event| event.amount.max(0).min(5))
+                    ).map(|event| event.amount.clamp(0, 5))
                 }).unwrap_or(0);
                 if recovered > 0 {
                     self.gold = self.gold.saturating_add(recovered);
