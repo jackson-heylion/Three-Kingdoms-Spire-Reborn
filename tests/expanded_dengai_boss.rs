@@ -102,13 +102,19 @@ fn four_paid_cards_expose_a_real_summoned_raider_for_followup_attack() {
             b.hand.push(three_kingdoms_spire_reborn::Card::new("defend"));
         }
     }
-    for _ in 0..4 {
+    for card_number in 1..=4 {
         let index = game.battle.as_ref().unwrap().hand.iter()
             .position(|card| card.id == "defend").unwrap() + 1;
         game.apply(Action::Play { index, target: 1 })
             .expect("paid defensive action");
+        if card_number < 4 {
+            assert_eq!(game.battle.as_ref().unwrap().foes[1].block, 6,
+                "escort cover must remain until the fourth paid card");
+        }
     }
     assert_eq!(game.battle.as_ref().unwrap().played_this_turn, 4);
+    assert_eq!(game.battle.as_ref().unwrap().foes[1].block, 0,
+        "the fourth card must break cover immediately, while another attack is possible");
     let before = game.to_json().unwrap();
     let mut restored = Game::from_json(&before).unwrap();
     let report = game.apply(Action::EndTurn).unwrap();
@@ -119,7 +125,10 @@ fn four_paid_cards_expose_a_real_summoned_raider_for_followup_attack() {
     assert!(battle.foes[1].vulnerable > 0);
     assert_eq!(battle.foes[1].block, 0,
         "four-card interception must strip the escort's six-point shield");
-    assert!(report.join("；").contains("击破现有护甲6"), "{report:?}");
+    assert!(report.join("；").contains("击破现有护甲0"), "{report:?}");
+    // The six armor was broken by the fourth real card BEFORE EndTurn,
+    // not falsely attributed to an enemy-turn reset. The event survives
+    // the save/resume boundary above.
     assert!(battle.events.iter().any(|e|
         e.source == "yinping_raider_armor_broken" && e.amount == 6
             && e.kind == three_kingdoms_spire_reborn::combat::EventKind::PowerTriggered));
