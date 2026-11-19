@@ -570,6 +570,90 @@ fn natural_chibi_east_wind_three_choices_replay_through_fourth_act() {
 }
 
  
+// End-to-end proof of the same Jieting choice altering the later Deng Ai
+// battlefield. Every transition is a legal Game::apply action from floor zero.
+// No map, hand, enemy, RNG, history flag or checkpoint injection.
+#[test]
+fn natural_jieting_retreat_changes_deng_ai_boss_from_floor_zero() {
+    use three_kingdoms_spire_reborn::JietingPlan;
+    let mut attempts = Vec::new();
+    // Reuse the repository's established small acceptance cohort, not a
+    // widened seed search. An explicit variant choice is a real player action.
+    for seed in 247_510..247_526 {
+        let mut game = Game::new_with_campaign_difficulty(
+            Hero::ZhugeLiang, seed, Difficulty::Warlords,
+            format!("jieting-to-yinping-natural-{seed}"),
+        );
+        game.apply(Action::SetVariants {
+            act1: (seed & 1) as u8, act2: 0, act3: 1,
+        }).expect("legally select fifth-act alternate commander");
+        game.apply(Action::Choose { index: 1 }).expect("begin natural breakout");
+        let mut planned = false;
+        let mut settled = false;
+        let mut failure = None;
+        for _ in 0..900 {
+            if !planned && game.stage == Stage::Story
+                && (25..=30).contains(&game.floor)
+                && (game.lore_hint().contains("4. 召开街亭")
+                    || game.lore_hint().contains("5. 召开街亭"))
+            {
+                let index = if game.lore_hint().contains("5. 召开街亭") { 5 } else { 4 };
+                game.apply(Action::Choose { index }).expect("open real Jieting council");
+                game.apply(Action::Choose { index: 3 }).expect("choose real retreat");
+                assert_eq!(game.jieting_plan, Some(JietingPlan::RetreatPending));
+                let snapshot = game.to_json().expect("natural council snapshot");
+                let restored = Game::from_json(&snapshot).expect("restore Jieting decision");
+                restored.verify_action_replay().expect("council action replay");
+                game = restored;
+                planned = true;
+                continue;
+            }
+            if planned && game.stage == Stage::Combat && (33..=40).contains(&game.floor) {
+                assert_eq!(game.jieting_plan, Some(JietingPlan::RetreatSettled),
+                    "fifth-act settlement must precede the final commander");
+                settled = true;
+            }
+            if settled && game.stage == Stage::Map && game.floor == 39 {
+                // The route warning is read-only and comes from the actual
+                // act-4 variant resolved by the engine.
+                if game.route.contains(&Node::Boss) {
+                    let before = game.to_json().unwrap();
+                    let hint = game.route_objective_hint(Node::Boss);
+                    assert!(hint.is_some_and(|message|
+                        message.contains("街亭撤退保全先机")), "{hint:?}");
+                    assert_eq!(game.to_json().unwrap(), before);
+                }
+            }
+            if game.stage == Stage::Combat && game.floor == 40
+                && game.last_node == Some(Node::Boss)
+            {
+                assert!(planned && settled, "the earlier council and settlement must be real");
+                let battle = game.battle.as_ref().expect("real final boss");
+                assert_eq!(battle.foes[0].id, "dengai");
+                assert_eq!(game.jieting_plan, Some(JietingPlan::RetreatSettled));
+                assert_eq!(battle.energy, 4, "real Jieting retreat adds one opening command");
+                assert!(battle.foes[0].block >= 6);
+                assert_eq!(battle.events.iter().filter(|event|
+                    event.source == "jieting_yinping_retreat"
+                ).count(), 1);
+                game.verify_action_replay().expect("entire natural history and boss replay");
+                game.audit_campaign_authority().expect("natural campaign authority");
+                let saved = game.to_json().expect("true floor-zero historical journey");
+                assert_eq!(Game::from_json(&saved).unwrap().to_json().unwrap(), saved);
+                return;
+            }
+            if matches!(game.stage, Stage::Won | Stage::Lost) { break; }
+            if let Err(e) = advance(&mut game) { failure = Some(e); break; }
+        }
+        attempts.push(format!(
+            "seed {seed}: floor {} stage {:?}, planned={planned} settled={settled}, error={failure:?}",
+            game.floor, game.stage
+        ));
+    }
+    panic!("no real floor-zero Jieting retreat reached alternate Deng Ai in acceptance cohort: {}",
+        attempts.join(" | "));
+}
+
 // A full natural campaign must earn the Jieting decision before testing its
 // battle and fifth-act debt. No injected map, flags, enemies or RNG state.
 #[test]
