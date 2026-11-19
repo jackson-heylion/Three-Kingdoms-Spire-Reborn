@@ -432,9 +432,13 @@ impl Game {
                 } else {
                     ""
                 };
-                let high_ground = if self.jieting_plan == Some(JietingPlan::HillResolved) {
-                    "；据山进攻命中敌军可额外掩护水源2点，亲自击败敌军还能夺回至多4点水源"
-                } else { "" };
+                let high_ground = match self.jieting_plan {
+                    Some(JietingPlan::HillResolved) =>
+                        "；据山进攻命中敌军可额外掩护水源2点，亲自击败敌军还能夺回至多4点水源",
+                    Some(JietingPlan::RetreatResolved) =>
+                        "；撤退布防每次实际增加掩护时可抢救2点水源（上限12）",
+                    _ => "",
+                };
                 return Some(format!(
                     "街亭水源：水源剩余{hp}/12；每名存活敌军回合末劫水4点，防御牌每张掩护水源4点（本回合已护{cover}点，上限8点）{high_ground}；本回合预计失水{raid}点。{lethal_warning}水源耗尽立即战败，击退所有敌人即可守住水源。"
                 ));
@@ -1755,6 +1759,26 @@ impl Game {
                 self.combat_event(EventKind::PowerTriggered, "convoy_cover",
                     i32::from(gained), Some("convoy".into()));
             }
+            // A retreating army can salvage abandoned water only while its
+            // guards actually establish fresh cover. Capped cover cannot be
+            // spammed for free supplies; the same authoritative battle state
+            // drives EndTurn raids, rewards, saves and replay.
+            if water_battle && gained > 0
+                && self.jieting_plan == Some(JietingPlan::RetreatResolved)
+            {
+                let restored = {
+                    let b = self.battle.as_mut().expect("battle");
+                    let water = b.convoy_hp.as_mut().expect("water battle");
+                    let old = *water;
+                    *water = water.saturating_add(2).min(12);
+                    *water - old
+                };
+                if restored > 0 {
+                    self.combat_event(EventKind::PowerTriggered,
+                        "jieting_retreat_water_salvaged", i32::from(restored),
+                        Some("water".into()));
+                }
+            }
         }
         // Guard cards provide an explicit way to extinguish Lu Xun's campfire.
         if matches!(spec.effect, Effect::Guard(_) | Effect::GuardEnergy(_) | Effect::XGuard(_))
@@ -1834,6 +1858,16 @@ impl Game {
                 .unwrap_or(0).saturating_sub(water_before)
         } else { 0 };
         let mut msg = format!("使用了【{}】。", card.name());
+        if !attack && self.jieting_plan == Some(JietingPlan::RetreatResolved)
+            && self.difficulty.is_some() && self.hero == Hero::ZhugeLiang
+            && (26..=31).contains(&self.floor)
+        {
+            let salvaged = self.battle.as_ref().and_then(|b| b.convoy_hp)
+                .unwrap_or(0).saturating_sub(water_before);
+            if salvaged > 0 {
+                msg.push_str(&format!("撤退布防抢救水源{salvaged}点。"));
+            }
+        }
         if suppressed > 0 {
             msg.push_str(&format!("据山攻击压制劫水敌军，水源掩护+{suppressed}点。"));
         }
@@ -2747,7 +2781,7 @@ impl Game {
     }
     pub fn lore_hint(&self) -> String {
         if self.jieting_plan == Some(JietingPlan::Council) {
-            return "【街亭失守·军议】游戏虚构战术推演：\n  1. 扼守水源：耗20金，第四幕下战获14护甲、敌前锋虚弱；第五幕首战护甲+8\n  2. 上山据险：耗8体力，第四幕下战获20护甲、敌前锋武勇+1；水源战开场先损失4点水源，命中敌军可掩护2点水源、亲自击败敌军可夺回至多4点水源；第五幕首战损失至多12金\n  3. 及时撤退：第四幕下战我军护甲+6、敌前锋护甲+8；若为下一场水源战则预留2点掩护；第五幕首战恢复至多8体力".into();
+            return "【街亭失守·军议】游戏虚构战术推演：\n  1. 扼守水源：耗20金，第四幕下战获14护甲、敌前锋虚弱；第五幕首战护甲+8\n  2. 上山据险：耗8体力，第四幕下战获20护甲、敌前锋武勇+1；水源战开场先损失4点水源，命中敌军可掩护2点水源、亲自击败敌军可夺回至多4点水源；第五幕首战损失至多12金\n  3. 及时撤退：第四幕下战我军护甲+6、敌前锋护甲+8；若为下一场水源战则预留2点掩护，防御牌实际增加掩护时抢救2点水源；第五幕首战恢复至多8体力".into();
         }
         if self.chibi_plan == Some(ChibiPlan::Council) {
             return "【赤壁东风·水陆军议】以下为游戏架空战术抉择：\n  1. 借东风火攻：耗20金；第三幕下次战斗敌前锋损8体力并易伤2，己军承担1层可扑灭火势；第四幕首战耗至多12金\n  2. 稳守水军：耗8体力；第三幕下次战斗我军获12护甲，敌前锋虚弱1；第四幕首战获6护甲\n  3. 不介入：第三幕下次战斗敌前锋获12护甲，第四幕首战敌前锋武勇+1".into();
@@ -2864,7 +2898,7 @@ impl Game {
                     (JietingPlan::HillPending, "街亭据山：耗8体力；第四幕下战护甲+20、敌前锋武勇+1，水源战开场失去4点水源；第五幕首战负担12金断水债务。")
                 }
                 2 => return Err("街亭据山至少需要剩余9体力".into()),
-                3 => (JietingPlan::RetreatPending, "街亭撤退：第四幕下战我军护甲+6、敌前锋护甲+8；下一场水源战预留2点掩护；第五幕首战恢复至多8体力。"),
+                3 => (JietingPlan::RetreatPending, "街亭撤退：第四幕下战我军护甲+6、敌前锋护甲+8；下一场水源战预留2点掩护，防御牌有效掩护可抢救2点水源；第五幕首战恢复至多8体力。"),
                 _ => return Err("街亭军议请选1、2或3".into()),
             };
             self.jieting_plan = Some(plan);
