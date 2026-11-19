@@ -433,7 +433,7 @@ impl Game {
                     ""
                 };
                 let high_ground = if self.jieting_plan == Some(JietingPlan::HillResolved) {
-                    "；据山进攻命中敌军可额外掩护水源2点"
+                    "；据山进攻命中敌军可额外掩护水源2点，亲自击败敌军还能夺回至多4点水源"
                 } else { "" };
                 return Some(format!(
                     "街亭水源：水源剩余{hp}/12；每名存活敌军回合末劫水4点，防御牌每张掩护水源4点（本回合已护{cover}点，上限8点）{high_ground}；本回合预计失水{raid}点。{lethal_warning}水源耗尽立即战败，击退所有敌人即可守住水源。"
@@ -1293,13 +1293,13 @@ impl Game {
             if foe.vulnerable > 0 { weakened.saturating_mul(3) / 2 } else { weakened }
         };
         let actual = self.deal_enemy_damage(idx, damage, "hero");
-        self.suppress_jieting_water(actual);
+        self.suppress_jieting_water(idx, actual);
     }
 
     /// Only real player attack damage pins down Jieting water raiders.
     /// Standard and piercing attacks share the same cover cap and event trail;
     /// poison ticks, potions, and other passive damage do not trigger this.
-    fn suppress_jieting_water(&mut self, actual: i32) {
+    fn suppress_jieting_water(&mut self, idx: usize, actual: i32) {
         // The high ground controls raider routes only inside a real Jieting
         // water encounter, never in ordinary combat or legacy campaigns.
         if actual > 0 && self.difficulty.is_some()
@@ -1309,16 +1309,30 @@ impl Game {
             && self.battle.as_ref().is_some_and(|b|
                 b.convoy_hp.is_some() && b.convoy_cover.is_some())
         {
-            let gained = {
+            let (gained, recovered) = {
                 let b = self.battle.as_mut().expect("battle");
                 let old = b.convoy_cover.unwrap_or(0);
                 let next = old.saturating_add(2).min(8);
                 b.convoy_cover = Some(next);
-                next - old
+                // Only a player attack that ACTUALLY defeats a raider can
+                // recapture its diverted water. No round-end poison or ally
+                // attack may claim the same supply. Saturate at the original 12.
+                let recovered = if b.foes[idx].hp == 0 {
+                    if let Some(water) = b.convoy_hp.as_mut() {
+                        let prior = *water;
+                        *water = water.saturating_add(4).min(12);
+                        *water - prior
+                    } else { 0 }
+                } else { 0 };
+                (next - old, recovered)
             };
             if gained > 0 {
                 self.combat_event(EventKind::PowerTriggered, "jieting_hill_suppression",
                     i32::from(gained), Some("water".into()));
+            }
+            if recovered > 0 {
+                self.combat_event(EventKind::PowerTriggered, "jieting_hill_recaptured_wells",
+                    i32::from(recovered), Some("water".into()));
             }
         }
     }
@@ -1523,6 +1537,7 @@ impl Game {
     fn play(&mut self, index: usize, target: usize, selection: Option<usize>) -> Result<String, String> {
         let b = self.battle.as_ref().ok_or("当前不在战斗中")?;
         let cover_before = b.convoy_cover.unwrap_or(0);
+        let water_before = b.convoy_hp.unwrap_or(0);
         let hand_idx = index.checked_sub(1).ok_or("手牌编号从1开始")?;
         let card = b.hand.get(hand_idx).ok_or("无效手牌编号")?.clone();
         let spec = card_spec(&card.id).ok_or("未知卡牌")?;
@@ -1660,7 +1675,7 @@ impl Game {
             Effect::Pierce(n) => {
                 let idx = target_idx.expect("target");
                 let actual = self.deal_enemy_damage_unblockable(idx, n.saturating_add(bonus), "pierce");
-                self.suppress_jieting_water(actual);
+                self.suppress_jieting_water(idx, actual);
             }
             Effect::DrawEnergy(n, energy) => {
                 self.battle.as_mut().expect("battle").energy += energy;
@@ -1809,11 +1824,22 @@ impl Game {
             self.battle.as_ref().and_then(|b| b.convoy_cover)
                 .unwrap_or(0).saturating_sub(cover_before)
         } else { 0 };
-        let msg = if suppressed > 0 {
-            format!("使用了【{}】。据山攻击压制劫水敌军，水源掩护+{suppressed}点。", card.name())
-        } else {
-            format!("使用了【{}】。", card.name())
-        };
+        let recovered_water = if attack
+            && self.jieting_plan == Some(JietingPlan::HillResolved)
+            && self.difficulty.is_some()
+            && self.hero == Hero::ZhugeLiang
+            && (26..=31).contains(&self.floor)
+        {
+            self.battle.as_ref().and_then(|b| b.convoy_hp)
+                .unwrap_or(0).saturating_sub(water_before)
+        } else { 0 };
+        let mut msg = format!("使用了【{}】。", card.name());
+        if suppressed > 0 {
+            msg.push_str(&format!("据山攻击压制劫水敌军，水源掩护+{suppressed}点。"));
+        }
+        if recovered_water > 0 {
+            msg.push_str(&format!("夺回被劫水源{recovered_water}点。"));
+        }
         if spec.exhaust || card.temporary {
             self.combat_event(EventKind::CardExhausted,&card.id,1,None);
             self.battle.as_mut().expect("battle").exhausted.push(card);
@@ -2721,7 +2747,7 @@ impl Game {
     }
     pub fn lore_hint(&self) -> String {
         if self.jieting_plan == Some(JietingPlan::Council) {
-            return "【街亭失守·军议】游戏虚构战术推演：\n  1. 扼守水源：耗20金，第四幕下战获14护甲、敌前锋虚弱；第五幕首战护甲+8\n  2. 上山据险：耗8体力，第四幕下战获20护甲、敌前锋武勇+1；水源战开场先损失4点水源，命中敌军可掩护2点水源；第五幕首战损失至多12金\n  3. 及时撤退：第四幕下战我军护甲+6、敌前锋护甲+8；若为下一场水源战则预留2点掩护；第五幕首战恢复至多8体力".into();
+            return "【街亭失守·军议】游戏虚构战术推演：\n  1. 扼守水源：耗20金，第四幕下战获14护甲、敌前锋虚弱；第五幕首战护甲+8\n  2. 上山据险：耗8体力，第四幕下战获20护甲、敌前锋武勇+1；水源战开场先损失4点水源，命中敌军可掩护2点水源、亲自击败敌军可夺回至多4点水源；第五幕首战损失至多12金\n  3. 及时撤退：第四幕下战我军护甲+6、敌前锋护甲+8；若为下一场水源战则预留2点掩护；第五幕首战恢复至多8体力".into();
         }
         if self.chibi_plan == Some(ChibiPlan::Council) {
             return "【赤壁东风·水陆军议】以下为游戏架空战术抉择：\n  1. 借东风火攻：耗20金；第三幕下次战斗敌前锋损8体力并易伤2，己军承担1层可扑灭火势；第四幕首战耗至多12金\n  2. 稳守水军：耗8体力；第三幕下次战斗我军获12护甲，敌前锋虚弱1；第四幕首战获6护甲\n  3. 不介入：第三幕下次战斗敌前锋获12护甲，第四幕首战敌前锋武勇+1".into();

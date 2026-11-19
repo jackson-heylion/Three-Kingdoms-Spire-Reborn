@@ -497,3 +497,36 @@ fn jieting_hill_real_attack_suppresses_raiders_and_replays_after_restore() {
     loaded.apply(Action::EndTurn).expect("restored raid after attacking");
     assert_eq!(game.to_json().unwrap(), loaded.to_json().unwrap());
 }
+
+#[test]
+fn jieting_hill_killing_raider_recaptures_real_water_without_new_save_state() {
+    // Controlled tactical contract, NOT a natural 1->26 campaign. Enemy HP
+    // and hand are set solely to isolate the player's legal finishing blow.
+    let mut game = Game::new_with_campaign_difficulty(
+        Hero::ZhugeLiang, 247_530, Difficulty::Warlords,
+        "jieting-hill-recapture".into(),
+    );
+    game.floor = 25;
+    game.stage = Stage::Story;
+    game.apply(Action::Choose { index: 4 }).expect("open Jieting council");
+    game.apply(Action::Choose { index: 2 }).expect("choose high-ground risk");
+    game.apply(Action::Choose { index: 1 }).expect("enter water defense");
+    assert_eq!(game.battle.as_ref().unwrap().convoy_hp, Some(8));
+    {
+        let b = game.battle.as_mut().unwrap();
+        b.foes[0].hp = 1;
+        b.foes[0].block = 0;
+        b.hand.insert(0, three_kingdoms_spire_reborn::Card::new("strike"));
+    }
+    let notice = game.tactical_objective().expect("player-visible objective");
+    assert!(notice.contains("击败敌军还能夺回至多4点水源"), "{notice}");
+    let out = game.apply(Action::Play { index: 1, target: 1 }).expect("real finishing blow");
+    assert!(out.join("；").contains("夺回被劫水源4点"), "{out:?}");
+    // The battle may have won on the killing blow, but its event journal
+    // must retain the one-time water recovery before final settlement.
+    assert!(game.event_history.as_ref().unwrap().iter().any(|e|
+        e.event.source == "jieting_hill_recaptured_wells" && e.event.amount == 4));
+    let save = game.to_json().expect("save real recapture result");
+    let resumed = Game::from_json(&save).expect("restore recaptured water");
+    assert_eq!(resumed.to_json().unwrap(), save);
+}
