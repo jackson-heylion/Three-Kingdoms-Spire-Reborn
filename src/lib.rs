@@ -2401,6 +2401,16 @@ impl Game {
                         self.combat_event(EventKind::EnemyTechnique,
                             "yinping_raider_escort_levy", escort_stolen,
                             Some("gold".into()));
+                        // Carrying stolen supplies exposes the raider's flank:
+                        // the player can punish the failed defense next turn.
+                        // Apply before the normal turn-end status tick so the
+                        // surviving vulnerability remains replayable.
+                        if let Some(raider_idx) = self.battle.as_ref().and_then(|battle|
+                            battle.foes.iter().position(|foe|
+                                foe.id == "assassin" && foe.hp > 0))
+                        {
+                            self.apply_foe_status(raider_idx, "vulnerable", 2);
+                        }
                     }
                     let shield = 6 + 3 * i32::from(phase);
                     // The phase-two failure can divert a mountain vanguard to
@@ -2438,7 +2448,7 @@ impl Game {
                         if phase > 0 { "，下回合军令-1" } else { "" },
                         if summoned.is_some() { "，山道援兵已出现（下回合才行动）" } else { "" },
                         if screened_raider.is_some() { "，护阵牵制已有山道援军，攻击虚弱且阻止追加掠金" } else { "" },
-                        if escort_stolen > 0 { format!("，山道援军协同多掠金{escort_stolen}") } else { String::new() })
+                        if escort_stolen > 0 { format!("，山道援军协同多掠金{escort_stolen}，负重暴露破绽（易伤）") } else { String::new() })
                 }
             }
             BossMove::StarOmen(phase) => {
