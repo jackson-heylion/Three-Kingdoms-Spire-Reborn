@@ -63,6 +63,7 @@ fn three_real_play_actions_intercept_yinping_raid_and_preserve_resources() {
     let replayed = loaded.apply(Action::EndTurn).expect("restored counter");
     assert_eq!(result, replayed);
     assert!(result.join("；").contains("阴平偷渡被截击"));
+    assert!(result.join("；").contains("夺回辎重获得护甲+4"));
     assert_eq!(game.gold, start_gold);
     assert!(game.battle.as_ref().unwrap().foes[0].vulnerable >= 2);
     assert_eq!(game.to_json().unwrap(), loaded.to_json().unwrap());
