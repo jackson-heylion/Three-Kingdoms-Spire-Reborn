@@ -429,6 +429,55 @@ fn jieting_retreat_reserve_rewards_actual_yinping_interception_after_restore() {
 }
 
 #[test]
+fn jieting_retreat_recovers_command_only_after_direct_yinping_vanguard_break() {
+    use three_kingdoms_spire_reborn::JietingPlan;
+    // Controlled fifth-act tactical fixture, not a natural floor-zero win.
+    let mut game = Game::new_with_campaign_difficulty(
+        Hero::ZhugeLiang, 1_u64 << 44, Difficulty::Warlords,
+        "retreat-yinping-command".into(),
+    );
+    game.floor = 39;
+    game.stage = Stage::Map;
+    game.jieting_plan = Some(JietingPlan::RetreatSettled);
+    game.act_map = Some(map::ActMap::generate_expanded(|_| 0, 4));
+    game.map_lane = None;
+    game.route = vec![Node::Boss];
+    game.route_lanes = vec![0];
+    assert!(game.route_objective_hint(Node::Boss).unwrap().contains("回收1点军令"));
+    game.apply(Action::Choose { index: 1 }).expect("enter fifth-act alternate commander");
+    assert!(game.tactical_objective().unwrap().contains("回收1点军令"));
+    {
+        let battle = game.battle.as_mut().unwrap();
+        battle.foes[0].phase = 1;
+        battle.foes[0].intent = Intent::Boss(BossMove::YinpingFlank(1));
+    }
+    game.apply(Action::EndTurn).expect("summon telegraphed mountain raider");
+    {
+        let battle = game.battle.as_mut().unwrap();
+        assert_eq!(battle.foes[1].id, "assassin");
+        battle.foes[1].hp = 1;
+        battle.foes[1].block = 0;
+        battle.energy = 1;
+        battle.hand.push(three_kingdoms_spire_reborn::Card::new("strike"));
+    }
+    let index = game.battle.as_ref().unwrap().hand.len();
+    let saved = game.to_json().expect("save before real action");
+    let mut restored = Game::from_json(&saved).expect("restore before action");
+    let feedback = game.apply(Action::Play { index, target: 2 }).expect("defeat real raider");
+    let replay_feedback = restored.apply(Action::Play { index, target: 2 })
+        .expect("identical restored action");
+    assert_eq!(feedback, replay_feedback);
+    assert!(feedback.join("；").contains("街亭撤退旧部截断山道，回收军令+1"));
+    let battle = game.battle.as_ref().unwrap();
+    assert_eq!(battle.energy, 1, "one command spent and one recaptured");
+    assert_eq!(battle.foes[1].hp, 0);
+    assert_eq!(battle.events.iter().filter(|event|
+        event.source == "jieting_yinping_retreat_command" && event.amount == 1
+    ).count(), 1);
+    assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
+}
+
+#[test]
 fn old_campaign_bosses_never_use_yinping_infiltration() {
     let mut old = Game::new(Hero::GuanYu, 1_u64 << 44);
     old.floor = 20;
