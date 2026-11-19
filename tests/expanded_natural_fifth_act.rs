@@ -5,6 +5,10 @@ use three_kingdoms_spire_reborn::{
 };
 
 fn fight(game: &mut Game) -> Result<(), String> {
+    // Preserve an actionable trace if a natural high-ground water-defense run
+    // ends in defeat. This records READ-ONLY state before real player actions;
+    // no hand, map, foe, historical flag or RNG is ever injected.
+    let mut hill_water_trace: Vec<String> = Vec::new();
     for _ in 0..32 {
         if game.stage != Stage::Combat { return Ok(()); }
         if game.battle.as_ref().is_some_and(|b| b.siege_gate_hp.is_some() && b.energy >= 2) {
@@ -87,7 +91,33 @@ fn fight(game: &mut Game) -> Result<(), String> {
             guarded |= is_guard;
             if game.stage != Stage::Combat { break; }
         }
-        if game.stage == Stage::Combat { game.apply(Action::EndTurn)?; }
+        if game.stage == Stage::Combat {
+            let trace_before = if game.hero == Hero::ZhugeLiang
+                && (26..=31).contains(&game.floor)
+                && game.jieting_plan == Some(three_kingdoms_spire_reborn::JietingPlan::HillResolved)
+            {
+                let battle = game.battle.as_ref().expect("real hill battle");
+                Some(format!(
+                    "turn={} hp={} water={:?} cover={:?} energy={} living={} hand={} foes={:?}",
+                    battle.turn, game.hp, battle.convoy_hp, battle.convoy_cover,
+                    battle.energy, battle.foes.iter().filter(|f| f.hp > 0).count(),
+                    battle.hand.len(),
+                    battle.foes.iter().filter(|f| f.hp > 0)
+                        .map(|f| format!("{}:hp{}:block{}:{:?}", f.id, f.hp, f.block, f.intent))
+                        .collect::<Vec<_>>()
+                ))
+            } else { None };
+            let outcome = game.apply(Action::EndTurn)?;
+            if let Some(before) = trace_before {
+                hill_water_trace.push(format!("{before} => {}", outcome.join("；")));
+                if game.stage == Stage::Lost {
+                    return Err(format!(
+                        "Jieting natural high-ground defeat, authoritative turn trace: {}",
+                        hill_water_trace.join(" | ")
+                    ));
+                }
+            }
+        }
     }
     if game.stage == Stage::Combat { return Err("combat unresolved after 32 turns".into()); }
     Ok(())
