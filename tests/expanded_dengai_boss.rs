@@ -74,6 +74,46 @@ fn three_real_play_actions_intercept_yinping_raid_and_preserve_resources() {
     assert_eq!(game.to_json().unwrap(), loaded.to_json().unwrap());
 }
 
+
+#[test]
+fn second_phase_unchecked_yinping_calls_one_telegraphed_raider_after_save_restore() {
+    // This is an isolated phase-two tactical fixture, NOT evidence that a
+    // natural 0-to-40 campaign can reach the second phase or defeat it.
+    let mut game = fifth_act_alternate_boss();
+    game.apply(Action::Choose { index: 1 }).expect("enter fifth-act boss");
+    {
+        let b = game.battle.as_mut().expect("controlled encounter");
+        b.foes[0].phase = 1;
+        b.foes[0].intent = Intent::Boss(BossMove::YinpingFlank(1));
+    }
+    let preview = game.battle.as_ref().unwrap().foes[0].intent.label();
+    assert!(preview.contains("至少4张牌") && preview.contains("护甲达到12"));
+    assert!(preview.contains("首次失守还会召集援兵"), "{preview}");
+
+    let entry = game.to_json().expect("phase-two tactical save");
+    let mut resumed = Game::from_json(&entry).expect("resume phase-two tactical fixture");
+    let gold_before = game.gold;
+    let messages = game.apply(Action::EndTurn).expect("let the telegraphed raid land");
+    let resumed_messages = resumed.apply(Action::EndTurn).expect("replay raid after resume");
+    assert_eq!(messages, resumed_messages);
+    assert_eq!(game.to_json().unwrap(), resumed.to_json().unwrap());
+    assert_eq!(game.gold, gold_before - 15);
+    assert!(messages.join("；").contains("山道援兵已出现（下回合才行动）"));
+    let battle = game.battle.as_ref().expect("raider cannot act before its first preview");
+    assert_eq!(battle.foes.len(), 2);
+    assert_eq!(battle.foes[1].id, "assassin");
+    assert!(battle.foes[1].hp > 0);
+    let summons: Vec<_> = battle.events.iter().filter(|e|
+        e.kind == three_kingdoms_spire_reborn::combat::EventKind::FoeSummoned
+            && e.source == "assassin").collect();
+    assert_eq!(summons.len(), 1, "summon must be a single authoritative event");
+    // The player's next decision sees the new foe's real, already-rolled
+    // intent. Neither the CLI nor the test invents the next enemy action.
+    assert!(!battle.foes[1].intent.label().is_empty());
+    let restored = Game::from_json(&game.to_json().unwrap()).expect("summoned foe survives save");
+    assert_eq!(restored.battle.unwrap().foes[1].id, "assassin");
+}
+
 #[test]
 fn old_campaign_bosses_never_use_yinping_infiltration() {
     let mut old = Game::new(Hero::GuanYu, 1_u64 << 44);
