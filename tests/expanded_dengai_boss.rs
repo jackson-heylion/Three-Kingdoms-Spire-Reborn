@@ -150,9 +150,13 @@ fn player_attack_on_summoned_vanguard_cuts_yinping_supply_route_once() {
             && event.kind == three_kingdoms_spire_reborn::combat::EventKind::DamageDealt
     ).count(), 1);
     assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
+    // An invalid target must be exercised with a card that actually
+    // requires a target. A guard or utility card ignores the target number.
+    game.battle.as_mut().unwrap().hand.push(three_kingdoms_spire_reborn::Card::new("strike"));
+    let dead_target_attack = game.battle.as_ref().unwrap().hand.len();
     let settled = game.to_json().unwrap();
-    assert!(game.apply(Action::Play { index: 1, target: 2 }).is_err(),
-        "defeated raider must not trigger another counter");
+    assert!(game.apply(Action::Play { index: dead_target_attack, target: 2 }).is_err(),
+        "defeated raider must reject a real targeted attack");
     assert_eq!(game.to_json().unwrap(), settled, "invalid action must be atomic");
 }
 
