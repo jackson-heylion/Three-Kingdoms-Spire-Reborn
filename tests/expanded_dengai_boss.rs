@@ -401,6 +401,46 @@ fn surviving_raider_escorts_extra_gold_unless_defeated_or_guarded() {
 }
 
 #[test]
+fn exposed_escort_loot_can_be_recovered_after_commander_falls() {
+    // A controlled phase-two encounter: real EndTurn summons the escort
+    // and records the gold levy. The commander is then staged as defeated
+    // to isolate the player's remaining tactical choice, not as a natural
+    // floor-zero campaign completion.
+    let mut game = fifth_act_alternate_boss();
+    game.apply(Action::Choose { index: 1 }).unwrap();
+    {
+        let battle = game.battle.as_mut().unwrap();
+        battle.foes[0].phase = 1;
+        battle.foes[0].intent = Intent::Boss(BossMove::YinpingFlank(1));
+    }
+    game.apply(Action::EndTurn).expect("summon actual escort");
+    game.battle.as_mut().unwrap().foes[0].intent =
+        Intent::Boss(BossMove::YinpingFlank(1));
+    game.apply(Action::EndTurn).expect("record actual escorted levy");
+    {
+        let battle = game.battle.as_mut().unwrap();
+        assert_eq!(battle.foes[1].vulnerable, 1);
+        battle.foes[0].hp = 0;
+        battle.foes[1].hp = 1;
+        battle.foes[1].block = 0;
+        battle.hand.push(three_kingdoms_spire_reborn::Card::new("strike"));
+    }
+    let before = game.gold;
+    let save = game.to_json().expect("save pending direct counterplay");
+    let mut resumed = Game::from_json(&save).expect("restore pending direct counterplay");
+    let card = game.battle.as_ref().unwrap().hand.len();
+    let result = game.apply(Action::Play { index: card, target: 2 })
+        .expect("directly defeat exposed escort");
+    assert_eq!(result, resumed.apply(Action::Play { index: card, target: 2 }).unwrap());
+    assert_eq!(game.to_json().unwrap(), resumed.to_json().unwrap());
+    assert_eq!(game.gold, before + 5,
+        "the actual levy is recoverable even without a living commander");
+    assert_eq!(game.battle.as_ref().unwrap().events.iter().filter(|e|
+        e.source == "yinping_escort_gold_recovered" && e.amount == 5
+    ).count(), 1);
+}
+
+#[test]
 fn ten_armor_after_a_failed_raid_screens_existing_vanguard_without_free_interception() {
     // Controlled second-phase opponent and cards; energy stays on the real
     // two-point penalty from the first failed raid. This is not 0→40 evidence.
