@@ -70,7 +70,7 @@ impl Game {
             mode: RunMode::Standard, run_id: String::new(), profile_start_receipt: false,
             act_map: None, map_lane: None, route_lanes: Vec::new(),
             lore_flags: vec![], lore_seen: vec![], lore_current: None,
-            wuchao_plan: None, chibi_plan: None, easter_unlocked: Vec::new(),
+            wuchao_plan: None, chibi_plan: None, jieting_plan: None, easter_unlocked: Vec::new(),
         };
         game.refresh_route();
         // Map generation consumes RNG before revision zero is committed.
@@ -105,5 +105,16 @@ impl Game {
         let choices = self.act_map.as_ref().expect("generated").routes(row,self.map_lane);
         self.route_lanes = choices.iter().map(|(lane,_)| *lane).collect();
         self.route = choices.iter().map(|(_,node)| *node).collect();
+        // The water-defense encounter is a consequence of Zhuge Liang's
+        // committed Jieting council, not a global map mutation affecting all
+        // heroes and seeds. Preserve the seeded topology and terrain.
+        if self.difficulty.is_some() && self.hero == Hero::ZhugeLiang
+            && (26..=31).contains(&next) && matches!(self.jieting_plan,
+                Some(crate::JietingPlan::WaterPending
+                    | crate::JietingPlan::HillPending
+                    | crate::JietingPlan::RetreatPending))
+        {
+            self.route.fill(crate::Node::Battle);
+        }
     }
 }

@@ -241,6 +241,23 @@ mod tests {
         }
     }
     #[test]
+    fn fourth_act_second_floor_preserves_seeded_encounter_variety() {
+        let mut non_battle = false;
+        for seed in 1..=250u64 {
+            let mut state = seed.wrapping_mul(1597334677);
+            let map = ActMap::generate_expanded(|n| {
+                state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+                ((state >> 32) as usize) % n
+            }, 3);
+            assert_eq!(map.rows[0][1], Node::Story, "seed={seed}");
+            non_battle |= map.rows[1].iter().any(|node| *node != Node::Battle);
+            assert!(map.is_valid(), "seed={seed}");
+            assert!(!map.routes(1, Some(1)).is_empty(), "seed={seed}");
+        }
+        assert!(non_battle, "the map must not force a battle for every hero");
+    }
+
+    #[test]
     fn expanded_maps_have_five_distinct_eight_row_acts_and_replayable_routes() {
         for seed in 1..=250u64 {
             for act in 0..EXPANDED_ACTS {

@@ -5,6 +5,10 @@ use three_kingdoms_spire_reborn::{
 };
 
 fn fight(game: &mut Game) -> Result<(), String> {
+    // Preserve an actionable trace if a natural high-ground water-defense run
+    // ends in defeat. This records READ-ONLY state before real player actions;
+    // no hand, map, foe, historical flag or RNG is ever injected.
+    let mut hill_water_trace: Vec<String> = Vec::new();
     for _ in 0..32 {
         if game.stage != Stage::Combat { return Ok(()); }
         if game.battle.as_ref().is_some_and(|b| b.siege_gate_hp.is_some() && b.energy >= 2) {
@@ -24,10 +28,32 @@ fn fight(game: &mut Game) -> Result<(), String> {
                     .filter(|(_, foe)| foe.hp > 0)
                     .min_by_key(|(_, foe)| foe.hp)
                     .map(|(index, _)| index + 1)?;
-                let defend = !guarded && b.block < 8 && b.foes.iter().any(|foe|
-                    foe.hp > 0 && matches!(foe.intent, three_kingdoms_spire_reborn::Intent::Attack(_)
-                        | three_kingdoms_spire_reborn::Intent::MultiAttack(_, _))
-                );
+                // The water/convoy objective is independent of hero block.
+                // A guard card protects the objective even when the hero already
+                // has armor, and several guards can be necessary in one turn.
+                let raiders = b.foes.iter().filter(|foe| foe.hp > 0).count() as u8;
+                // Scope objective-first defense to the Jieting water battle.
+                // Applying it to the ordinary early-floor grain convoy changed
+                // card ordering and caused every fixed Zhuge Liang seed to die
+                // before the council in the previous two-platform CI.
+                let incoming_water_loss = raiders.saturating_mul(4)
+                    .saturating_sub(b.convoy_cover.unwrap_or(0));
+                let water_objective = game.hero == Hero::ZhugeLiang
+                    && (26..=31).contains(&game.floor)
+                    && b.convoy_hp.is_some();
+                let threatened_objective = water_objective
+                    && b.convoy_hp.is_some_and(|hp| incoming_water_loss >= hp);
+                // Preserve water before it reaches the lethal threshold. Waiting
+                // until the last four points cannot recover already-lost supply.
+                // One proactive guard per turn avoids starving damage cards; a
+                // lethal raid permits additional guards through Game::apply.
+                let protect_water = water_objective && incoming_water_loss > 0
+                    && (!guarded || threatened_objective);
+                let defend = protect_water || (!guarded && b.block < 8
+                    && b.foes.iter().any(|foe| foe.hp > 0 && matches!(
+                        foe.intent, three_kingdoms_spire_reborn::Intent::Attack(_)
+                            | three_kingdoms_spire_reborn::Intent::MultiAttack(_, _)
+                    )));
                 // Use the cards actually acquired during the 40-floor campaign.
                 // The former driver ignored every reward card except wushuang,
                 // so its late-game survival did not measure the available build.
@@ -51,6 +77,8 @@ fn fight(game: &mut Game) -> Result<(), String> {
                         | Effect::Pierce(_) | Effect::HitWeak(_, _)
                         | Effect::HitVulnerable(_, _) | Effect::Leech(_)
                         | Effect::HitPoison(_, _) => 2,
+                        Effect::Guard(_) | Effect::GuardEnergy(_) | Effect::XGuard(_)
+                            if protect_water => 1,
                         Effect::Guard(_) | Effect::GuardEnergy(_) | Effect::XGuard(_) => 3,
                         _ => 4,
                     };
@@ -63,7 +91,33 @@ fn fight(game: &mut Game) -> Result<(), String> {
             guarded |= is_guard;
             if game.stage != Stage::Combat { break; }
         }
-        if game.stage == Stage::Combat { game.apply(Action::EndTurn)?; }
+        if game.stage == Stage::Combat {
+            let trace_before = if game.hero == Hero::ZhugeLiang
+                && (26..=31).contains(&game.floor)
+                && game.jieting_plan == Some(three_kingdoms_spire_reborn::JietingPlan::HillResolved)
+            {
+                let battle = game.battle.as_ref().expect("real hill battle");
+                Some(format!(
+                    "turn={} hp={} water={:?} cover={:?} energy={} living={} hand={} foes={:?}",
+                    battle.turn, game.hp, battle.convoy_hp, battle.convoy_cover,
+                    battle.energy, battle.foes.iter().filter(|f| f.hp > 0).count(),
+                    battle.hand.len(),
+                    battle.foes.iter().filter(|f| f.hp > 0)
+                        .map(|f| format!("{}:hp{}:block{}:{:?}", f.id, f.hp, f.block, f.intent))
+                        .collect::<Vec<_>>()
+                ))
+            } else { None };
+            let outcome = game.apply(Action::EndTurn)?;
+            if let Some(before) = trace_before {
+                hill_water_trace.push(format!("{before} => {}", outcome.join("；")));
+                if game.stage == Stage::Lost {
+                    return Err(format!(
+                        "Jieting natural high-ground defeat, authoritative turn trace: {}",
+                        hill_water_trace.join(" | ")
+                    ));
+                }
+            }
+        }
     }
     if game.stage == Stage::Combat { return Err("combat unresolved after 32 turns".into()); }
     Ok(())
@@ -447,5 +501,97 @@ fn natural_chibi_east_wind_three_choices_replay_through_fourth_act() {
         assert!(completed,
             "no natural Red Cliffs choice {choice} reached third-/fourth-act battle: {}",
             attempts.join(" | "));
+    }
+}
+
+ 
+// A full natural campaign must earn the Jieting decision before testing its
+// battle and fifth-act debt. No injected map, flags, enemies or RNG state.
+#[test]
+fn natural_jieting_three_choices_replay_into_fifth_act() {
+    use three_kingdoms_spire_reborn::JietingPlan;
+    for choice in [1, 2, 3] {
+        let mut attempts = Vec::new();
+        let mut completed = false;
+        for seed in 247_510..247_526 {
+            let mut game = Game::new_with_campaign_difficulty(
+                Hero::ZhugeLiang, seed, Difficulty::Warlords,
+                format!("jieting-natural-{choice}-{seed}"),
+            );
+            game.apply(Action::Choose { index: 1 }).expect("natural opening");
+            let mut planned = false;
+            let mut water_battle = false;
+            let mut error = None;
+            for _ in 0..900 {
+                if !planned && game.stage == Stage::Story
+                    && (25..=30).contains(&game.floor)
+                    && (game.lore_hint().contains("4. 召开街亭")
+                        || game.lore_hint().contains("5. 召开街亭"))
+                    && (choice != 1 || game.gold >= 20)
+                    && (choice != 2 || game.hp > 8)
+                {
+                    let council_index = if game.lore_hint().contains("5. 召开街亭") { 5 } else { 4 };
+                    game.apply(Action::Choose { index: council_index }).expect("open natural Jieting council");
+                    assert_eq!(game.jieting_plan, Some(JietingPlan::Council));
+                    let before_invalid = game.to_json().unwrap();
+                    assert!(game.apply(Action::Choose { index: 99 }).is_err());
+                    assert_eq!(game.to_json().unwrap(), before_invalid);
+                    game.apply(Action::Choose { index: choice }).expect("choose Jieting tactic");
+                    assert_eq!(game.jieting_plan, Some(match choice {
+                        1 => JietingPlan::WaterPending,
+                        2 => JietingPlan::HillPending,
+                        _ => JietingPlan::RetreatPending,
+                    }));
+                    let saved = game.to_json().expect("council save");
+                    let restored = Game::from_json(&saved).expect("council restore");
+                    assert_eq!(restored.to_json().unwrap(), saved);
+                    restored.verify_action_replay().expect("council replay");
+                    game = restored;
+                    planned = true;
+                } else if planned && !water_battle && game.stage == Stage::Combat
+                    && (26..=31).contains(&game.floor)
+                {
+                    assert_eq!(game.jieting_plan, Some(match choice {
+                        1 => JietingPlan::WaterResolved,
+                        2 => JietingPlan::HillResolved,
+                        _ => JietingPlan::RetreatResolved,
+                    }));
+                    let battle = game.battle.as_ref().expect("natural water battle");
+                    assert!(battle.convoy_hp.is_some(), "Jieting must have a water objective");
+                    if choice == 2 { assert_eq!(battle.convoy_hp, Some(8)); }
+                    if choice == 1 { assert_eq!(battle.convoy_cover, Some(4)); }
+                    if choice == 3 { assert_eq!(battle.convoy_cover, Some(2)); }
+                    game.verify_action_replay().expect("water battle replay");
+                    water_battle = true;
+                } else if water_battle && game.stage == Stage::Combat
+                    && (33..=40).contains(&game.floor)
+                {
+                    assert_eq!(game.jieting_plan, Some(match choice {
+                        1 => JietingPlan::WaterSettled,
+                        2 => JietingPlan::HillSettled,
+                        _ => JietingPlan::RetreatSettled,
+                    }));
+                    game.audit_campaign_authority().expect("Jieting authority");
+                    game.verify_action_replay().expect("Jieting replay");
+                    let saved = game.to_json().expect("fifth-act save");
+                    let restored = Game::from_json(&saved).expect("fifth-act restore");
+                    assert_eq!(restored.to_json().unwrap(), saved);
+                    restored.verify_action_replay().expect("restored fifth-act replay");
+                    completed = true;
+                    break;
+                } else if matches!(game.stage, Stage::Lost | Stage::Won) {
+                    break;
+                } else if let Err(e) = advance(&mut game) {
+                    error = Some(e);
+                    break;
+                }
+            }
+            if completed { break; }
+            attempts.push(format!(
+                "seed {seed}: floor {} {:?}, planned={planned}, water_battle={water_battle}, error={error:?}",
+                game.floor, game.stage
+            ));
+        }
+        assert!(completed, "no natural Jieting choice {choice} reached fifth-act settlement: {}", attempts.join(" | "));
     }
 }

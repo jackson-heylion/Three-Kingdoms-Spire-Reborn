@@ -100,6 +100,14 @@ pub enum ChibiPlan {
     FireBattleResolved, FleetBattleResolved, DeclineBattleResolved,
     FireSettled, FleetSettled, DeclineSettled,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JietingPlan {
+    Council,
+    WaterPending, HillPending, RetreatPending,
+    WaterResolved, HillResolved, RetreatResolved,
+    WaterSettled, HillSettled, RetreatSettled,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -125,6 +133,8 @@ pub enum BossMove {
     Mirage(i32),       // 左慈：回复并立盾
     FireCamp(u8),      // 陆逊：积累可用防御牌扑灭的焚营火势
     WhiteClothes,      // 吕蒙：按回合末护甲判定是否识破白衣伏兵
+    NorthernExpedition(u8),
+    StarOmen(u8), // Fifth-act celestial omen; defend to expose the illusion // 姜维：兵粮封锁，可用护甲识破并反制
 }
 impl BossMove {
     pub fn label(&self) -> String {
@@ -137,6 +147,8 @@ impl BossMove {
             Self::Mirage(n) => format!("幻身遁甲 回复{n}并获得护甲"),
             Self::FireCamp(n) => format!("焚营火攻：增添{n}层火势（每层回合末灼伤2体力；打出防御牌可扑灭）"),
             Self::WhiteClothes => "白衣渡江：回合末护甲至少8可识破伏兵并使吕蒙易伤；否则下回合军令-1".into(),
+            Self::NorthernExpedition(n) => format!("北伐断粮：回合末护甲至少{}可守住粮道并使姜维易伤；否则下回合军令-1并混入军心涣散", 8 + i32::from(*n) * 2),
+            Self::StarOmen(phase) => format!("星象幻阵：回合末护甲至少{}可识破幻象并使左慈易伤；否则左慈加甲且弃牌堆混入军心涣散", 9 + i32::from(*phase) * 2),
         }
     }
 }
@@ -349,6 +361,8 @@ pub struct Game {
     pub wuchao_plan: Option<WuchaoPlan>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chibi_plan: Option<ChibiPlan>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jieting_plan: Option<JietingPlan>,
     #[serde(default)] pub easter_unlocked: Vec<String>,
 }
 
@@ -390,6 +404,15 @@ impl Game {
             1 => Some("粮道保卫：下一层护送粮车；存活敌军每回合劫粮，防御牌可护粮"),
             2 => Some("伏击：下一层敌军前锋以8点护甲设伏；破甲后击退敌军可获16金反制赏金"),
             3 => Some("攻城：下一层须在第5回合前以 assault 指令消耗2军令攻城，每次削减4点城门耐久；城门破即获胜"),
+            25..=30 if self.hero == Hero::ZhugeLiang && matches!(self.jieting_plan, Some(JietingPlan::WaterPending | JietingPlan::HillPending | JietingPlan::RetreatPending)) => {
+                if self.jieting_plan == Some(JietingPlan::HillPending) {
+                    Some("街亭据山：下一场水源战开场先损失4点水源；敌军每回合劫水，防御牌可护水，水源耗尽立即战败")
+                } else if self.jieting_plan == Some(JietingPlan::WaterPending) {
+                    Some("街亭守水：下一层守住水源；防御掩护实际抵消劫水且水源未耗尽时，可在回合末抢修至多2点水源")
+                } else {
+                    Some("街亭水源：下一层守住水源；敌军每回合劫水，防御牌可掩护水源，水源耗尽立即战败")
+                }
+            },
             _ => None,
         }
     }
@@ -405,6 +428,25 @@ impl Game {
         {
             let living = b.foes.iter().filter(|foe| foe.hp > 0).count();
             let raid = (living as u8).saturating_mul(4).saturating_sub(cover).min(hp);
+            if (26..=31).contains(&self.floor) {
+                let lethal_warning = if hp > 0 && raid >= hp {
+                    "警告：本回合水源将被夺！请击退敌人或打出防御牌。"
+                } else {
+                    ""
+                };
+                let high_ground = match self.jieting_plan {
+                    Some(JietingPlan::WaterResolved) =>
+                        "；守水布防若掩护成功且本回合水源未耗尽，劫水后抢修至多2点水源",
+                    Some(JietingPlan::HillResolved) =>
+                        "；据山进攻命中敌军可额外掩护水源2点，亲自击败敌军还能夺回至多4点水源",
+                    Some(JietingPlan::RetreatResolved) =>
+                        "；撤退布防每次实际增加掩护时可抢救2点水源（上限12）",
+                    _ => "",
+                };
+                return Some(format!(
+                    "街亭水源：水源剩余{hp}/12；每名存活敌军回合末劫水4点，防御牌每张掩护水源4点（本回合已护{cover}点，上限8点）{high_ground}；本回合预计失水{raid}点。{lethal_warning}水源耗尽立即战败，击退所有敌人即可守住水源。"
+                ));
+            }
             let lethal_warning = if hp > 0 && raid >= hp {
                 "警告：本回合粮车将被毁！请击退敌人或打出防御牌。"
             } else {
@@ -538,6 +580,7 @@ impl Game {
                 (1,0) => "dongzhuo", (1,_) => "yuanshao",
                 (2,0) => "simayi", (3,0) if self.difficulty.is_some() => "luxun",
                 (3,_) if self.difficulty.is_some() => "lumeng",
+                (4,0) if self.difficulty.is_some() => "jiangwei",
                 _ => "zuoci",
             }],
             Node::Elite => {
@@ -613,9 +656,11 @@ impl Game {
                     "dongzhuo" => Some(BossMove::TyrantLevy((attack-3).max(3)+second*2)),
                     "yuanshao" => Some(BossMove::GrandAlliance(7+act*2+second*4)),
                     "simayi" => Some(BossMove::HiddenScheme(1+foe.phase.min(1))),
+                    "zuoci" if difficulty.is_some() && act == 4 => Some(BossMove::StarOmen(foe.phase)),
                     "zuoci" => Some(BossMove::Mirage(7+act*2+second*3)),
                     "luxun" => Some(BossMove::FireCamp(2+foe.phase)),
                     "lumeng" => Some(BossMove::WhiteClothes),
+                    "jiangwei" => Some(BossMove::NorthernExpedition(foe.phase)),
                     _ => None,
                 }
             } else { None };
@@ -708,10 +753,14 @@ impl Game {
             combo: 0, command: 0, fury: 0, thorns: 0, played: 0,
             played_this_turn: 0, last_turn_cards: 0, next_turn_energy_penalty: 0,
             wildfire: 0,
-            convoy_hp: (self.difficulty.is_some() && self.floor == 2
-                && node == Node::Battle).then_some(12),
-            convoy_cover: (self.difficulty.is_some() && self.floor == 2
-                && node == Node::Battle).then_some(0),
+            convoy_hp: (self.difficulty.is_some() && node == Node::Battle
+                && (self.floor == 2 || ((26..=31).contains(&self.floor) && self.hero == Hero::ZhugeLiang
+                    && matches!(self.jieting_plan, Some(JietingPlan::WaterPending
+                        | JietingPlan::HillPending | JietingPlan::RetreatPending))))).then_some(12),
+            convoy_cover: (self.difficulty.is_some() && node == Node::Battle
+                && (self.floor == 2 || ((26..=31).contains(&self.floor) && self.hero == Hero::ZhugeLiang
+                    && matches!(self.jieting_plan, Some(JietingPlan::WaterPending
+                        | JietingPlan::HillPending | JietingPlan::RetreatPending))))).then_some(0),
             troops_hp: if self.hero == Hero::CaoCao { 12 } else { 0 },
             troops_attack: if self.hero == Hero::CaoCao { 2 } else { 0 },
             discard_tokens: 0,
@@ -720,6 +769,12 @@ impl Game {
             siege_gate_hp: (self.difficulty.is_some() && self.floor == 4 && node == Node::Battle).then_some(12),
             turn: 1,
         });
+        if self.difficulty.is_some() && (25..=32).contains(&self.floor)
+            && self.jieting_plan == Some(JietingPlan::HillPending)
+            && let Some(front) = self.battle.as_mut().and_then(|b| b.foes.first_mut())
+        {
+            front.strength += 1;
+        }
         // Strength is part of the generated first-turn enemy intent. Apply
         // the act-IV strategic setback BEFORE rolling, never after preview.
         if self.difficulty.is_some()
@@ -868,6 +923,72 @@ impl Game {
             };
             if let Some(plan) = resolved { self.chibi_plan = Some(plan); }
         }
+        if self.difficulty.is_some() {
+            let resolved = match (self.floor, self.jieting_plan) {
+                (25..=32, Some(JietingPlan::WaterPending)) => {
+                    if let Some(b) = self.battle.as_mut() {
+                        b.block += 14;
+                        // Guarding the wells also protects the actual water objective,
+                        // not just the hero's health. The cover is consumed by raids.
+                        if (26..=31).contains(&self.floor) && b.convoy_hp.is_some() {
+                            b.convoy_cover = Some(4);
+                        }
+                        if let Some(front) = b.foes.first_mut() { front.weak = front.weak.saturating_add(1); }
+                    }
+                    Some(JietingPlan::WaterResolved)
+                }
+                (25..=32, Some(JietingPlan::HillPending)) => {
+                    let mut lost_water = 0;
+                    if let Some(b) = self.battle.as_mut() {
+                        b.block += 20;
+                        // Holding the heights protects soldiers but leaves the
+                        // wells exposed. The water loss is settled once, on entry,
+                        // through the authoritative battle action.
+                        if (26..=31).contains(&self.floor)
+                            && let Some(hp) = b.convoy_hp.as_mut()
+                        {
+                            let before = *hp;
+                            *hp = (*hp).saturating_sub(4);
+                            lost_water = before - *hp;
+                        }
+                    }
+                    if lost_water > 0 {
+                        self.combat_event(EventKind::EnemyTechnique,
+                            "jieting_hill_abandons_wells", i32::from(lost_water),
+                            Some("water".into()));
+                    }
+                    Some(JietingPlan::HillResolved)
+                }
+                (25..=32, Some(JietingPlan::RetreatPending)) => {
+                    if let Some(b) = self.battle.as_mut() {
+                        b.block += 6;
+                        if let Some(front) = b.foes.first_mut() { front.block += 8; }
+                        // A planned retreat evacuates a small water reserve before
+                        // the enemy raid. Unlike guarding the wells (+4 cover),
+                        // retreat preserves only +2 and gives the foe +8 armor.
+                        // The ordinary end-turn objective still decides victory.
+                        if (26..=31).contains(&self.floor) && b.convoy_hp.is_some() {
+                            b.convoy_cover = Some(2);
+                        }
+                    }
+                    Some(JietingPlan::RetreatResolved)
+                }
+                (33..=40, Some(JietingPlan::WaterResolved)) => {
+                    if let Some(b) = self.battle.as_mut() { b.block += 8; }
+                    Some(JietingPlan::WaterSettled)
+                }
+                (33..=40, Some(JietingPlan::HillResolved)) => {
+                    self.gold = (self.gold - 12).max(0);
+                    Some(JietingPlan::HillSettled)
+                }
+                (33..=40, Some(JietingPlan::RetreatResolved)) => {
+                    self.hp = (self.hp + 8).min(self.max_hp);
+                    Some(JietingPlan::RetreatSettled)
+                }
+                _ => None,
+            };
+            if let Some(plan) = resolved { self.jieting_plan = Some(plan); }
+        }
         self.stage = Stage::Combat;
     }
     fn finish_scene(&mut self) {
@@ -911,7 +1032,19 @@ impl Game {
                     Some(WuchaoPlan::RaidPending | WuchaoPlan::FortifyPending | WuchaoPlan::DeclinePending)
                 );
                 let previous_chibi = self.chibi_plan;
+                let previous_jieting = self.jieting_plan;
                 self.start_battle(node);
+                if previous_jieting != self.jieting_plan {
+                    msg.push_str(match self.jieting_plan {
+                        Some(JietingPlan::WaterResolved) => "；街亭守水：我军护甲+14、敌前锋虚弱",
+                        Some(JietingPlan::HillResolved) => "；街亭据山：我军护甲+20、敌前锋武勇+1；水源战开场先失水4点",
+                        Some(JietingPlan::RetreatResolved) => "；街亭撤退：我军护甲+6、敌前锋护甲+8；本场水源战预留掩护2点",
+                        Some(JietingPlan::WaterSettled) => "；街亭守水兑现：第五幕护甲+8",
+                        Some(JietingPlan::HillSettled) => "；街亭断水债务：损失至多12金",
+                        Some(JietingPlan::RetreatSettled) => "；街亭撤退兑现：恢复至多8体力",
+                        _ => "",
+                    });
+                }
                 if previous_chibi != self.chibi_plan {
                     let outcome = match self.chibi_plan {
                         Some(ChibiPlan::FireBattleResolved) =>
@@ -1167,7 +1300,49 @@ impl Game {
             let foe = &b.foes[idx];
             if foe.vulnerable > 0 { weakened.saturating_mul(3) / 2 } else { weakened }
         };
-        self.deal_enemy_damage(idx, damage, "hero");
+        let actual = self.deal_enemy_damage(idx, damage, "hero");
+        self.suppress_jieting_water(idx, actual);
+    }
+
+    /// Only real player attack damage pins down Jieting water raiders.
+    /// Standard and piercing attacks share the same cover cap and event trail;
+    /// poison ticks, potions, and other passive damage do not trigger this.
+    fn suppress_jieting_water(&mut self, idx: usize, actual: i32) {
+        // The high ground controls raider routes only inside a real Jieting
+        // water encounter, never in ordinary combat or legacy campaigns.
+        if actual > 0 && self.difficulty.is_some()
+            && self.hero == Hero::ZhugeLiang
+            && (26..=31).contains(&self.floor)
+            && self.jieting_plan == Some(JietingPlan::HillResolved)
+            && self.battle.as_ref().is_some_and(|b|
+                b.convoy_hp.is_some() && b.convoy_cover.is_some())
+        {
+            let (gained, recovered) = {
+                let b = self.battle.as_mut().expect("battle");
+                let old = b.convoy_cover.unwrap_or(0);
+                let next = old.saturating_add(2).min(8);
+                b.convoy_cover = Some(next);
+                // Only a player attack that ACTUALLY defeats a raider can
+                // recapture its diverted water. No round-end poison or ally
+                // attack may claim the same supply. Saturate at the original 12.
+                let recovered = if b.foes[idx].hp == 0 {
+                    if let Some(water) = b.convoy_hp.as_mut() {
+                        let prior = *water;
+                        *water = water.saturating_add(4).min(12);
+                        *water - prior
+                    } else { 0 }
+                } else { 0 };
+                (next - old, recovered)
+            };
+            if gained > 0 {
+                self.combat_event(EventKind::PowerTriggered, "jieting_hill_suppression",
+                    i32::from(gained), Some("water".into()));
+            }
+            if recovered > 0 {
+                self.combat_event(EventKind::PowerTriggered, "jieting_hill_recaptured_wells",
+                    i32::from(recovered), Some("water".into()));
+            }
+        }
     }
 
     /// Flat non-attack damage retains armor, defeat and power-trigger semantics,
@@ -1271,7 +1446,8 @@ impl Game {
         let convoy_note = if let Some(hp) = convoy_hp {
             let bonus = i32::from(hp) * 2; // Never more than 24, once per victory.
             self.gold += bonus;
-            format!("保住粮车{hp}/12，额外获得{bonus}金，")
+            format!("保住{}{hp}/12，额外获得{bonus}金，",
+                if (26..=31).contains(&self.floor) && self.hero == Hero::ZhugeLiang { "水源" } else { "粮车" })
         } else {
             String::new()
         };
@@ -1368,6 +1544,8 @@ impl Game {
 
     fn play(&mut self, index: usize, target: usize, selection: Option<usize>) -> Result<String, String> {
         let b = self.battle.as_ref().ok_or("当前不在战斗中")?;
+        let cover_before = b.convoy_cover.unwrap_or(0);
+        let water_before = b.convoy_hp.unwrap_or(0);
         let hand_idx = index.checked_sub(1).ok_or("手牌编号从1开始")?;
         let card = b.hand.get(hand_idx).ok_or("无效手牌编号")?.clone();
         let spec = card_spec(&card.id).ok_or("未知卡牌")?;
@@ -1504,7 +1682,8 @@ impl Game {
             }
             Effect::Pierce(n) => {
                 let idx = target_idx.expect("target");
-                self.deal_enemy_damage_unblockable(idx, n.saturating_add(bonus), "pierce");
+                let actual = self.deal_enemy_damage_unblockable(idx, n.saturating_add(bonus), "pierce");
+                self.suppress_jieting_water(idx, actual);
             }
             Effect::DrawEnergy(n, energy) => {
                 self.battle.as_mut().expect("battle").energy += energy;
@@ -1567,16 +1746,42 @@ impl Game {
         if matches!(spec.effect, Effect::Guard(_) | Effect::GuardEnergy(_) | Effect::XGuard(_))
             && self.battle.as_ref().is_some_and(|b| b.convoy_cover.is_some())
         {
+            // A Jieting guard counters one four-point water raid; ordinary
+            // floor-two grain protection retains its original two-point rate.
+            let water_battle = self.difficulty.is_some()
+                && self.hero == Hero::ZhugeLiang
+                && (26..=31).contains(&self.floor)
+                && self.battle.as_ref().is_some_and(|b| b.convoy_hp.is_some());
             let gained = {
                 let b = self.battle.as_mut().expect("battle");
                 let old = b.convoy_cover.unwrap_or(0);
-                let next = old.saturating_add(2).min(8);
+                let next = old.saturating_add(if water_battle { 4 } else { 2 }).min(8);
                 b.convoy_cover = Some(next);
                 next - old
             };
             if gained > 0 {
                 self.combat_event(EventKind::PowerTriggered, "convoy_cover",
                     i32::from(gained), Some("convoy".into()));
+            }
+            // A retreating army can salvage abandoned water only while its
+            // guards actually establish fresh cover. Capped cover cannot be
+            // spammed for free supplies; the same authoritative battle state
+            // drives EndTurn raids, rewards, saves and replay.
+            if water_battle && gained > 0
+                && self.jieting_plan == Some(JietingPlan::RetreatResolved)
+            {
+                let restored = {
+                    let b = self.battle.as_mut().expect("battle");
+                    let water = b.convoy_hp.as_mut().expect("water battle");
+                    let old = *water;
+                    *water = water.saturating_add(2).min(12);
+                    *water - old
+                };
+                if restored > 0 {
+                    self.combat_event(EventKind::PowerTriggered,
+                        "jieting_retreat_water_salvaged", i32::from(restored),
+                        Some("water".into()));
+                }
             }
         }
         // Guard cards provide an explicit way to extinguish Lu Xun's campfire.
@@ -1638,7 +1843,41 @@ impl Game {
             self.battle.as_mut().expect("battle").strength += 1;
         }
         self.combat_event(EventKind::CardResolved,&card.id,0,None);
-        let msg = format!("使用了【{}】。", card.name());
+        let suppressed = if attack
+            && self.jieting_plan == Some(JietingPlan::HillResolved)
+            && self.difficulty.is_some()
+            && self.hero == Hero::ZhugeLiang
+            && (26..=31).contains(&self.floor)
+        {
+            self.battle.as_ref().and_then(|b| b.convoy_cover)
+                .unwrap_or(0).saturating_sub(cover_before)
+        } else { 0 };
+        let recovered_water = if attack
+            && self.jieting_plan == Some(JietingPlan::HillResolved)
+            && self.difficulty.is_some()
+            && self.hero == Hero::ZhugeLiang
+            && (26..=31).contains(&self.floor)
+        {
+            self.battle.as_ref().and_then(|b| b.convoy_hp)
+                .unwrap_or(0).saturating_sub(water_before)
+        } else { 0 };
+        let mut msg = format!("使用了【{}】。", card.name());
+        if !attack && self.jieting_plan == Some(JietingPlan::RetreatResolved)
+            && self.difficulty.is_some() && self.hero == Hero::ZhugeLiang
+            && (26..=31).contains(&self.floor)
+        {
+            let salvaged = self.battle.as_ref().and_then(|b| b.convoy_hp)
+                .unwrap_or(0).saturating_sub(water_before);
+            if salvaged > 0 {
+                msg.push_str(&format!("撤退布防抢救水源{salvaged}点。"));
+            }
+        }
+        if suppressed > 0 {
+            msg.push_str(&format!("据山攻击压制劫水敌军，水源掩护+{suppressed}点。"));
+        }
+        if recovered_water > 0 {
+            msg.push_str(&format!("夺回被劫水源{recovered_water}点。"));
+        }
         if spec.exhaust || card.temporary {
             self.combat_event(EventKind::CardExhausted,&card.id,1,None);
             self.battle.as_mut().expect("battle").exhausted.push(card);
@@ -1851,6 +2090,44 @@ impl Game {
                     "白衣渡江潜袭成功：下回合军令-1".into()
                 }
             }
+            BossMove::NorthernExpedition(phase) => {
+                // This is a committed intent: the player sees the shield
+                // threshold before ending the turn. A successful defense
+                // opens a counterattack window; failure taxes next-turn energy.
+                let required = 8 + i32::from(phase) * 2;
+                let guarded = self.battle.as_ref().is_some_and(|b| b.block >= required);
+                if guarded {
+                    self.apply_foe_status(idx, "vulnerable", 3);
+                    format!("北伐粮道守住（护甲至少{required}）：姜维阵线暴露，获得易伤")
+                } else {
+                    let b = self.battle.as_mut().expect("battle");
+                    b.next_turn_energy_penalty = b.next_turn_energy_penalty.max(1);
+                    if b.draw.iter().chain(b.hand.iter()).chain(b.discard.iter())
+                        .filter(|c| c.id == "cursed").count() < 4 {
+                        b.discard.push(Card::new("cursed"));
+                    }
+                    format!("北伐断粮成功（需护甲{required}）：下回合军令-1，军心受扰")
+                }
+            }
+            BossMove::StarOmen(phase) => {
+                let required = 9 + i32::from(phase) * 2;
+                if self.battle.as_ref().is_some_and(|b| b.block >= required) {
+                    self.apply_foe_status(idx, "vulnerable", 3);
+                    format!("星象幻阵被护阵识破（护甲达到{required}）：左慈显露破绽")
+                } else {
+                    let b = self.battle.as_mut().expect("battle");
+                    b.foes[idx].block = b.foes[idx].block.saturating_add(8 + i32::from(phase) * 4);
+                    // Cap the entire active curse pool, not only discard: a
+                    // reshuffle must not let repeated omens create unlimited curses.
+                    let curses = b.draw.iter().chain(b.hand.iter()).chain(b.discard.iter())
+                        .filter(|c| c.id == "cursed").count();
+                    if curses < 4 {
+                        b.discard.push(Card::new("cursed"));
+                    }
+                    format!("星象幻阵生效（需护甲{required}）：左慈获得护甲{}",
+                        if curses < 4 { "，弃牌堆混入军心涣散" } else { "，军心涣散已达上限" })
+                }
+            }
             BossMove::Mirage(amount) => {
                 let b = self.battle.as_mut().expect("battle");
                 let foe = &mut b.foes[idx];
@@ -1867,7 +2144,7 @@ impl Game {
             .iter().enumerate().filter(|(_,foe)|
                 foe.hp > 0 && foe.phase == 0 && foe.hp * 2 <= foe.max_hp
                 && matches!(foe.id.as_str(),"zhangjiao"|"sunjian"|"dongzhuo"|"yuanshao"|"simayi"|"zuoci"
-                    |"luxun"|"lumeng"|"elite"|"war_elephant"|"royal_guard"|"tiger_general"|"sacred_beast"))
+                    |"luxun"|"lumeng"|"jiangwei"|"elite"|"war_elephant"|"royal_guard"|"tiger_general"|"sacred_beast"))
             .map(|(i,foe)| (i,foe.id.clone())).collect();
         let mut messages = vec![];
         for (idx,id) in changes {
@@ -1903,6 +2180,11 @@ impl Game {
                     b.foes[idx].strength += 2;
                     b.foes[idx].block += 10;
                     messages.push("吕蒙整顿白衣精兵：武勇+2、护甲+10；继续留意敌军伏袭预告".into());
+                }
+                "jiangwei" => {
+                    b.foes[idx].strength += 2;
+                    b.foes[idx].block += 10;
+                    messages.push("姜维北伐进入第二阶段：武勇+2、护甲+10；守粮所需护甲升至10".into());
                 }
                 "luxun" => {
                     b.foes[idx].strength += 2;
@@ -2114,17 +2396,47 @@ impl Game {
                 b.convoy_hp = Some(hp - actual);
                 b.convoy_cover = Some(0);
             }
-            self.combat_event(EventKind::EnemyTechnique, "convoy_raided",
-                i32::from(actual), Some("convoy".into()));
-            messages.push(format!("粮车遭劫{actual}体力，剩余{}体力", hp - actual));
+            let water_objective = self.difficulty.is_some() && (26..=31).contains(&self.floor)
+                && self.hero == Hero::ZhugeLiang;
+            self.combat_event(EventKind::EnemyTechnique,
+                if water_objective { "water_raided" } else { "convoy_raided" },
+                i32::from(actual), Some(if water_objective { "water" } else { "convoy" }.into()));
+            messages.push(if (26..=31).contains(&self.floor) && self.hero == Hero::ZhugeLiang {
+                format!("水源遭劫{actual}点，剩余{}点", hp - actual)
+            } else {
+                format!("粮车遭劫{actual}体力，剩余{}体力", hp - actual)
+            });
             if actual == hp {
                 self.record_metric(|c| c.battles_lost = c.battles_lost.saturating_add(1));
                 self.capture_turn_metrics(true);
                 self.combat_event(EventKind::BattleEnded, "defeat", 0, None);
                 self.stage = Stage::Lost;
                 self.battle = None;
-                return Ok(format!("{}。粮道保卫失败，粮车被毁，征途结束。",
-                    messages.join("；")));
+                return Ok(format!("{}。{}，征途结束。", messages.join("；"),
+                    if (26..=31).contains(&self.floor) && self.hero == Hero::ZhugeLiang {
+                        "街亭水源保卫失败，水源耗尽"
+                    } else { "粮道保卫失败，粮车被毁" }));
+            }
+            // Only the paid Jieting water-defense plan can repair its wells.
+            // A guard must have contributed cover to a real nonlethal raid;
+            // water lost to a lethal raid is never retroactively restored.
+            // This is a committed EndTurn effect, not a UI-only forecast.
+            if water_objective && self.jieting_plan == Some(JietingPlan::WaterResolved)
+                && cover > 0 && actual > 0
+            {
+                let repaired = {
+                    let water = self.battle.as_mut().expect("battle").convoy_hp
+                        .as_mut().expect("Jieting water");
+                    let before = *water;
+                    *water = water.saturating_add(2).min(12);
+                    *water - before
+                };
+                if repaired > 0 {
+                    self.combat_event(EventKind::PowerTriggered,
+                        "jieting_water_wells_repaired", i32::from(repaired),
+                        Some("water".into()));
+                    messages.push(format!("守水布防抢修水源{repaired}点"));
+                }
             }
         }
         // A siege is won by breaching the gate, not merely clearing defenders.
@@ -2407,6 +2719,15 @@ impl Game {
     }
 
     pub fn story_fourth_option(&self) -> Option<&'static str> {
+        // Council subchoices exclusively own indices 1–3. Do not leak a
+        // historical fourth choice into TUI while the council is active:
+        // choose_story would reject it, despite the button being visible.
+        if self.jieting_plan == Some(JietingPlan::Council)
+            || self.chibi_plan == Some(ChibiPlan::Council)
+            || self.wuchao_plan == Some(WuchaoPlan::Council)
+        {
+            return None;
+        }
         if self.optional_responsibility_successor().is_some() {
             Some("保留责任并继续核审")
         } else if self.can_open_yizhou_archive() {
@@ -2415,11 +2736,32 @@ impl Game {
             Some("召开乌巢军议")
         } else if self.can_open_chibi_council() {
             Some("议定赤壁东风与水军部署")
+        } else if self.can_open_jieting_council() {
+            Some("召开街亭供水与退路军议")
         } else {
             None
         }
     }
 
+    /// Preserve an existing literary fourth choice while exposing an independent
+    /// historical council in the fifth slot. Council subchoices only use 1–3.
+    pub fn story_fifth_option(&self) -> Option<&'static str> {
+        let literary_fourth = self.optional_responsibility_successor().is_some()
+            || self.can_open_yizhou_archive();
+        if !literary_fourth { return None; }
+        if self.can_open_chibi_council() {
+            Some("议定赤壁东风与水军部署")
+        } else if self.can_open_jieting_council() {
+            Some("召开街亭供水与退路军议")
+        } else {
+            None
+        }
+    }
+    fn can_open_jieting_council(&self) -> bool {
+        self.difficulty.is_some() && self.hero == Hero::ZhugeLiang
+            && self.stage == Stage::Story && (25..=30).contains(&self.floor)
+            && self.jieting_plan.is_none()
+    }
     fn can_open_yizhou_archive(&self) -> bool {
         self.stage == Stage::Story && self.hero == Hero::ZhugeLiang
             && self.lore_flags.iter().any(|flag| flag == "leiyang_case_record")
@@ -2463,6 +2805,9 @@ impl Game {
         Some(next)
     }
     pub fn lore_hint(&self) -> String {
+        if self.jieting_plan == Some(JietingPlan::Council) {
+            return "【街亭失守·军议】游戏虚构战术推演：\n  1. 扼守水源：耗20金，第四幕下战获14护甲、敌前锋虚弱；有掩护且劫水后未败可抢修至多2点水源；第五幕首战护甲+8\n  2. 上山据险：耗8体力，第四幕下战获20护甲、敌前锋武勇+1；水源战开场先损失4点水源，命中敌军可掩护2点水源、亲自击败敌军可夺回至多4点水源；第五幕首战损失至多12金\n  3. 及时撤退：第四幕下战我军护甲+6、敌前锋护甲+8；若为下一场水源战则预留2点掩护，防御牌实际增加掩护时抢救2点水源；第五幕首战恢复至多8体力".into();
+        }
         if self.chibi_plan == Some(ChibiPlan::Council) {
             return "【赤壁东风·水陆军议】以下为游戏架空战术抉择：\n  1. 借东风火攻：耗20金；第三幕下次战斗敌前锋损8体力并易伤2，己军承担1层可扑灭火势；第四幕首战耗至多12金\n  2. 稳守水军：耗8体力；第三幕下次战斗我军获12护甲，敌前锋虚弱1；第四幕首战获6护甲\n  3. 不介入：第三幕下次战斗敌前锋获12护甲，第四幕首战敌前锋武勇+1".into();
         }
@@ -2479,15 +2824,26 @@ impl Game {
                 "\n  4. 召开乌巢军议（转入有代价的三选一，原事件不领取奖励）"
             } else if self.can_open_chibi_council() {
                 "\n  4. 议定赤壁东风与水军部署（独立三选一，放弃本卷即时奖励）"
+            } else if self.can_open_jieting_council() {
+                "\n  4. 召开街亭供水与退路军议（独立三选一，放弃本卷即时奖励）"
             } else { "" };
-            return format!("【演义残卷·第{}回】{}——{}：{}\n  1. {}（结缘并记下因果）\n  2. {}（获得金银，错过羁绊）\n  3. 不介入{}",
-                b.chapter,b.title,b.character,b.premise,b.vow,b.bargain,alternative);
+            let fifth = match self.story_fifth_option() {
+                Some(label) => format!("\n  5. {label}（保留第4项历史责任选择）"),
+                None => String::new(),
+            };
+            return format!("【演义残卷·第{}回】{}——{}：{}\n  1. {}（结缘并记下因果）\n  2. {}（获得金银，错过羁绊）\n  3. 不介入{}{}",
+                b.chapter,b.title,b.character,b.premise,b.vow,b.bargain,alternative,fifth);
         }
         let mut hint = self.story_options().to_string();
         if self.can_open_wuchao_council() {
             hint.push_str("\n  4. 召开乌巢军议（转入有代价的三选一）");
         } else if self.can_open_chibi_council() {
             hint.push_str("\n  4. 议定赤壁东风与水军部署（独立三选一）");
+        } else if self.can_open_jieting_council() {
+            hint.push_str("\n  4. 召开街亭供水与退路军议（独立三选一）");
+        }
+        if let Some(label) = self.story_fifth_option() {
+            hint.push_str(&format!("\n  5. {label}（保留第4项历史责任选择）"));
         }
         hint
     }
@@ -2555,6 +2911,25 @@ impl Game {
         Ok(result)
     }
     fn choose_story(&mut self, index: usize) -> Result<String, String> {
+        if self.jieting_plan == Some(JietingPlan::Council) {
+            let (plan, message) = match index {
+                1 if self.gold >= 20 => {
+                    self.gold -= 20;
+                    (JietingPlan::WaterPending, "街亭守水：耗20金布防；第四幕下战护甲+14、敌前锋虚弱；回合末有掩护并成功守住水源时可抢修至多2点；第五幕首战护甲+8。")
+                }
+                1 => return Err("街亭守水需要20金".into()),
+                2 if self.hp > 8 => {
+                    self.hp -= 8;
+                    (JietingPlan::HillPending, "街亭据山：耗8体力；第四幕下战护甲+20、敌前锋武勇+1，水源战开场失去4点水源；第五幕首战负担12金断水债务。")
+                }
+                2 => return Err("街亭据山至少需要剩余9体力".into()),
+                3 => (JietingPlan::RetreatPending, "街亭撤退：第四幕下战我军护甲+6、敌前锋护甲+8；下一场水源战预留2点掩护，防御牌有效掩护可抢救2点水源；第五幕首战恢复至多8体力。"),
+                _ => return Err("街亭军议请选1、2或3".into()),
+            };
+            self.jieting_plan = Some(plan);
+            self.finish_scene();
+            return Ok(message.into());
+        }
         if self.chibi_plan == Some(ChibiPlan::Council) {
             let (plan, message) = match index {
                 1 if self.gold >= 20 => {
@@ -2593,6 +2968,14 @@ impl Game {
             self.finish_scene();
             return Ok(message.into());
         }
+        if index == 5 && self.story_fifth_option().is_some() {
+            if self.can_open_chibi_council() {
+                self.chibi_plan = Some(ChibiPlan::Council);
+                return Ok("赤壁水陆军议开启：请独立选择1借东风、2稳守水军或3不介入。".into());
+            }
+            self.jieting_plan = Some(JietingPlan::Council);
+            return Ok("街亭军议开启：请独立选择1守水、2据山或3撤退。".into());
+        }
         if index == 4 {
             // Keep action dispatch in the same priority order as
             // story_fourth_option() and lore_hint().
@@ -2610,6 +2993,10 @@ impl Game {
             if self.can_open_chibi_council() {
                 self.chibi_plan = Some(ChibiPlan::Council);
                 return Ok("赤壁水陆军议开启：请独立选择1借东风、2稳守水军或3不介入。".into());
+            }
+            if self.can_open_jieting_council() {
+                self.jieting_plan = Some(JietingPlan::Council);
+                return Ok("街亭军议开启：请独立选择1守水、2据山或3撤退。".into());
             }
             return Err("当前没有可选的历史军议或责任案卷".into());
         }
@@ -4918,7 +5305,7 @@ mod p1_event_cursor_tests {
                 covered+=1;
             }
         }
-        assert_eq!(covered,32*5);
+        assert_eq!(covered,33*5);
     }
 
 }
@@ -5034,7 +5421,7 @@ mod p1_enemy_potion_matrix_regression {
 
     #[test]
     fn every_enemy_and_boss_phase_resolves_three_real_turns_for_each_class_at_low_and_high_ascension() {
-        assert_eq!(content::ENEMY_IDS.len(),32,"update matrix when enemy roster changes");
+        assert_eq!(content::ENEMY_IDS.len(),33,"update matrix when enemy roster changes");
         let mut cases=0;
         let mut turns=0;
         for hero in HEROES {
@@ -5068,8 +5455,8 @@ mod p1_enemy_potion_matrix_regression {
                 }
             }
         }
-        assert_eq!(cases,440);
-        assert_eq!(turns,1320);
+        assert_eq!(cases,450);
+        assert_eq!(turns,1350);
     }
 
     #[test]
@@ -5101,7 +5488,7 @@ mod p1_enemy_potion_matrix_regression {
                 }
             }
         }
-        assert_eq!(cases,1600);
+        assert_eq!(cases,1650);
     }
 }
 

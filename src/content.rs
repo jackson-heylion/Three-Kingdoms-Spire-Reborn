@@ -246,7 +246,7 @@ pub fn hero_pool(hero: Hero) -> &'static [&'static str] {
 }
 pub fn card_count() -> usize { 112 }
 
-pub const ENEMY_IDS: &[&str] = &["bandit", "archer", "officer", "shaman", "yellow_turban", "pyromancer", "spearman", "cuirass", "raider", "crossbowman", "wolf", "tomb_guard", "firelancer", "tactician", "horse_archer", "assassin", "panther", "iron_guard", "witch", "sling", "elite", "war_elephant", "royal_guard", "tiger_general", "sacred_beast", "zhangjiao", "sunjian", "dongzhuo", "yuanshao", "simayi", "zuoci", "luxun"];
+pub const ENEMY_IDS: &[&str] = &["bandit", "archer", "officer", "shaman", "yellow_turban", "pyromancer", "spearman", "cuirass", "raider", "crossbowman", "wolf", "tomb_guard", "firelancer", "tactician", "horse_archer", "assassin", "panther", "iron_guard", "witch", "sling", "elite", "war_elephant", "royal_guard", "tiger_general", "sacred_beast", "zhangjiao", "sunjian", "dongzhuo", "yuanshao", "simayi", "zuoci", "luxun", "jiangwei"];
 
 pub fn enemy_hp(id: &str) -> i32 {
     match id {
@@ -283,6 +283,7 @@ pub fn enemy_hp(id: &str) -> i32 {
         "zuoci" => 132,
         "luxun" => 164,
         "lumeng" => 154,
+        "jiangwei" => 172,
         _ => 30,
     }
 }
@@ -322,6 +323,7 @@ pub fn enemy_name(id: &str) -> &'static str {
         "zuoci" => "左慈·遁甲宗师",
         "luxun" => "陆逊·火烧连营",
         "lumeng" => "吕蒙·白衣渡江",
+        "jiangwei" => "姜维·九伐中原",
         _ => "无名敌军",
     }
 }

@@ -94,6 +94,18 @@ impl Game {
         {
             return Err("赤壁水陆军议只能在新制第三幕奇遇中决策".into());
         }
+        if self.jieting_plan.is_some()
+            && (self.difficulty.is_none() || self.hero != Hero::ZhugeLiang
+                || self.floor < 25)
+        {
+            return Err("街亭军议状态仅属于新制诸葛亮第四幕及后续战役".into());
+        }
+        if self.jieting_plan == Some(JietingPlan::Council)
+            && (self.stage != Stage::Story || self.hero != Hero::ZhugeLiang
+                || !(25..=31).contains(&self.floor))
+        {
+            return Err("街亭军议只能在新制第四幕诸葛亮奇遇中决策".into());
+        }
         for boon in self.boons.iter().chain(self.boon_choices.iter()) {
             if !items::BOONS.iter().any(|(id,_)| id == boon) { return Err(format!("未知赐福: {boon}")); }
         }

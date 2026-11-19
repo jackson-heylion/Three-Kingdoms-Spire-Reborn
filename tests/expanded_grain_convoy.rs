@@ -1,7 +1,7 @@
 //! Second-floor convoy defense through the public Game::apply(Action) seam.
 //! This deliberately isolated entry first proves the missing objective;
 //! natural 1->2 action reachability is a separate acceptance requirement.
-use three_kingdoms_spire_reborn::{Action, Difficulty, Game, Node, Stage, content::Hero, map};
+use three_kingdoms_spire_reborn::{Action, Difficulty, Game, JietingPlan, Node, Stage, content::Hero, map};
 
 #[test]
 fn grain_convoy_is_announced_before_players_act() {
@@ -299,4 +299,302 @@ fn natural_convoy_victory_requires_real_attacks_and_survives_replay() {
         return;
     }
     panic!("no unmodified natural convoy victory found in 200 Lu Bu seeds with starter attacks");
+}
+
+#[test]
+fn jieting_checkpoint_reports_water_not_grain_in_real_turn_outcome() {
+    // Controlled floor-26 entry: this tests battle settlement language only,
+    // not natural 1->26 reachability or the three historical choices.
+    let mut game = Game::new_with_campaign_difficulty(
+        Hero::ZhugeLiang, 247_526, Difficulty::Warlords, "jieting-water-outcome".into(),
+    );
+    game.floor = 25;
+    game.stage = Stage::Story;
+    game.apply(Action::Choose { index: 4 }).expect("open street pavilion council");
+    game.apply(Action::Choose { index: 2 }).expect("commit hill plan through Action");
+    assert_eq!(game.jieting_plan, Some(JietingPlan::HillPending));
+    game.act_map = Some(map::ActMap::generate_expanded(|_| 0, 0));
+    game.map_lane = None;
+    game.route = vec![Node::Battle];
+    game.route_lanes = vec![0];
+    game.apply(Action::Choose { index: 1 }).expect("enter water battle via Action");
+    assert_eq!(game.floor, 26);
+    // 据山放弃水路，开战时已实际失去4点水源。
+    assert_eq!(game.battle.as_ref().unwrap().convoy_hp, Some(8));
+    assert!(game.tactical_objective().unwrap().contains("街亭水源"));
+    // Only the loss threshold is controlled. All actual raid/defeat transitions
+    // must still pass through Game::apply(Action::EndTurn).
+    game.battle.as_mut().unwrap().convoy_hp = Some(4);
+    let result = game.apply(Action::EndTurn).expect("resolve water raid").join("；");
+    assert_eq!(game.stage, Stage::Lost);
+    assert!(result.contains("水源遭劫") && result.contains("街亭水源保卫失败"), "{result}");
+    assert!(!result.contains("粮车") && !result.contains("粮道保卫"), "{result}");
+}
+
+#[test]
+fn jieting_council_remains_available_when_literary_fourth_choice_is_occupied() {
+    // Controlled fourth-act Story checkpoint. This verifies choice collision
+    // handling; it is NOT evidence of natural 1->25 reachability.
+    let mut game = Game::new_with_campaign_difficulty(
+        Hero::ZhugeLiang, 247_525, Difficulty::Warlords, "jieting-fifth-choice".into(),
+    );
+    game.floor = 25;
+    game.stage = Stage::Story;
+    game.lore_current = Some("fu_pass_review".into());
+    game.lore_flags.push("leiyang_case_record".into());
+    game.lore_flags.push("yizhou_map_record".into());
+    assert!(game.story_fourth_option().is_some(), "the literary fourth choice should remain available");
+    assert_eq!(game.story_fifth_option(), Some("召开街亭供水与退路军议"));
+    assert!(game.lore_hint().contains("5. 召开街亭"));
+    game.apply(Action::Choose { index: 5 }).expect("open independent Jieting council");
+    assert_eq!(game.jieting_plan, Some(JietingPlan::Council));
+    assert_eq!(game.stage, Stage::Story);
+    assert!(game.story_fourth_option().is_none(), "council must not show an invalid fourth choice");
+    assert!(game.story_fifth_option().is_none(), "council must not show an invalid fifth choice");
+    game.apply(Action::Choose { index: 3 }).expect("choose retreat through Game::apply");
+    assert_eq!(game.jieting_plan, Some(JietingPlan::RetreatPending));
+    assert_eq!(game.stage, Stage::Map);
+}
+
+#[test]
+fn chibi_council_remains_available_when_literary_fourth_choice_is_occupied() {
+    // Controlled act-III Story checkpoint, NOT natural 1->17 reachability.
+    let mut game = Game::new_with_campaign_difficulty(
+        Hero::ZhugeLiang, 247_517, Difficulty::Warlords, "chibi-fifth-choice".into(),
+    );
+    game.floor = 17;
+    game.stage = Stage::Story;
+    game.lore_current = Some("fu_pass_review".into());
+    game.lore_flags.push("leiyang_case_record".into());
+    game.lore_flags.push("yizhou_map_record".into());
+    assert_eq!(game.story_fourth_option(), Some("保留责任并继续核审"));
+    assert_eq!(game.story_fifth_option(), Some("议定赤壁东风与水军部署"));
+    assert!(game.lore_hint().contains("5. 议定赤壁"));
+    game.apply(Action::Choose { index: 5 }).expect("open Chibi council");
+    assert!(game.lore_hint().contains("赤壁东风"));
+    assert!(game.story_fourth_option().is_none());
+    assert!(game.story_fifth_option().is_none());
+    game.apply(Action::Choose { index: 3 }).expect("decline through authoritative action");
+    assert_eq!(game.stage, Stage::Map);
+}
+
+#[test]
+fn jieting_retreat_evacuation_reduces_real_water_raid_and_survives_restore() {
+    // Controlled fourth-act checkpoint, NOT natural 1->26 evidence.
+    // The branch choice and subsequent raid still go through Game::apply.
+    let mut game = Game::new_with_campaign_difficulty(
+        Hero::ZhugeLiang, 247_527, Difficulty::Warlords, "jieting-retreat-water".into(),
+    );
+    game.floor = 25;
+    game.stage = Stage::Story;
+    game.apply(Action::Choose { index: 4 }).expect("open fourth-act council");
+    assert_eq!(game.jieting_plan, Some(JietingPlan::Council));
+    game.apply(Action::Choose { index: 3 }).expect("choose evacuation");
+    assert_eq!(game.jieting_plan, Some(JietingPlan::RetreatPending));
+    // The authoritative route now guarantees a battle only after a council
+    // decision; the generated map itself remains unchanged for other heroes.
+    assert!(game.route.iter().all(|node| *node == Node::Battle));
+    game.act_map = Some(map::ActMap::generate_expanded(|_| 0, 0));
+    game.map_lane = None;
+    game.route = vec![Node::Battle];
+    game.route_lanes = vec![0];
+    game.apply(Action::Choose { index: 1 }).expect("enter water battle");
+    assert_eq!(game.floor, 26);
+    assert_eq!(game.jieting_plan, Some(JietingPlan::RetreatResolved));
+    assert_eq!(game.battle.as_ref().unwrap().convoy_cover, Some(2));
+    let warning = game.tactical_objective().expect("read-only water raid preview");
+    assert!(warning.contains("本回合已护2点"), "{warning}");
+    let living = game.battle.as_ref().unwrap().foes.iter().filter(|foe| foe.hp > 0).count();
+    let expected_raid = (living as u8).saturating_mul(4).saturating_sub(2).min(12);
+    assert!(warning.contains(&format!("本回合预计失水{expected_raid}点")), "{warning}");
+    let checkpoint = game.to_json().unwrap();
+    let mut restored = Game::from_json(&checkpoint).expect("restore active water objective");
+    assert_eq!(restored.to_json().unwrap(), checkpoint);
+    game.apply(Action::EndTurn).expect("raid through authority");
+    restored.apply(Action::EndTurn).expect("restored raid through authority");
+    assert_eq!(game.battle.as_ref().unwrap().convoy_hp, Some(12 - expected_raid));
+    assert_eq!(game.battle.as_ref().unwrap().convoy_cover, Some(0));
+    assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
+    // Real retreat guard recovers water only after a raid, and its replayed
+    // Action::Play must produce the same cover, water and event after restore.
+    for run in [&mut game, &mut restored] {
+        run.battle.as_mut().unwrap().hand.insert(0,
+            three_kingdoms_spire_reborn::Card::new("defend"));
+        let before = run.battle.as_ref().unwrap().convoy_hp.unwrap();
+        let report = run.apply(Action::Play { index: 1, target: 1 })
+            .expect("retreat guard salvages water");
+        assert!(report.join("；").contains("撤退布防抢救水源2点"), "{report:?}");
+        assert_eq!(run.battle.as_ref().unwrap().convoy_hp, Some((before + 2).min(12)));
+        assert!(run.event_history.as_ref().unwrap().iter().any(|e|
+            e.event.source == "jieting_retreat_water_salvaged" && e.event.amount == 2));
+    }
+    assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
+}
+
+
+#[test]
+fn jieting_guarded_wells_repair_only_after_survived_real_raid_and_restore() {
+    // Controlled act-IV tactical checkpoint, NOT a natural 1->26 campaign.
+    // Choices, enemy raid, repair and restored continuation use Game::apply.
+    let mut game = Game::new_with_campaign_difficulty(
+        Hero::ZhugeLiang, 247_531, Difficulty::Warlords,
+        "jieting-guarded-repair".into(),
+    );
+    game.floor = 25;
+    game.stage = Stage::Story;
+    game.apply(Action::Choose { index: 4 }).expect("open water council");
+    game.apply(Action::Choose { index: 1 }).expect("pay for guarding wells");
+    assert_eq!(game.jieting_plan, Some(JietingPlan::WaterPending));
+    assert!(game.route_objective_hint(Node::Battle).unwrap().contains("抢修至多2点"));
+    game.apply(Action::Choose { index: 1 }).expect("enter real water battle");
+    assert_eq!(game.jieting_plan, Some(JietingPlan::WaterResolved));
+    assert!(game.tactical_objective().unwrap().contains("劫水后抢修至多2点"));
+
+    // Fix only the tactical risk boundary. Never claim that this was a
+    // naturally drawn hand or an untouched natural campaign.
+    let raiders = {
+        let b = game.battle.as_mut().expect("water battle");
+        b.convoy_hp = Some(12);
+        b.convoy_cover = Some(2);
+        for foe in &mut b.foes {
+            foe.intent = three_kingdoms_spire_reborn::Intent::Guard(0);
+        }
+        b.foes.iter().filter(|foe| foe.hp > 0).count() as u8
+    };
+    let raid = raiders.saturating_mul(4).saturating_sub(2);
+    assert!(raid > 0 && raid < 12, "controlled raid must be real and survivable");
+    let checkpoint = game.to_json().expect("save before raid");
+    let mut restored = Game::from_json(&checkpoint).expect("restore before raid");
+    let original = game.apply(Action::EndTurn).expect("guarded raid and repair");
+    let replayed = restored.apply(Action::EndTurn).expect("restored guarded raid");
+    assert_eq!(original, replayed);
+    assert_eq!(game.battle.as_ref().unwrap().convoy_hp, Some(12 - raid + 2));
+    assert!(original.join("；").contains("守水布防抢修水源2点"));
+    assert!(game.event_history.as_ref().unwrap().iter().any(|e|
+        e.event.source == "jieting_water_wells_repaired" && e.event.amount == 2));
+    assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
+
+    // A lethal raid must settle defeat BEFORE any water repair, even if
+    // the guards supplied positive cover. No reward or false recovery event.
+    let mut lethal = Game::from_json(&checkpoint).expect("restore lethal branch");
+    lethal.battle.as_mut().unwrap().convoy_hp = Some(1);
+    let loss = lethal.apply(Action::EndTurn).expect("lethal raid");
+    assert_eq!(lethal.stage, Stage::Lost);
+    assert!(loss.join("；").contains("水源耗尽"), "{loss:?}");
+    assert!(!lethal.event_history.as_ref().unwrap().iter().any(|e|
+        e.event.source == "jieting_water_wells_repaired"));
+}
+
+#[test]
+fn jieting_hill_sacrifices_water_at_real_battle_entry_and_survives_restore() {
+    // A controlled floor-25 Story checkpoint, NOT natural 1->25 evidence.
+    // Council, route, battle settlement and resumed turn all use Game::apply.
+    let mut game = Game::new_with_campaign_difficulty(
+        Hero::ZhugeLiang, 247_528, Difficulty::Warlords,
+        "jieting-hill-water-cost".into(),
+    );
+    game.floor = 25;
+    game.stage = Stage::Story;
+    game.apply(Action::Choose { index: 4 }).expect("open Jieting council");
+    game.apply(Action::Choose { index: 2 }).expect("choose high ground");
+    assert_eq!(game.jieting_plan, Some(JietingPlan::HillPending));
+    assert!(game.route.iter().all(|node| *node == Node::Battle));
+    assert!(game.route_objective_hint(Node::Battle).unwrap().contains("先损失4点水源"));
+
+    let entry = game.apply(Action::Choose { index: 1 }).expect("enter water battle");
+    assert_eq!(game.floor, 26);
+    assert_eq!(game.jieting_plan, Some(JietingPlan::HillResolved));
+    assert_eq!(game.battle.as_ref().unwrap().convoy_hp, Some(8));
+    assert!(game.tactical_objective().unwrap().contains("水源剩余8/12"));
+    assert!(entry.join("；").contains("先失水4点"));
+    assert!(game.battle.as_ref().unwrap().events.iter().any(|e|
+        e.source == "jieting_hill_abandons_wells" && e.amount == 4));
+
+    let saved = game.to_json().expect("save exposed wells");
+    let mut restored = Game::from_json(&saved).expect("restore exposed wells");
+    assert_eq!(restored.to_json().unwrap(), saved);
+    game.apply(Action::EndTurn).expect("real water raid");
+    restored.apply(Action::EndTurn).expect("restored water raid");
+    assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
+}
+
+#[test]
+fn jieting_hill_real_attack_suppresses_raiders_and_replays_after_restore() {
+    // Controlled floor-25 entry, explicitly NOT natural 1->25 evidence.
+    // The entire choice, battle, strike and raid still use Game::apply.
+    let mut game = Game::new_with_campaign_difficulty(
+        Hero::ZhugeLiang, 247_529, Difficulty::Warlords,
+        "jieting-hill-attack-suppression".into(),
+    );
+    game.floor = 25;
+    game.stage = Stage::Story;
+    game.apply(Action::Choose { index: 4 }).expect("open Jieting council");
+    game.apply(Action::Choose { index: 2 }).expect("take high ground");
+    game.apply(Action::Choose { index: 1 }).expect("enter water battle");
+    assert_eq!(game.jieting_plan, Some(JietingPlan::HillResolved));
+    assert_eq!(game.battle.as_ref().unwrap().convoy_hp, Some(8));
+
+    // This is a controlled card effect contract, not a claim of an untouched
+    // natural draw; the resulting attack and water cover use authoritative actions.
+    let foe = game.battle.as_ref().unwrap().foes.iter()
+        .position(|foe| foe.hp > 0).expect("living water raider") + 1;
+    game.battle.as_mut().unwrap().hand.insert(0,
+        three_kingdoms_spire_reborn::Card::new("strike"));
+    let before = game.battle.as_ref().unwrap().convoy_cover.unwrap_or(0);
+    let log = game.apply(Action::Play { index: 1, target: foe })
+        .expect("attack the water raider");
+    assert!(log.join("；").contains("据山攻击压制劫水敌军"), "{log:?}");
+    assert_eq!(game.battle.as_ref().unwrap().convoy_cover, Some(before + 2));
+    assert!(game.tactical_objective().unwrap().contains("据山进攻命中敌军"));
+    assert!(game.event_history.as_ref().unwrap().iter().any(|e|
+        e.event.source == "jieting_hill_suppression" && e.event.amount == 2));
+
+    // Piercing is also a real played attack. It must not silently bypass
+    // suppression or the card's visible promise to protect the wells.
+    game.battle.as_mut().unwrap().hand.insert(0,
+        three_kingdoms_spire_reborn::Card::new("jianshu"));
+    let piercing = game.apply(Action::Play { index: 1, target: foe })
+        .expect("piercing shot suppresses the water raider");
+    assert!(piercing.join("；").contains("水源掩护+2点"), "{piercing:?}");
+    assert_eq!(game.battle.as_ref().unwrap().convoy_cover, Some(before + 4));
+
+    let saved = game.to_json().expect("save after suppression");
+    let mut loaded = Game::from_json(&saved).expect("restore suppression");
+    assert_eq!(loaded.to_json().unwrap(), saved);
+    game.apply(Action::EndTurn).expect("raid after attacking");
+    loaded.apply(Action::EndTurn).expect("restored raid after attacking");
+    assert_eq!(game.to_json().unwrap(), loaded.to_json().unwrap());
+}
+
+#[test]
+fn jieting_hill_killing_raider_recaptures_real_water_without_new_save_state() {
+    // Controlled tactical contract, NOT a natural 1->26 campaign. Enemy HP
+    // and hand are set solely to isolate the player's legal finishing blow.
+    let mut game = Game::new_with_campaign_difficulty(
+        Hero::ZhugeLiang, 247_530, Difficulty::Warlords,
+        "jieting-hill-recapture".into(),
+    );
+    game.floor = 25;
+    game.stage = Stage::Story;
+    game.apply(Action::Choose { index: 4 }).expect("open Jieting council");
+    game.apply(Action::Choose { index: 2 }).expect("choose high-ground risk");
+    game.apply(Action::Choose { index: 1 }).expect("enter water defense");
+    assert_eq!(game.battle.as_ref().unwrap().convoy_hp, Some(8));
+    {
+        let b = game.battle.as_mut().unwrap();
+        b.foes[0].hp = 1;
+        b.foes[0].block = 0;
+        b.hand.insert(0, three_kingdoms_spire_reborn::Card::new("strike"));
+    }
+    let notice = game.tactical_objective().expect("player-visible objective");
+    assert!(notice.contains("击败敌军还能夺回至多4点水源"), "{notice}");
+    let out = game.apply(Action::Play { index: 1, target: 1 }).expect("real finishing blow");
+    assert!(out.join("；").contains("夺回被劫水源4点"), "{out:?}");
+    // The battle may have won on the killing blow, but its event journal
+    // must retain the one-time water recovery before final settlement.
+    assert!(game.event_history.as_ref().unwrap().iter().any(|e|
+        e.event.source == "jieting_hill_recaptured_wells" && e.event.amount == 4));
+    let save = game.to_json().expect("save real recapture result");
+    let resumed = Game::from_json(&save).expect("restore recaptured water");
+    assert_eq!(resumed.to_json().unwrap(), save);
 }
