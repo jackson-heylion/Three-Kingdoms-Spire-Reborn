@@ -2121,14 +2121,26 @@ impl Game {
                 let played = u32::from(self.battle.as_ref().expect("battle").played_this_turn);
                 if played >= required {
                     self.apply_foe_status(idx, "vulnerable", 3);
-                    format!("阴平偷渡被截击：本回合出牌{played}/{required}，邓艾阵线暴露并易伤")
+                    // The intercepted raiders leave captured provisions behind.
+                    // The block is earned by actual card plays and can absorb
+                    // another living foe's attack in this same enemy phase.
+                    let cover = 4 + 2 * i32::from(phase);
+                    let b = self.battle.as_mut().expect("battle");
+                    b.block = b.block.saturating_add(cover);
+                    format!("阴平偷渡被截击：本回合出牌{played}/{required}，夺回辎重获得护甲+{cover}，邓艾阵线暴露并易伤")
                 } else {
                     let stolen = self.gold.min(10 + 5 * i32::from(phase > 0));
                     self.gold -= stolen;
                     let shield = 6 + 3 * i32::from(phase);
                     let b = self.battle.as_mut().expect("battle");
                     b.foes[idx].block = b.foes[idx].block.saturating_add(shield);
-                    format!("阴平偷渡得手：本回合出牌{played}/{required}，失去{stolen}金，邓艾护甲+{shield}")
+                    // After the second-phase breach the enemy also cuts the
+                    // player's next-turn supply line, not merely their gold.
+                    if phase > 0 {
+                        b.next_turn_energy_penalty = b.next_turn_energy_penalty.max(1);
+                    }
+                    format!("阴平偷渡得手：本回合出牌{played}/{required}，失去{stolen}金，邓艾护甲+{shield}{}",
+                        if phase > 0 { "，下回合军令-1" } else { "" })
                 }
             }
             BossMove::StarOmen(phase) => {
