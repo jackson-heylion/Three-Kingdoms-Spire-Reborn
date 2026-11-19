@@ -374,6 +374,30 @@ fn surviving_raider_escorts_extra_gold_unless_defeated_or_guarded() {
             && e.source == "yinping_raider_escort_levy"
             && e.amount == 5
     ).count(), 1, "escort levy must have one stable journal event");
+
+    // The exposed escort offers a genuine next-turn risk/reward decision:
+    // directly defeating it recovers only the five gold logged as stolen,
+    // while poison or passive death cannot trigger the supply-cut hook.
+    let mut counter = Game::from_json(&game.to_json().unwrap())
+        .expect("restore exposed raider");
+    {
+        let battle = counter.battle.as_mut().unwrap();
+        battle.foes[1].hp = 1;
+        battle.foes[1].block = 0;
+        battle.hand.push(three_kingdoms_spire_reborn::Card::new("strike"));
+    }
+    let before_recovery = counter.gold;
+    let card = counter.battle.as_ref().unwrap().hand.len();
+    counter.apply(Action::Play { index: card, target: 2 })
+        .expect("player directly defeats exposed escort");
+    assert_eq!(counter.gold, before_recovery + 5);
+    assert!(counter.battle.as_ref().unwrap().events.iter().any(|e|
+        e.kind == three_kingdoms_spire_reborn::combat::EventKind::PowerTriggered
+            && e.source == "yinping_escort_gold_recovered" && e.amount == 5
+    ));
+    let saved = counter.to_json().expect("persist recovered supply");
+    let restored = Game::from_json(&saved).expect("resume recovered supply");
+    assert_eq!(counter.to_json().unwrap(), restored.to_json().unwrap());
 }
 
 #[test]
