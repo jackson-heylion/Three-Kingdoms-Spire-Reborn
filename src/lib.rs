@@ -150,7 +150,7 @@ impl BossMove {
             Self::WhiteClothes => "白衣渡江：回合末护甲至少8可识破伏兵并使吕蒙易伤；否则下回合军令-1".into(),
             Self::NorthernExpedition(n) => format!("北伐断粮：回合末护甲至少{}可守住粮道并使姜维易伤；否则下回合军令-1并混入军心涣散", 8 + i32::from(*n) * 2),
             Self::StarOmen(phase) => format!("星象幻阵：回合末护甲至少{}可识破幻象并使左慈易伤；否则左慈加甲且弃牌堆混入军心涣散", 9 + i32::from(*phase) * 2),
-            Self::YinpingFlank(phase) => format!("阴平偷渡：本回合打出至少{}张牌或回合末护甲达到{}可截击并对邓艾造成{}点无视护甲伤害、使其易伤；否则损失至多{}金且敌军加甲", 3 + u32::from(*phase), 10 + 2 * i32::from(*phase), 4 + 2 * i32::from(*phase), 10 + 5 * i32::from(*phase > 0)),
+            Self::YinpingFlank(phase) => format!("阴平偷渡：本回合打出至少{}张牌或回合末护甲达到{}可截击并对邓艾造成{}点无视护甲伤害、使其易伤；否则损失至多{}金且敌军加甲{}", 3 + u32::from(*phase), 10 + 2 * i32::from(*phase), 4 + 2 * i32::from(*phase), 10 + 5 * i32::from(*phase > 0), if *phase > 0 { "；二阶段首次失守还会召集援兵（下回合才行动）" } else { "" }),
         }
     }
 }
@@ -2141,15 +2141,40 @@ impl Game {
                     let stolen = self.gold.min(10 + 5 * i32::from(phase > 0));
                     self.gold -= stolen;
                     let shield = 6 + 3 * i32::from(phase);
-                    let b = self.battle.as_mut().expect("battle");
-                    b.foes[idx].block = b.foes[idx].block.saturating_add(shield);
-                    // After the second-phase breach the enemy also cuts the
-                    // player's next-turn supply line, not merely their gold.
-                    if phase > 0 {
-                        b.next_turn_energy_penalty = b.next_turn_energy_penalty.max(1);
+                    // The phase-two failure can divert a mountain vanguard to
+                    // the battlefield, once per encounter. Defeated reinforcements
+                    // remain in the foe list, preventing unlimited respawns.
+                    // EndTurn captured enemy intents before this action, so a
+                    // summoned raider cannot attack until its intent is shown
+                    // to the player on the following turn.
+                    let raider_hp = enemy_hp("assassin")
+                        + i32::from(self.floor / self.campaign_rows()) * 2
+                        + self.difficulty.map_or(0, Difficulty::enemy_hp_bonus);
+                    let summoned = {
+                        let b = self.battle.as_mut().expect("battle");
+                        b.foes[idx].block = b.foes[idx].block.saturating_add(shield);
+                        if phase > 0 {
+                            b.next_turn_energy_penalty = b.next_turn_energy_penalty.max(1);
+                        }
+                        if phase > 0 && b.foes.len() < 4
+                            && !b.foes.iter().any(|foe| foe.id == "assassin")
+                        {
+                            let new_index = b.foes.len();
+                            b.foes.push(Foe {
+                                id: "assassin".into(), hp: raider_hp, max_hp: raider_hp,
+                                block: 0, strength: 0, poison: 0, vulnerable: 0, weak: 0,
+                                intent: Intent::Guard(4), phase: 0,
+                            });
+                            Some(new_index)
+                        } else { None }
+                    };
+                    if let Some(new_index) = summoned {
+                        self.combat_event(EventKind::FoeSummoned, "assassin", 1,
+                            Some(format!("foe:{new_index}")));
                     }
-                    format!("阴平偷渡得手：本回合出牌{played}/{required}，失去{stolen}金，邓艾护甲+{shield}{}",
-                        if phase > 0 { "，下回合军令-1" } else { "" })
+                    format!("阴平偷渡得手：本回合出牌{played}/{required}，失去{stolen}金，邓艾护甲+{shield}{}{}",
+                        if phase > 0 { "，下回合军令-1" } else { "" },
+                        if summoned.is_some() { "，山道援兵已出现（下回合才行动）" } else { "" })
                 }
             }
             BossMove::StarOmen(phase) => {
@@ -2232,7 +2257,7 @@ impl Game {
                 "dengai" => {
                     b.foes[idx].strength += 2;
                     b.foes[idx].block += 8;
-                    messages.push("邓艾阴平奇袭进入第二阶段：武勇+2、护甲+8；下一次偷渡须本回合打出至少4张牌才能截击".into());
+                    messages.push("邓艾阴平奇袭进入第二阶段：武勇+2、护甲+8；下次偷渡需打出4张牌或护甲12截击，否则首次失守将召援军".into());
                 }
                 "luxun" => {
                     b.foes[idx].strength += 2;
