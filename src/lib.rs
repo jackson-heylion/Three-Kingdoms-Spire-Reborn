@@ -406,7 +406,7 @@ impl Game {
             && self.act_variant(4) == 1
         {
             return match self.jieting_plan {
-                Some(JietingPlan::WaterSettled) => Some("邓艾·阴平：街亭守水责任延续；入阵我军护甲+10，邓艾虚弱2层（回合末衰减）"),
+                Some(JietingPlan::WaterSettled) => Some("邓艾·阴平：街亭守水责任延续；入阵我军护甲+10，邓艾虚弱2层（回合末衰减）；亲自击败山道援军可夺回4点护甲"),
                 Some(JietingPlan::HillSettled) => Some("邓艾·阴平：街亭据山暴露山道；邓艾武勇+2、护甲+10，我军武勇+1；亲自击败山道援军可反击8点"),
                 Some(JietingPlan::RetreatSettled) => Some("邓艾·阴平：街亭撤退保全先机；入阵军令+1，邓艾护甲+6；成功截击阴平偷渡额外反击2点"),
                 _ => None,
@@ -442,7 +442,7 @@ impl Game {
                 b.foes.first().is_some_and(|f| f.id == "dengai"))
         {
             let jieting = match self.jieting_plan {
-                Some(JietingPlan::WaterSettled) => "街亭守水军需兑现：入阵获10护甲、邓艾虚弱2层",
+                Some(JietingPlan::WaterSettled) => "街亭守水军需兑现：入阵获10护甲、邓艾虚弱2层；亲自击败山道援军可夺回4点护甲",
                 Some(JietingPlan::HillSettled) => "街亭据山旧债兑现：邓艾武勇+2与护甲+10，我军武勇+1；亲自击败山道援军可反击8点",
                 Some(JietingPlan::RetreatSettled) => "街亭撤退先机兑现：额外军令+1、邓艾护甲+6；成功截击阴平偷渡额外反击2点",
                 _ => "未携带街亭军议后果",
@@ -1423,6 +1423,17 @@ impl Game {
                 self.combat_event(EventKind::PowerTriggered,
                     "yinping_vanguard_broken", inflicted,
                     Some(format!("foe:{boss_idx}")));
+                // Water-defense veterans reclaim their screen when the
+                // player personally defeats the flanking raider. The bonus
+                // is awarded only after a real commander hit and is capped
+                // by the single raider's death, never by passive poison.
+                if self.hero == Hero::ZhugeLiang
+                    && self.jieting_plan == Some(JietingPlan::WaterSettled)
+                {
+                    self.battle.as_mut().expect("active Deng Ai battle").block += 4;
+                    self.combat_event(EventKind::PowerTriggered,
+                        "jieting_yinping_water_screen", 4, Some("hero".into()));
+                }
             }
         }
     }
