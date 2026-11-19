@@ -210,6 +210,78 @@ fn guarded_second_phase_interception_pins_visible_raider_and_replays() {
 }
 
 #[test]
+fn yinping_raider_telegraphs_escort_cover_and_direct_kill_prevents_support() {
+    // Controlled late-game boss phase, NOT a natural floor-zero campaign.
+    // The raider itself is created by a genuine EndTurn failure, and its
+    // intent is rolled by the production engine, not assigned by this test.
+    let mut game = fifth_act_alternate_boss();
+    game.apply(Action::Choose { index: 1 }).expect("enter Deng Ai encounter");
+    {
+        let battle = game.battle.as_mut().unwrap();
+        battle.foes[0].phase = 1;
+        battle.foes[0].intent = Intent::Boss(BossMove::YinpingFlank(1));
+    }
+    game.apply(Action::EndTurn).expect("raider arrives through actual boss action");
+    let battle = game.battle.as_ref().unwrap();
+    assert_eq!(battle.turn, 2);
+    assert_eq!(battle.foes[1].id, "assassin");
+    let support = match battle.foes[1].intent {
+        Intent::Assist(armor) => armor,
+        ref unexpected => panic!("living raider needs a visible, actionable support intent: {unexpected:?}"),
+    };
+    assert!(support >= 6);
+    assert!(battle.foes[1].intent.label().contains("协同护阵"));
+
+    let entry = game.to_json().expect("save with announced support");
+    let mut loaded = Game::from_json(&entry).expect("restore announced support");
+    assert_eq!(loaded.battle.as_ref().unwrap().foes[1].intent,
+        Intent::Assist(support));
+    let report = game.apply(Action::EndTurn).expect("raider defends commander");
+    assert_eq!(report, loaded.apply(Action::EndTurn).unwrap());
+    assert_eq!(game.to_json().unwrap(), loaded.to_json().unwrap());
+    assert!(report.join("；").contains("协同护阵") || report.join("；").contains("布阵"),
+        "{report:?}");
+    let battle = game.battle.as_ref().expect("active boss encounter");
+    assert!(battle.foes[0].block >= support,
+        "raider's support must alter authoritative commander armor");
+    assert!(battle.events.iter().any(|e|
+        e.kind == three_kingdoms_spire_reborn::combat::EventKind::EnemyTechnique
+            && e.source == "assassin" && e.amount == support
+    ), "support must be in the combat event journal");
+
+    // If a player selects the announced raider as their attack target,
+    // defeating it before EndTurn prevents the otherwise scheduled support.
+    // HP/hand staging is explicit and only verifies this local tactic.
+    let mut cut = Game::from_json(&entry).expect("branch before raider support");
+    {
+        let battle = cut.battle.as_mut().unwrap();
+        battle.foes[1].hp = 1;
+        battle.foes[1].block = 0;
+        battle.hand.push(three_kingdoms_spire_reborn::Card::new("strike"));
+    }
+    let card = cut.battle.as_ref().unwrap().hand.len();
+    cut.apply(Action::Play { index: card, target: 2 })
+        .expect("player kills telegraphed supporting raider");
+    assert_eq!(cut.battle.as_ref().unwrap().foes[1].hp, 0);
+    assert!(cut.battle.as_ref().unwrap().events.iter().any(|e|
+        e.source == "yinping_supply_cut"));
+    let before_support = cut.battle.as_ref().unwrap().events.iter()
+        .filter(|e| e.source == "assassin"
+            && e.kind == three_kingdoms_spire_reborn::combat::EventKind::EnemyTechnique)
+        .count();
+    let saved = cut.to_json().expect("save after direct cut");
+    let mut restored = Game::from_json(&saved).expect("resume counterplay");
+    let report = cut.apply(Action::EndTurn).expect("skip defeated raider intent");
+    assert_eq!(report, restored.apply(Action::EndTurn).unwrap());
+    assert_eq!(cut.to_json().unwrap(), restored.to_json().unwrap());
+    let after_support = cut.battle.as_ref().unwrap().events.iter()
+        .filter(|e| e.source == "assassin"
+            && e.kind == three_kingdoms_spire_reborn::combat::EventKind::EnemyTechnique)
+        .count();
+    assert_eq!(after_support, before_support, "dead raider cannot support Deng Ai");
+}
+
+#[test]
 fn surviving_raider_escorts_extra_gold_unless_defeated_or_guarded() {
     // Tactical phase-two staging only: the vanguard itself must still
     // appear from the authoritative failed Yinping raid. No fake foe,
