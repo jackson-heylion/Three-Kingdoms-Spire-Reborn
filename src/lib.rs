@@ -1690,10 +1690,16 @@ impl Game {
         if matches!(spec.effect, Effect::Guard(_) | Effect::GuardEnergy(_) | Effect::XGuard(_))
             && self.battle.as_ref().is_some_and(|b| b.convoy_cover.is_some())
         {
+            // A Jieting guard counters one four-point water raid; ordinary
+            // floor-two grain protection retains its original two-point rate.
+            let water_battle = self.difficulty.is_some()
+                && self.hero == Hero::ZhugeLiang
+                && (26..=31).contains(&self.floor)
+                && self.battle.as_ref().is_some_and(|b| b.convoy_hp.is_some());
             let gained = {
                 let b = self.battle.as_mut().expect("battle");
                 let old = b.convoy_cover.unwrap_or(0);
-                let next = old.saturating_add(2).min(8);
+                let next = old.saturating_add(if water_battle { 4 } else { 2 }).min(8);
                 b.convoy_cover = Some(next);
                 next - old
             };
