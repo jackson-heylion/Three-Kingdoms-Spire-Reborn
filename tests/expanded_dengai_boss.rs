@@ -324,8 +324,10 @@ fn jieting_water_screen_recovers_only_on_actual_player_vanguard_kill_and_replays
     let before_block = game.battle.as_ref().unwrap().block;
     let saved = game.to_json().unwrap();
     let mut restored = Game::from_json(&saved).unwrap();
-    game.apply(Action::Play { index: card_index, target: 2 }).unwrap();
-    restored.apply(Action::Play { index: card_index, target: 2 }).unwrap();
+    let feedback = game.apply(Action::Play { index: card_index, target: 2 }).unwrap();
+    let resumed_feedback = restored.apply(Action::Play { index: card_index, target: 2 }).unwrap();
+    assert_eq!(feedback, resumed_feedback);
+    assert!(feedback.join("；").contains("街亭守水旧部夺回掩护，护甲+4"));
     let b = game.battle.as_ref().unwrap();
     assert_eq!(b.block, before_block + 4);
     assert_eq!(b.foes[1].hp, 0);
