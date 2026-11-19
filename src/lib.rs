@@ -133,8 +133,9 @@ pub enum BossMove {
     Mirage(i32),       // 左慈：回复并立盾
     FireCamp(u8),      // 陆逊：积累可用防御牌扑灭的焚营火势
     WhiteClothes,      // 吕蒙：按回合末护甲判定是否识破白衣伏兵
-    NorthernExpedition(u8),
-    StarOmen(u8), // Fifth-act celestial omen; defend to expose the illusion // 姜维：兵粮封锁，可用护甲识破并反制
+    NorthernExpedition(u8), // 姜维：兵粮封锁，可用护甲识破并反制
+    StarOmen(u8),           // 左慈：星象幻阵，防守可反制
+    YinpingFlank(u8),       // 邓艾：阴平偷渡，可用连贯出牌截击
 }
 impl BossMove {
     pub fn label(&self) -> String {
@@ -149,6 +150,7 @@ impl BossMove {
             Self::WhiteClothes => "白衣渡江：回合末护甲至少8可识破伏兵并使吕蒙易伤；否则下回合军令-1".into(),
             Self::NorthernExpedition(n) => format!("北伐断粮：回合末护甲至少{}可守住粮道并使姜维易伤；否则下回合军令-1并混入军心涣散", 8 + i32::from(*n) * 2),
             Self::StarOmen(phase) => format!("星象幻阵：回合末护甲至少{}可识破幻象并使左慈易伤；否则左慈加甲且弃牌堆混入军心涣散", 9 + i32::from(*phase) * 2),
+            Self::YinpingFlank(phase) => format!("阴平偷渡：本回合打出至少{}张牌可截击邓艾并使其易伤；否则损失至多{}金且敌军加甲", 3 + u32::from(*phase), 10 + 5 * i32::from(*phase > 0)),
         }
     }
 }
@@ -581,6 +583,7 @@ impl Game {
                 (2,0) => "simayi", (3,0) if self.difficulty.is_some() => "luxun",
                 (3,_) if self.difficulty.is_some() => "lumeng",
                 (4,0) if self.difficulty.is_some() => "jiangwei",
+                (4,_) if self.difficulty.is_some() => "dengai",
                 _ => "zuoci",
             }],
             Node::Elite => {
@@ -661,6 +664,7 @@ impl Game {
                     "luxun" => Some(BossMove::FireCamp(2+foe.phase)),
                     "lumeng" => Some(BossMove::WhiteClothes),
                     "jiangwei" => Some(BossMove::NorthernExpedition(foe.phase)),
+                    "dengai" => Some(BossMove::YinpingFlank(foe.phase)),
                     _ => None,
                 }
             } else { None };
@@ -2109,6 +2113,24 @@ impl Game {
                     format!("北伐断粮成功（需护甲{required}）：下回合军令-1，军心受扰")
                 }
             }
+            BossMove::YinpingFlank(phase) => {
+                // This defensive window is expressed entirely in actions:
+                // played_this_turn counts cards committed through Game::apply,
+                // so a resumed battle cannot invent or lose the counterplay.
+                let required = 3 + u32::from(phase);
+                let played = u32::from(self.battle.as_ref().expect("battle").played_this_turn);
+                if played >= required {
+                    self.apply_foe_status(idx, "vulnerable", 3);
+                    format!("阴平偷渡被截击：本回合出牌{played}/{required}，邓艾阵线暴露并易伤")
+                } else {
+                    let stolen = self.gold.min(10 + 5 * i32::from(phase > 0));
+                    self.gold -= stolen;
+                    let shield = 6 + 3 * i32::from(phase);
+                    let b = self.battle.as_mut().expect("battle");
+                    b.foes[idx].block = b.foes[idx].block.saturating_add(shield);
+                    format!("阴平偷渡得手：本回合出牌{played}/{required}，失去{stolen}金，邓艾护甲+{shield}")
+                }
+            }
             BossMove::StarOmen(phase) => {
                 let required = 9 + i32::from(phase) * 2;
                 if self.battle.as_ref().is_some_and(|b| b.block >= required) {
@@ -2144,7 +2166,7 @@ impl Game {
             .iter().enumerate().filter(|(_,foe)|
                 foe.hp > 0 && foe.phase == 0 && foe.hp * 2 <= foe.max_hp
                 && matches!(foe.id.as_str(),"zhangjiao"|"sunjian"|"dongzhuo"|"yuanshao"|"simayi"|"zuoci"
-                    |"luxun"|"lumeng"|"jiangwei"|"elite"|"war_elephant"|"royal_guard"|"tiger_general"|"sacred_beast"))
+                    |"luxun"|"lumeng"|"jiangwei"|"dengai"|"elite"|"war_elephant"|"royal_guard"|"tiger_general"|"sacred_beast"))
             .map(|(i,foe)| (i,foe.id.clone())).collect();
         let mut messages = vec![];
         for (idx,id) in changes {
@@ -2185,6 +2207,11 @@ impl Game {
                     b.foes[idx].strength += 2;
                     b.foes[idx].block += 10;
                     messages.push("姜维北伐进入第二阶段：武勇+2、护甲+10；守粮所需护甲升至10".into());
+                }
+                "dengai" => {
+                    b.foes[idx].strength += 2;
+                    b.foes[idx].block += 8;
+                    messages.push("邓艾阴平奇袭进入第二阶段：武勇+2、护甲+8；下一次偷渡须本回合打出至少4张牌才能截击".into());
                 }
                 "luxun" => {
                     b.foes[idx].strength += 2;
