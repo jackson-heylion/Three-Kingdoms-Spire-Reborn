@@ -278,6 +278,63 @@ fn natural_fifth_act_requires_four_boss_victories_and_full_campaign_win() {
     panic!("no natural full victory through bosses 8, 16, 24, 32 and 40: {}", failures.join(" | "));
 }
 
+// A legitimate floor-zero variant selection can choose Deng Ai as the fifth
+// act's alternate boss; the full approach uses only ordinary Game::apply
+// actions. This is not the injected floor-39 tactical contract.
+#[test]
+fn natural_fifth_act_deng_ai_entry_and_victory_survive_action_replay() {
+    let mut failures = Vec::new();
+    // Use the fixed acceptance seed cohort, not a broad seed sweep to
+    // manufacture an easy winning run. The third-act choice also selects the
+    // fourth/fifth alternate commander under the existing variants contract.
+    for seed in 247_510..247_526 {
+        let mut game = Game::new_with_campaign_difficulty(
+            Hero::LuBu, seed, Difficulty::Warlords,
+            format!("yinping-natural-{seed}"),
+        );
+        game.apply(Action::SetVariants { act1: 0, act2: 0, act3: 1 })
+            .expect("choose alternate campaign bosses through legal action");
+        game.apply(Action::Choose { index: 1 }).expect("begin natural breakout");
+        let mut error = None;
+        let mut found_deng_ai = false;
+        for _ in 0..900 {
+            if game.stage == Stage::Combat && game.floor == 40
+                && game.last_node == Some(Node::Boss)
+            {
+                let foe = &game.battle.as_ref().expect("natural boss").foes[0];
+                assert_eq!(foe.id, "dengai", "alternate fifth act must not reuse Zuoci");
+                found_deng_ai = true;
+                let saved = game.to_json().expect("natural final boss save");
+                let mut restored = Game::from_json(&saved).expect("restore real boss encounter");
+                assert_eq!(restored.to_json().unwrap(), saved);
+                restored.verify_action_replay().expect("replay natural Deng Ai entry");
+                // Prove that the same legal policy can resolve the new
+                // commander after a save/restart, not merely arrive at it.
+                if let Err(e) = fight(&mut restored) { error = Some(e); break; }
+                if restored.stage == Stage::Reward {
+                    restored.apply(Action::Choose { index: 0 })
+                        .expect("claim natural final boss reward");
+                }
+                if restored.stage == Stage::Won {
+                    restored.verify_action_replay().expect("replay natural Deng Ai victory");
+                    restored.audit_campaign_authority().expect("final boss authority audit");
+                    let end = restored.to_json().expect("natural victory save");
+                    assert_eq!(Game::from_json(&end).unwrap().to_json().unwrap(), end);
+                    return;
+                }
+                error = Some(format!("Deng Ai encounter ended in {:?}", restored.stage));
+                break;
+            }
+            if matches!(game.stage, Stage::Won | Stage::Lost) { break; }
+            if let Err(e) = advance(&mut game) { error = Some(e); break; }
+        }
+        failures.push(format!("seed {seed}: floor {} stage {:?}, deng_ai={found_deng_ai}, error={error:?}",
+            game.floor, game.stage));
+    }
+    panic!("no fully natural alternate-act Deng Ai win in fixed acceptance cohort: {}",
+        failures.join(" | "));
+}
+
 /// Passive player actions produce a real defeat without injecting a checkpoint.
 #[test]
 fn natural_expanded_defeat_is_recorded_once_without_unlocking_a_clear() {
