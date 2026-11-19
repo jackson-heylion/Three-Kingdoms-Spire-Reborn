@@ -71,6 +71,8 @@ fn three_real_play_actions_intercept_yinping_raid_and_preserve_resources() {
             && event.kind == three_kingdoms_spire_reborn::combat::EventKind::DamageDealt));
     assert_eq!(game.gold, start_gold);
     assert!(game.battle.as_ref().unwrap().foes[0].vulnerable >= 2);
+    assert_eq!(game.battle.as_ref().unwrap().foes[0].weak, 0,
+        "card-count interception must not receive the defense-only reward");
     assert_eq!(game.to_json().unwrap(), loaded.to_json().unwrap());
 }
 
@@ -158,6 +160,45 @@ fn player_attack_on_summoned_vanguard_cuts_yinping_supply_route_once() {
     assert!(game.apply(Action::Play { index: dead_target_attack, target: 2 }).is_err(),
         "defeated raider must reject a real targeted attack");
     assert_eq!(game.to_json().unwrap(), settled, "invalid action must be atomic");
+}
+
+#[test]
+fn defense_only_yinping_interception_weakens_next_attack_and_replays_after_restore() {
+    // A controlled floor-40 encounter proves the alternative, defense-focused
+    // player action path. This is not natural floor-zero campaign evidence.
+    let mut game = fifth_act_alternate_boss();
+    game.apply(Action::Choose { index: 1 }).expect("enter alternate final boss");
+    let boss_hp = game.battle.as_ref().unwrap().foes[0].hp;
+    let gold = game.gold;
+    // Supply the two cards required to exercise the guard-specific branch.
+    // Both are actually played via Game::apply, not granted as free block.
+    for _ in 0..2 {
+        game.battle.as_mut().unwrap().hand.push(
+            three_kingdoms_spire_reborn::Card::new("defend"),
+        );
+        let index = game.battle.as_ref().unwrap().hand.len();
+        game.apply(Action::Play { index, target: 1 })
+            .expect("real defensive card play");
+    }
+    let before = game.battle.as_ref().unwrap();
+    assert!(before.block >= 10);
+    assert_eq!(before.played_this_turn, 2, "card-count path must remain unavailable");
+    let save = game.to_json().expect("save actual defense actions");
+    let mut resumed = Game::from_json(&save).expect("restore defensive position");
+    let result = game.apply(Action::EndTurn).expect("seal the pass");
+    let from_save = resumed.apply(Action::EndTurn).expect("replay the same turn");
+    assert_eq!(result, from_save);
+    assert_eq!(game.to_json().unwrap(), resumed.to_json().unwrap());
+    assert!(result.join("；").contains("坚守扰乱偷渡军，下回合邓艾攻击虚弱"), "{result:?}");
+    let boss = &game.battle.as_ref().unwrap().foes[0];
+    assert_eq!(boss.hp, boss_hp - 4);
+    assert_eq!(boss.weak, 1, "weak must survive the current EndTurn tick");
+    assert!(boss.vulnerable >= 2);
+    assert_eq!(game.gold, gold);
+    assert!(game.battle.as_ref().unwrap().events.iter().any(|event|
+        event.kind == three_kingdoms_spire_reborn::combat::EventKind::StatusApplied
+            && event.source == "weak" && event.amount == 2
+    ));
 }
 
 #[test]
