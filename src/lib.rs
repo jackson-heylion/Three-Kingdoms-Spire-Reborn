@@ -2034,6 +2034,13 @@ impl Game {
         if water_screen > 0 {
             msg.push_str(&format!("街亭守水旧部夺回掩护，护甲+{water_screen}。"));
         }
+        let retreat_command = self.battle.as_ref().map_or(0, |b| b.events.iter()
+            .filter(|e| e.seq > event_before && e.source == "jieting_yinping_retreat_command"
+                && e.kind == EventKind::PowerTriggered)
+            .map(|e| e.amount).sum::<i32>());
+        if retreat_command > 0 {
+            msg.push_str(&format!("街亭撤退旧部截断山道，回收军令+{retreat_command}。"));
+        }
         if !attack && self.jieting_plan == Some(JietingPlan::RetreatResolved)
             && self.difficulty.is_some() && self.hero == Hero::ZhugeLiang
             && (26..=31).contains(&self.floor)
