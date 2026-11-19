@@ -114,6 +114,48 @@ fn second_phase_unchecked_yinping_calls_one_telegraphed_raider_after_save_restor
     assert_eq!(restored.battle.unwrap().foes[1].id, "assassin");
 }
 
+
+#[test]
+fn player_attack_on_summoned_vanguard_cuts_yinping_supply_route_once() {
+    // Controlled tactical fixture ONLY. Do not count the manually shortened
+    // raider HP or supplied hand card as natural floor-zero campaign evidence.
+    let mut game = fifth_act_alternate_boss();
+    game.apply(Action::Choose { index: 1 }).expect("enter Deng Ai boss");
+    game.battle.as_mut().unwrap().foes[0].phase = 1;
+    game.battle.as_mut().unwrap().foes[0].intent =
+        Intent::Boss(BossMove::YinpingFlank(1));
+    game.apply(Action::EndTurn).expect("raid summons one vanguard");
+    let boss_before = game.battle.as_ref().unwrap().foes[0].hp;
+    {
+        let battle = game.battle.as_mut().unwrap();
+        assert_eq!(battle.foes[1].id, "assassin");
+        battle.foes[1].hp = 1;
+        battle.foes[1].block = 0;
+        battle.hand.push(three_kingdoms_spire_reborn::Card::new("strike"));
+    }
+    let entry = game.to_json().expect("controlled raider state");
+    let mut restored = Game::from_json(&entry).expect("resume controlled tactical state");
+    let card_index = game.battle.as_ref().unwrap().hand.len();
+    let result = game.apply(Action::Play { index: card_index, target: 2 })
+        .expect("player targets real spawned raider");
+    let replayed = restored.apply(Action::Play { index: card_index, target: 2 })
+        .expect("same choice after save restore");
+    assert_eq!(result, replayed);
+    assert!(result.join("；").contains("夺回阴平山道，邓艾遭反击6点无视护甲伤害"), "{result:?}");
+    let battle = game.battle.as_ref().unwrap();
+    assert_eq!(battle.foes[1].hp, 0);
+    assert_eq!(battle.foes[0].hp, boss_before - 6);
+    assert_eq!(battle.events.iter().filter(|event|
+        event.source == "yinping_supply_cut" && event.amount == 6
+            && event.kind == three_kingdoms_spire_reborn::combat::EventKind::DamageDealt
+    ).count(), 1);
+    assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
+    let settled = game.to_json().unwrap();
+    assert!(game.apply(Action::Play { index: 1, target: 2 }).is_err(),
+        "defeated raider must not trigger another counter");
+    assert_eq!(game.to_json().unwrap(), settled, "invalid action must be atomic");
+}
+
 #[test]
 fn old_campaign_bosses_never_use_yinping_infiltration() {
     let mut old = Game::new(Hero::GuanYu, 1_u64 << 44);
