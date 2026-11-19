@@ -2405,10 +2405,27 @@ impl Game {
                             "yinping_raider_pinned", 1,
                             Some(format!("foe:{raider_idx}")));
                     }
-                    format!("阴平偷渡被截击：本回合出牌{played}/{required}{}，反击造成{inflicted}点无视护甲伤害，邓艾阵线暴露并易伤{}{}",
+                    // The offensive alternative is not another free shield:
+                    // four actual player cards reveal the living escort's
+                    // position, exposing it to a follow-up direct strike.
+                    // The defense-only path instead weakens its next action.
+                    // Both use the same already-summoned foe and authoritative
+                    // status/event stream, so save/replay needs no new field.
+                    let exposed_raider = if phase > 0 && played >= required {
+                        self.battle.as_ref().and_then(|b| b.foes.iter()
+                            .position(|foe| foe.id == "assassin" && foe.hp > 0))
+                    } else { None };
+                    if let Some(raider_idx) = exposed_raider {
+                        self.apply_foe_status(raider_idx, "vulnerable", 3);
+                        self.combat_event(EventKind::PowerTriggered,
+                            "yinping_raider_exposed", 1,
+                            Some(format!("foe:{raider_idx}")));
+                    }
+                    format!("阴平偷渡被截击：本回合出牌{played}/{required}{}，反击造成{inflicted}点无视护甲伤害，邓艾阵线暴露并易伤{}{}{}",
                         if guarded { "，护阵封锁山道" } else { "" },
                         if defense_only { "；坚守扰乱偷渡军，下回合邓艾攻击虚弱" } else { "" },
-                        if pinned_raider.is_some() { "；山道援军也被压制，下次攻击虚弱" } else { "" })
+                        if pinned_raider.is_some() { "；山道援军也被压制，下次攻击虚弱" } else { "" },
+                        if exposed_raider.is_some() { "；连环出牌识破山道援军，援军易伤，可优先击破" } else { "" })
                 } else {
                     // A failed interception is not an all-or-nothing defense.
                     // On the resource-starved turn after an earlier raid, two
