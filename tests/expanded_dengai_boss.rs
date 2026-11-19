@@ -57,13 +57,18 @@ fn three_real_play_actions_intercept_yinping_raid_and_preserve_resources() {
     }
     assert_eq!(game.battle.as_ref().unwrap().played_this_turn, 3);
     let start_gold = game.gold;
+    let hp_before_counter = game.battle.as_ref().unwrap().foes[0].hp;
     let snapshot = game.to_json().expect("save after three plays");
     let mut loaded = Game::from_json(&snapshot).expect("restore counterplay");
     let result = game.apply(Action::EndTurn).expect("counter infiltration");
     let replayed = loaded.apply(Action::EndTurn).expect("restored counter");
     assert_eq!(result, replayed);
     assert!(result.join("；").contains("阴平偷渡被截击"));
-    assert!(result.join("；").contains("夺回辎重获得护甲+4"));
+    assert!(result.join("；").contains("反击造成4点无视护甲伤害"));
+    assert_eq!(game.battle.as_ref().unwrap().foes[0].hp, hp_before_counter - 4);
+    assert!(game.battle.as_ref().unwrap().events.iter().any(|event|
+        event.source == "yinping_interception" && event.amount == 4
+            && event.kind == three_kingdoms_spire_reborn::combat::EventKind::DamageDealt));
     assert_eq!(game.gold, start_gold);
     assert!(game.battle.as_ref().unwrap().foes[0].vulnerable >= 2);
     assert_eq!(game.to_json().unwrap(), loaded.to_json().unwrap());
