@@ -407,7 +407,7 @@ impl Game {
         {
             return match self.jieting_plan {
                 Some(JietingPlan::WaterSettled) => Some("邓艾·阴平：街亭守水责任延续；入阵我军护甲+10，邓艾虚弱2层（回合末衰减）"),
-                Some(JietingPlan::HillSettled) => Some("邓艾·阴平：街亭据山暴露山道；邓艾武勇+2、护甲+10，我军武勇+1"),
+                Some(JietingPlan::HillSettled) => Some("邓艾·阴平：街亭据山暴露山道；邓艾武勇+2、护甲+10，我军武勇+1；亲自击败山道援军可反击8点"),
                 Some(JietingPlan::RetreatSettled) => Some("邓艾·阴平：街亭撤退保全先机；入阵军令+1，邓艾护甲+6"),
                 _ => None,
             };
@@ -443,7 +443,7 @@ impl Game {
         {
             let jieting = match self.jieting_plan {
                 Some(JietingPlan::WaterSettled) => "街亭守水军需兑现：入阵获10护甲、邓艾虚弱2层",
-                Some(JietingPlan::HillSettled) => "街亭据山旧债兑现：邓艾武勇+2与护甲+10，我军武勇+1",
+                Some(JietingPlan::HillSettled) => "街亭据山旧债兑现：邓艾武勇+2与护甲+10，我军武勇+1；亲自击败山道援军可反击8点",
                 Some(JietingPlan::RetreatSettled) => "街亭撤退先机兑现：额外军令+1、邓艾护甲+6",
                 _ => "未携带街亭军议后果",
             };
@@ -1124,7 +1124,7 @@ impl Game {
                 {
                     msg.push_str(match self.jieting_plan {
                         Some(JietingPlan::WaterSettled) => "；街亭守水远期兑现：入阵护甲+10、邓艾虚弱2层",
-                        Some(JietingPlan::HillSettled) => "；街亭据山远期债务：邓艾武勇+2、护甲+10，我军武勇+1",
+                        Some(JietingPlan::HillSettled) => "；街亭据山远期债务：邓艾武勇+2、护甲+10，我军武勇+1；击溃山道援军可额外反击8点",
                         Some(JietingPlan::RetreatSettled) => "；街亭撤退远期先机：军令+1、邓艾护甲+6",
                         _ => "",
                     });
@@ -1409,8 +1409,16 @@ impl Game {
             })
         } else { None };
         if let Some(boss_idx) = commander {
+            // The Jieting high-ground decision exposes the pass but also
+            // teaches Zhuge Liang's troops its flank. The commander gained
+            // strength/armor on entry; a player who actively defeats the
+            // summoned guard now turns that earlier risk into a real 8-point
+            // supply-line reprisal (ordinary campaigns still deal 6).
+            let counter = if self.hero == Hero::ZhugeLiang
+                && self.jieting_plan == Some(JietingPlan::HillSettled)
+            { 8 } else { 6 };
             let inflicted = self.deal_enemy_damage_unblockable(
-                boss_idx, 6, "yinping_supply_cut");
+                boss_idx, counter, "yinping_supply_cut");
             if inflicted > 0 {
                 self.combat_event(EventKind::PowerTriggered,
                     "yinping_vanguard_broken", inflicted,
