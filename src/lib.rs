@@ -403,7 +403,7 @@ impl Game {
         // *alternative* fifth-act commander. This is a read-only route warning:
         // simply inspecting the map never advances RNG or commits an effect.
         if node == Node::Boss && self.floor == 39 && self.hero == Hero::ZhugeLiang
-            && self.variants.is_some_and(|v| v[2] == 1)
+            && self.act_variant(4) == 1
         {
             return match self.jieting_plan {
                 Some(JietingPlan::WaterSettled) => Some("邓艾·阴平：街亭守水责任延续；入阵我军护甲+10，邓艾虚弱2层（回合末衰减）"),
