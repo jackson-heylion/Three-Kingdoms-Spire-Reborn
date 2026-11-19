@@ -1418,6 +1418,31 @@ impl Game {
                 b.foes.iter().position(|foe| foe.id == "dengai" && foe.hp > 0)
             })
         } else { None };
+        // Recover stolen supplies when the player personally defeats the
+        // exposed escort, even if the commander has already fallen or the
+        // supply-cut counterstrike cannot damage him. This is a distinct
+        // player objective from counterattacking Deng Ai. A dead raider
+        // cannot be defeated again, so the payout remains one-shot.
+        let recoverable = if actual > 0 && self.difficulty.is_some()
+            && self.floor == 40 && self.last_node == Some(Node::Boss)
+        {
+            self.battle.as_ref().and_then(|battle| {
+                let raider = battle.foes.get(idx)?;
+                if raider.id != "assassin" || raider.hp > 0 || raider.vulnerable == 0
+                    || !battle.foes.iter().any(|foe| foe.id == "dengai")
+                { return None; }
+                battle.events.iter().rev().find(|event|
+                    event.kind == EventKind::EnemyTechnique
+                        && event.source == "yinping_raider_escort_levy"
+                ).map(|event| event.amount.clamp(0, 5))
+            }).unwrap_or(0)
+        } else { 0 };
+        if recoverable > 0 {
+            self.gold = self.gold.saturating_add(recoverable);
+            self.combat_event(EventKind::PowerTriggered,
+                "yinping_escort_gold_recovered", recoverable,
+                Some("gold".into()));
+        }
         if let Some(boss_idx) = commander {
             // The Jieting high-ground decision exposes the pass but also
             // teaches Zhuge Liang's troops its flank. The commander gained
@@ -1433,23 +1458,6 @@ impl Game {
                 self.combat_event(EventKind::PowerTriggered,
                     "yinping_vanguard_broken", inflicted,
                     Some(format!("foe:{boss_idx}")));
-                // Recover only supplies actually stolen by this vanguard.
-                // The authoritative levy event survives JSON save/restore,
-                // so no new persistent counter or fabricated RNG is needed.
-                // The real raider's direct death is a one-shot condition.
-                let recovered = self.battle.as_ref().and_then(|b| {
-                    if b.foes[idx].vulnerable == 0 { return None; }
-                    b.events.iter().rev().find(|event|
-                        event.kind == EventKind::EnemyTechnique
-                            && event.source == "yinping_raider_escort_levy"
-                    ).map(|event| event.amount.clamp(0, 5))
-                }).unwrap_or(0);
-                if recovered > 0 {
-                    self.gold = self.gold.saturating_add(recovered);
-                    self.combat_event(EventKind::PowerTriggered,
-                        "yinping_escort_gold_recovered", recovered,
-                        Some("gold".into()));
-                }
                 // Water-defense veterans reclaim their screen when the
                 // player personally defeats the flanking raider. The bonus
                 // is awarded only after a real commander hit and is capped
