@@ -150,7 +150,7 @@ impl BossMove {
             Self::WhiteClothes => "白衣渡江：回合末护甲至少8可识破伏兵并使吕蒙易伤；否则下回合军令-1".into(),
             Self::NorthernExpedition(n) => format!("北伐断粮：回合末护甲至少{}可守住粮道并使姜维易伤；否则下回合军令-1并混入军心涣散", 8 + i32::from(*n) * 2),
             Self::StarOmen(phase) => format!("星象幻阵：回合末护甲至少{}可识破幻象并使左慈易伤；否则左慈加甲且弃牌堆混入军心涣散", 9 + i32::from(*phase) * 2),
-            Self::YinpingFlank(phase) => format!("阴平偷渡：本回合打出至少{}张牌或回合末护甲达到{}可截击并对邓艾造成{}点无视护甲伤害、使其易伤；仅靠护甲封锁还能令邓艾下回合攻击虚弱；否则损失至多{}金且敌军加甲{}", 3 + u32::from(*phase), 10 + 2 * i32::from(*phase), 4 + 2 * i32::from(*phase), 10 + 5 * i32::from(*phase > 0), if *phase > 0 { "；二阶段首次失守还会召集援兵（下回合才行动）；已有援军时护甲达10可牵制援军；未牵制的存活援军会额外掠金至多5（未截击仍会失金）" } else { "" }),
+            Self::YinpingFlank(phase) => format!("阴平偷渡：本回合打出至少{}张牌或回合末护甲达到{}可截击并对邓艾造成{}点无视护甲伤害、使其易伤；仅靠护甲封锁还能令邓艾下回合攻击虚弱；否则损失至多{}金且敌军加甲{}", 3 + u32::from(*phase), 10 + 2 * i32::from(*phase), 4 + 2 * i32::from(*phase), 10 + 5 * i32::from(*phase > 0), if *phase > 0 { "；二阶段首次失守还会召集援兵（下回合才行动）；存活援军在偶数回合预告协同护阵、为邓艾加甲，可先击杀；已有援军时护甲达10可牵制援军；未牵制的存活援军会额外掠金至多5（未截击仍会失金）" } else { "" }),
         }
     }
 }
@@ -447,7 +447,7 @@ impl Game {
                 Some(JietingPlan::RetreatSettled) => "街亭撤退先机兑现：额外军令+1、邓艾护甲+6；成功截击阴平偷渡额外反击2点；亲自击败山道援军并伤及邓艾可回收1点军令（至多5点）",
                 _ => "未携带街亭军议后果",
             };
-            return Some(format!("阴平史诗关底：回合末出牌至少3/4张或护甲达10/12可截击；第二阶段护甲达12且未凑够4牌可截击并压制援军；若仅有10护甲，仍可牵制已有援军并阻止追加掠金，但邓艾基础掠金仍生效；未牵制的存活援军会额外掠金至多5；击败真实援军可截断山道并重创邓艾。{jieting}。"));
+            return Some(format!("阴平史诗关底：回合末出牌至少3/4张或护甲达10/12可截击；第二阶段护甲达12且未凑够4牌可截击并压制援军；若仅有10护甲，仍可牵制已有援军并阻止追加掠金，但邓艾基础掠金仍生效；未牵制的存活援军会额外掠金至多5；存活援军在偶数回合会预告协同护阵，玩家可优先击杀；击败真实援军可截断山道并重创邓艾。{jieting}。"));
         }
         if self.stage == Stage::Combat && let Some(hp) = self.battle.as_ref().and_then(|b| b.siege_gate_hp) {
             let turn = self.battle.as_ref().expect("battle").turn;
@@ -660,6 +660,14 @@ impl Game {
             let turn = b.turn;
             let last_turn_cards = b.last_turn_cards;
             let living = b.foes.iter().filter(|foe|foe.hp > 0).count();
+            // Deng Ai's summoned mountain vanguard is a battlefield choice,
+            // not just a gold tax: on even turns it visibly prepares cover for
+            // its commander. The player can intercept by defeating the raider
+            // before its displayed intent executes. Other assassins and legacy
+            // campaigns retain their regular deterministic intent policy.
+            let yinping_supply_guard = difficulty.is_some() && self.floor == 40
+                && b.foes[i].id == "assassin"
+                && b.foes.iter().any(|foe| foe.id == "dengai" && foe.hp > 0);
             let foe = &mut b.foes[i];
             if foe.hp == 0 { continue; }
             // Round up so ascension 1 already changes enemy attacks.
@@ -707,6 +715,8 @@ impl Game {
                 Intent::Hex(2, 1)
             } else if foe.phase > 0 && foe.id == "royal_guard" && living > 1 && turn.is_multiple_of(2) {
                 Intent::Assist(8 + act * 2)
+            } else if yinping_supply_guard && living > 1 && turn.is_multiple_of(2) {
+                Intent::Assist(6 + difficulty.map_or(0, Difficulty::support_bonus))
             } else if foe.phase > 0 && foe.id == "elite" && turn.is_multiple_of(3) {
                 Intent::Rally(3)
             } else if living > 1
