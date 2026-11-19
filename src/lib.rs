@@ -408,7 +408,7 @@ impl Game {
             return match self.jieting_plan {
                 Some(JietingPlan::WaterSettled) => Some("邓艾·阴平：街亭守水责任延续；入阵我军护甲+10，邓艾虚弱2层（回合末衰减）；亲自击败山道援军可夺回4点护甲"),
                 Some(JietingPlan::HillSettled) => Some("邓艾·阴平：街亭据山暴露山道；邓艾武勇+2、护甲+10，我军武勇+1；亲自击败山道援军可反击8点"),
-                Some(JietingPlan::RetreatSettled) => Some("邓艾·阴平：街亭撤退保全先机；入阵军令+1，邓艾护甲+6；成功截击阴平偷渡额外反击2点"),
+                Some(JietingPlan::RetreatSettled) => Some("邓艾·阴平：街亭撤退保全先机；入阵军令+1，邓艾护甲+6；成功截击阴平偷渡额外反击2点；亲自击败山道援军并伤及邓艾可回收1点军令（至多5点）"),
                 _ => None,
             };
         }
@@ -444,7 +444,7 @@ impl Game {
             let jieting = match self.jieting_plan {
                 Some(JietingPlan::WaterSettled) => "街亭守水军需兑现：入阵获10护甲、邓艾虚弱2层；亲自击败山道援军可夺回4点护甲",
                 Some(JietingPlan::HillSettled) => "街亭据山旧债兑现：邓艾武勇+2与护甲+10，我军武勇+1；亲自击败山道援军可反击8点",
-                Some(JietingPlan::RetreatSettled) => "街亭撤退先机兑现：额外军令+1、邓艾护甲+6；成功截击阴平偷渡额外反击2点",
+                Some(JietingPlan::RetreatSettled) => "街亭撤退先机兑现：额外军令+1、邓艾护甲+6；成功截击阴平偷渡额外反击2点；亲自击败山道援军并伤及邓艾可回收1点军令（至多5点）",
                 _ => "未携带街亭军议后果",
             };
             return Some(format!("阴平史诗关底：回合末出牌至少3/4张或护甲达10/12可截击；击败真实援军可截断山道并重创邓艾。{jieting}。"));
@@ -1433,6 +1433,25 @@ impl Game {
                     self.battle.as_mut().expect("active Deng Ai battle").block += 4;
                     self.combat_event(EventKind::PowerTriggered,
                         "jieting_yinping_water_screen", 4, Some("hero".into()));
+                }
+                // The troops saved at Jieting can immediately exploit a
+                // severed Yinping supply route. The player must personally
+                // kill a real raider and actually damage Deng Ai; passive
+                // deaths and a blocked counterattack award no command.
+                if self.hero == Hero::ZhugeLiang
+                    && self.jieting_plan == Some(JietingPlan::RetreatSettled)
+                {
+                    let gained = {
+                        let battle = self.battle.as_mut().expect("active Deng Ai battle");
+                        let before = battle.energy;
+                        battle.energy = battle.energy.saturating_add(1).min(5);
+                        battle.energy - before
+                    };
+                    if gained > 0 {
+                        self.combat_event(EventKind::PowerTriggered,
+                            "jieting_yinping_retreat_command", gained,
+                            Some("hero".into()));
+                    }
                 }
             }
         }
