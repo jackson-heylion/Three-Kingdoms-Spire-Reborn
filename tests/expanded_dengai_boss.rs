@@ -94,6 +94,10 @@ fn four_paid_cards_expose_a_real_summoned_raider_for_followup_attack() {
         let b = game.battle.as_mut().unwrap();
         b.foes[0].intent = Intent::Boss(BossMove::YinpingFlank(1));
         b.energy = 4;
+        // Explicit controlled armor checkpoint: verify the new offensive
+        // shield-break independently of the naturally summoned foe's HP.
+        // This is not presented as a natural floor-zero journey.
+        b.foes[1].block = 6;
         for _ in 0..4 {
             b.hand.push(three_kingdoms_spire_reborn::Card::new("defend"));
         }
@@ -113,6 +117,12 @@ fn four_paid_cards_expose_a_real_summoned_raider_for_followup_attack() {
     assert!(report.join("；").contains("连环出牌识破山道援军"), "{report:?}");
     let battle = game.battle.as_ref().unwrap();
     assert!(battle.foes[1].vulnerable > 0);
+    assert_eq!(battle.foes[1].block, 0,
+        "four-card interception must strip the escort's six-point shield");
+    assert!(report.join("；").contains("击破现有护甲6"), "{report:?}");
+    assert!(battle.events.iter().any(|e|
+        e.source == "yinping_raider_armor_broken" && e.amount == 6
+            && e.kind == three_kingdoms_spire_reborn::combat::EventKind::PowerTriggered));
     assert!(battle.events.iter().any(|e|
         e.source == "yinping_raider_exposed"
             && e.kind == three_kingdoms_spire_reborn::combat::EventKind::PowerTriggered));
