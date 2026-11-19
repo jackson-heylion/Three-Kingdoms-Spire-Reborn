@@ -585,7 +585,7 @@ fn natural_jieting_retreat_changes_deng_ai_boss_from_floor_zero() {
             format!("jieting-to-yinping-natural-{seed}"),
         );
         game.apply(Action::SetVariants {
-            act1: (seed & 1) as u8, act2: 0, act3: 1,
+            act1: (seed & 1) as u8, act2: ((seed >> 11) & 1) as u8, act3: 1,
         }).expect("legally select fifth-act alternate commander");
         game.apply(Action::Choose { index: 1 }).expect("begin natural breakout");
         let mut planned = false;
