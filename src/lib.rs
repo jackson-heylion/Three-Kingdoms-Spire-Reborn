@@ -408,7 +408,7 @@ impl Game {
             return match self.jieting_plan {
                 Some(JietingPlan::WaterSettled) => Some("邓艾·阴平：街亭守水责任延续；入阵我军护甲+10，邓艾虚弱2层（回合末衰减）"),
                 Some(JietingPlan::HillSettled) => Some("邓艾·阴平：街亭据山暴露山道；邓艾武勇+2、护甲+10，我军武勇+1；亲自击败山道援军可反击8点"),
-                Some(JietingPlan::RetreatSettled) => Some("邓艾·阴平：街亭撤退保全先机；入阵军令+1，邓艾护甲+6"),
+                Some(JietingPlan::RetreatSettled) => Some("邓艾·阴平：街亭撤退保全先机；入阵军令+1，邓艾护甲+6；成功截击阴平偷渡额外反击2点"),
                 _ => None,
             };
         }
@@ -444,7 +444,7 @@ impl Game {
             let jieting = match self.jieting_plan {
                 Some(JietingPlan::WaterSettled) => "街亭守水军需兑现：入阵获10护甲、邓艾虚弱2层",
                 Some(JietingPlan::HillSettled) => "街亭据山旧债兑现：邓艾武勇+2与护甲+10，我军武勇+1；亲自击败山道援军可反击8点",
-                Some(JietingPlan::RetreatSettled) => "街亭撤退先机兑现：额外军令+1、邓艾护甲+6",
+                Some(JietingPlan::RetreatSettled) => "街亭撤退先机兑现：额外军令+1、邓艾护甲+6；成功截击阴平偷渡额外反击2点",
                 _ => "未携带街亭军议后果",
             };
             return Some(format!("阴平史诗关底：回合末出牌至少3/4张或护甲达10/12可截击；击败真实援军可截断山道并重创邓艾。{jieting}。"));
@@ -2273,7 +2273,18 @@ impl Game {
                     // immediately-expiring cover) makes interception an actual
                     // tactical consequence, recorded in the authoritative
                     // combat event stream and replayed from legal card actions.
-                    let counter = 4 + 2 * i32::from(phase);
+                    // The Jieting retreat preserves a mobile reserve. The extra
+                    // opening command is useful even before the signature;
+                    // spending real cards or guarding the pass now also
+                    // turns that historical decision into a stronger counter.
+                    // No bonus is awarded on a failed interception.
+                    let retreat_reserve = self.hero == Hero::ZhugeLiang
+                        && self.jieting_plan == Some(JietingPlan::RetreatSettled)
+                        && self.floor == 40 && self.difficulty.is_some()
+                        && self.battle.as_ref().is_some_and(|b|
+                            b.foes[idx].id == "dengai");
+                    let counter = 4 + 2 * i32::from(phase)
+                        + if retreat_reserve { 2 } else { 0 };
                     let inflicted = self.deal_enemy_damage_unblockable(
                         idx, counter, "yinping_interception");
                     format!("阴平偷渡被截击：本回合出牌{played}/{required}{}，反击造成{inflicted}点无视护甲伤害，邓艾阵线暴露并易伤{}",
