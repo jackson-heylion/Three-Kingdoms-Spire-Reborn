@@ -150,7 +150,7 @@ impl BossMove {
             Self::WhiteClothes => "白衣渡江：回合末护甲至少8可识破伏兵并使吕蒙易伤；否则下回合军令-1".into(),
             Self::NorthernExpedition(n) => format!("北伐断粮：回合末护甲至少{}可守住粮道并使姜维易伤；否则下回合军令-1并混入军心涣散", 8 + i32::from(*n) * 2),
             Self::StarOmen(phase) => format!("星象幻阵：回合末护甲至少{}可识破幻象并使左慈易伤；否则左慈加甲且弃牌堆混入军心涣散", 9 + i32::from(*phase) * 2),
-            Self::YinpingFlank(phase) => format!("阴平偷渡：本回合打出至少{}张牌或回合末护甲达到{}可截击并对邓艾造成{}点无视护甲伤害、使其易伤；仅靠护甲封锁还能令邓艾下回合攻击虚弱；否则损失至多{}金且敌军加甲{}", 3 + u32::from(*phase), 10 + 2 * i32::from(*phase), 4 + 2 * i32::from(*phase), 10 + 5 * i32::from(*phase > 0), if *phase > 0 { "；二阶段首次失守还会召集援兵（下回合才行动）；已有援军时护甲达10可牵制援军（未截击仍会失金）" } else { "" }),
+            Self::YinpingFlank(phase) => format!("阴平偷渡：本回合打出至少{}张牌或回合末护甲达到{}可截击并对邓艾造成{}点无视护甲伤害、使其易伤；仅靠护甲封锁还能令邓艾下回合攻击虚弱；否则损失至多{}金且敌军加甲{}", 3 + u32::from(*phase), 10 + 2 * i32::from(*phase), 4 + 2 * i32::from(*phase), 10 + 5 * i32::from(*phase > 0), if *phase > 0 { "；二阶段首次失守还会召集援兵（下回合才行动）；已有援军时护甲达10可牵制援军；未牵制的存活援军会额外掠金至多5（未截击仍会失金）" } else { "" }),
         }
     }
 }
@@ -447,7 +447,7 @@ impl Game {
                 Some(JietingPlan::RetreatSettled) => "街亭撤退先机兑现：额外军令+1、邓艾护甲+6；成功截击阴平偷渡额外反击2点；亲自击败山道援军并伤及邓艾可回收1点军令（至多5点）",
                 _ => "未携带街亭军议后果",
             };
-            return Some(format!("阴平史诗关底：回合末出牌至少3/4张或护甲达10/12可截击；第二阶段护甲达12且未凑够4牌可截击并压制援军；若仅有10护甲，仍可牵制已有援军，但无法阻止邓艾掠金；击败真实援军可截断山道并重创邓艾。{jieting}。"));
+            return Some(format!("阴平史诗关底：回合末出牌至少3/4张或护甲达10/12可截击；第二阶段护甲达12且未凑够4牌可截击并压制援军；若仅有10护甲，仍可牵制已有援军并阻止追加掠金，但邓艾基础掠金仍生效；未牵制的存活援军会额外掠金至多5；击败真实援军可截断山道并重创邓艾。{jieting}。"));
         }
         if self.stage == Stage::Combat && let Some(hp) = self.battle.as_ref().and_then(|b| b.siege_gate_hp) {
             let turn = self.battle.as_ref().expect("battle").turn;
@@ -2383,8 +2383,25 @@ impl Game {
                             "yinping_raider_screened", 1,
                             Some(format!("foe:{raider_idx}")));
                     }
-                    let stolen = self.gold.min(10 + 5 * i32::from(phase > 0));
+                    // A surviving vanguard can escort stolen supplies out
+                    // of the pass. This is an extra, bounded consequence of
+                    // leaving a visible target alive, not an unavoidable tax:
+                    // defeating the raider or raising ten armor stops the
+                    // escort even if Deng Ai's main interception still fails.
+                    let base_stolen = self.gold.min(10 + 5 * i32::from(phase > 0));
+                    let raider_escort = phase > 0 && screened_raider.is_none()
+                        && self.battle.as_ref().is_some_and(|b| b.foes.iter()
+                            .any(|foe| foe.id == "assassin" && foe.hp > 0));
+                    let escort_stolen = if raider_escort {
+                        (self.gold - base_stolen).min(5)
+                    } else { 0 };
+                    let stolen = base_stolen + escort_stolen;
                     self.gold -= stolen;
+                    if escort_stolen > 0 {
+                        self.combat_event(EventKind::EnemyTechnique,
+                            "yinping_raider_escort_levy", escort_stolen,
+                            Some("gold".into()));
+                    }
                     let shield = 6 + 3 * i32::from(phase);
                     // The phase-two failure can divert a mountain vanguard to
                     // the battlefield, once per encounter. Defeated reinforcements
@@ -2417,10 +2434,11 @@ impl Game {
                         self.combat_event(EventKind::FoeSummoned, "assassin", 1,
                             Some(format!("foe:{new_index}")));
                     }
-                    format!("阴平偷渡得手：本回合出牌{played}/{required}，失去{stolen}金，邓艾护甲+{shield}{}{}{}",
+                    format!("阴平偷渡得手：本回合出牌{played}/{required}，失去{stolen}金，邓艾护甲+{shield}{}{}{}{}",
                         if phase > 0 { "，下回合军令-1" } else { "" },
                         if summoned.is_some() { "，山道援兵已出现（下回合才行动）" } else { "" },
-                        if screened_raider.is_some() { "，护阵牵制已有山道援军，攻击虚弱" } else { "" })
+                        if screened_raider.is_some() { "，护阵牵制已有山道援军，攻击虚弱且阻止追加掠金" } else { "" },
+                        if escort_stolen > 0 { format!("，山道援军协同多掠金{escort_stolen}") } else { String::new() })
                 }
             }
             BossMove::StarOmen(phase) => {
