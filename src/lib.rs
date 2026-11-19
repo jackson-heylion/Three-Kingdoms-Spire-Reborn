@@ -396,7 +396,23 @@ impl Game {
     /// from committed campaign/battle state, so saves and replay need no new schema.
     /// Read-only convoy warning before committing to a route.
     pub fn route_objective_hint(&self, node: Node) -> Option<&'static str> {
-        if self.stage != Stage::Map || self.difficulty.is_none() || node != Node::Battle {
+        if self.stage != Stage::Map || self.difficulty.is_none() {
+            return None;
+        }
+        // Act-IV's independent Jieting decision is still observable at the
+        // *alternative* fifth-act commander. This is a read-only route warning:
+        // simply inspecting the map never advances RNG or commits an effect.
+        if node == Node::Boss && self.floor == 39 && self.hero == Hero::ZhugeLiang
+            && self.variants.is_some_and(|v| v[2] == 1)
+        {
+            return match self.jieting_plan {
+                Some(JietingPlan::WaterSettled) => Some("邓艾·阴平：街亭守水责任延续；入阵我军护甲+10，邓艾虚弱2层（回合末衰减）"),
+                Some(JietingPlan::HillSettled) => Some("邓艾·阴平：街亭据山暴露山道；邓艾武勇+2、护甲+10，我军武勇+1"),
+                Some(JietingPlan::RetreatSettled) => Some("邓艾·阴平：街亭撤退保全先机；入阵军令+1，邓艾护甲+6"),
+                _ => None,
+            };
+        }
+        if node != Node::Battle {
             return None;
         }
         // The map cursor is the last completed floor; a route enters floor + 1.
@@ -420,6 +436,19 @@ impl Game {
     }
 
     pub fn tactical_objective(&self) -> Option<String> {
+        if self.stage == Stage::Combat && self.floor == 40
+            && self.hero == Hero::ZhugeLiang
+            && self.battle.as_ref().is_some_and(|b|
+                b.foes.first().is_some_and(|f| f.id == "dengai"))
+        {
+            let jieting = match self.jieting_plan {
+                Some(JietingPlan::WaterSettled) => "街亭守水军需兑现：入阵获10护甲、邓艾虚弱2层",
+                Some(JietingPlan::HillSettled) => "街亭据山旧债兑现：邓艾武勇+2与护甲+10，我军武勇+1",
+                Some(JietingPlan::RetreatSettled) => "街亭撤退先机兑现：额外军令+1、邓艾护甲+6",
+                _ => "未携带街亭军议后果",
+            };
+            return Some(format!("阴平史诗关底：回合末出牌至少3/4张或护甲达10/12可截击；击败真实援军可截断山道并重创邓艾。{jieting}。"));
+        }
         if self.stage == Stage::Combat && let Some(hp) = self.battle.as_ref().and_then(|b| b.siege_gate_hp) {
             let turn = self.battle.as_ref().expect("battle").turn;
             return Some(format!("攻城：城门耐久{hp}/12；每次 assault 消耗2军令、破门4点；第5回合结束前须破门，敌军仍会攻击；当前第{turn}回合。"));
@@ -848,6 +877,35 @@ impl Game {
                 b.strength += 1;
             }
         }
+        // A real act-IV Jieting choice continues into the alternate fifth-act
+        // historical commander. Existing settled plan identity is the durable
+        // receipt: no extra save field, no repeated reward from reload, and no
+        // effect in other commanders or the legacy 21-floor campaign.
+        if self.difficulty.is_some() && self.hero == Hero::ZhugeLiang
+            && self.floor == 40 && node == Node::Boss
+            && self.battle.as_ref().is_some_and(|b|
+                b.foes.first().is_some_and(|f| f.id == "dengai"))
+        {
+            let b = self.battle.as_mut().expect("historical final battle");
+            match self.jieting_plan {
+                Some(JietingPlan::WaterSettled) => {
+                    b.block += 10;
+                    // Two stacks survive the current Yinping signature's
+                    // EndTurn tick, so the next genuine attack is weaker.
+                    b.foes[0].weak = b.foes[0].weak.saturating_add(2);
+                }
+                Some(JietingPlan::HillSettled) => {
+                    b.foes[0].strength += 2;
+                    b.foes[0].block += 10;
+                    b.strength += 1;
+                }
+                Some(JietingPlan::RetreatSettled) => {
+                    b.energy += 1;
+                    b.foes[0].block += 6;
+                }
+                _ => {}
+            }
+        }
         // Pay off the optional act-II Wuchao decision only when a later battle
         // actually begins in act III (floors 17–24). Never defer a missed
         // act-III opportunity into a historically unrelated later act.
@@ -1046,6 +1104,17 @@ impl Game {
                         Some(JietingPlan::WaterSettled) => "；街亭守水兑现：第五幕护甲+8",
                         Some(JietingPlan::HillSettled) => "；街亭断水债务：损失至多12金",
                         Some(JietingPlan::RetreatSettled) => "；街亭撤退兑现：恢复至多8体力",
+                        _ => "",
+                    });
+                }
+                if self.floor == 40 && self.hero == Hero::ZhugeLiang
+                    && self.battle.as_ref().is_some_and(|b|
+                        b.foes.first().is_some_and(|f| f.id == "dengai"))
+                {
+                    msg.push_str(match self.jieting_plan {
+                        Some(JietingPlan::WaterSettled) => "；街亭守水远期兑现：入阵护甲+10、邓艾虚弱2层",
+                        Some(JietingPlan::HillSettled) => "；街亭据山远期债务：邓艾武勇+2、护甲+10，我军武勇+1",
+                        Some(JietingPlan::RetreatSettled) => "；街亭撤退远期先机：军令+1、邓艾护甲+6",
                         _ => "",
                     });
                 }
