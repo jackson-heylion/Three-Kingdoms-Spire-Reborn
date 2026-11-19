@@ -236,8 +236,14 @@ fn surviving_raider_escorts_extra_gold_unless_defeated_or_guarded() {
     assert_eq!(messages, restored.apply(Action::EndTurn).unwrap());
     assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
     assert_eq!(game.gold, before - 20, "15 base and 5 escorted gold");
-    assert!(messages.join("；").contains("山道援军协同多掠金5"), "{messages:?}");
+    assert!(messages.join("；").contains("山道援军协同多掠金5，负重暴露破绽（易伤）"), "{messages:?}");
     let after = game.battle.as_ref().expect("surviving foe encounter");
+    assert_eq!(after.foes[1].vulnerable, 1,
+        "the exposed escort remains vulnerable after turn-end status decay");
+    assert!(after.events.iter().any(|e|
+        e.kind == three_kingdoms_spire_reborn::combat::EventKind::StatusApplied
+            && e.source == "vulnerable" && e.amount == 2
+    ), "exposure is an authoritative combat status event");
     assert_eq!(after.events.iter().filter(|e|
         e.kind == three_kingdoms_spire_reborn::combat::EventKind::EnemyTechnique
             && e.source == "yinping_raider_escort_levy"
