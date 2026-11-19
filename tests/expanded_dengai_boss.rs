@@ -445,9 +445,12 @@ fn exposed_escort_loot_can_be_recovered_after_commander_falls() {
     assert!(game.gold > before, "final boss victory still pays its normal reward");
     assert_eq!(game.gold, unexposed.gold + 5,
         "exposure recovers exactly five gold on top of identical victory rewards");
-    assert_eq!(game.battle.as_ref().unwrap().events.iter().filter(|e|
-        e.source == "yinping_escort_gold_recovered" && e.amount == 5
-    ).count(), 1);
+    // Defeating the final foe immediately settles combat and clears the
+    // battle object. The five-gold differential is the observable, persisted
+    // outcome; battle.events is only inspectable before final settlement.
+    assert!(game.battle.is_none(), "last foe death settles the encounter");
+    assert_eq!(game.to_json().unwrap(), resumed.to_json().unwrap(),
+        "the recovered gold and final reward survive serialized replay");
 }
 
 #[test]
