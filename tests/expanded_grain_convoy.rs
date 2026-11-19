@@ -449,3 +449,42 @@ fn jieting_hill_sacrifices_water_at_real_battle_entry_and_survives_restore() {
     restored.apply(Action::EndTurn).expect("restored water raid");
     assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
 }
+
+#[test]
+fn jieting_hill_real_attack_suppresses_raiders_and_replays_after_restore() {
+    // Controlled floor-25 entry, explicitly NOT natural 1->25 evidence.
+    // The entire choice, battle, strike and raid still use Game::apply.
+    let mut game = Game::new_with_campaign_difficulty(
+        Hero::ZhugeLiang, 247_529, Difficulty::Warlords,
+        "jieting-hill-attack-suppression".into(),
+    );
+    game.floor = 25;
+    game.stage = Stage::Story;
+    game.apply(Action::Choose { index: 4 }).expect("open Jieting council");
+    game.apply(Action::Choose { index: 2 }).expect("take high ground");
+    game.apply(Action::Choose { index: 1 }).expect("enter water battle");
+    assert_eq!(game.jieting_plan, Some(JietingPlan::HillResolved));
+    assert_eq!(game.battle.as_ref().unwrap().convoy_hp, Some(8));
+
+    // This is a controlled card effect contract, not a claim of an untouched
+    // natural draw; the resulting attack and water cover use authoritative actions.
+    let foe = game.battle.as_ref().unwrap().foes.iter()
+        .position(|foe| foe.hp > 0).expect("living water raider") + 1;
+    game.battle.as_mut().unwrap().hand.insert(0,
+        three_kingdoms_spire_reborn::Card::new("strike"));
+    let before = game.battle.as_ref().unwrap().convoy_cover.unwrap_or(0);
+    let log = game.apply(Action::Play { index: 1, target: foe })
+        .expect("attack the water raider");
+    assert!(log.join("；").contains("据山攻击压制劫水敌军"), "{log:?}");
+    assert_eq!(game.battle.as_ref().unwrap().convoy_cover, Some(before + 2));
+    assert!(game.tactical_objective().unwrap().contains("据山进攻命中敌军"));
+    assert!(game.event_history.as_ref().unwrap().iter().any(|e|
+        e.event.source == "jieting_hill_suppression" && e.event.amount == 2));
+
+    let saved = game.to_json().expect("save after suppression");
+    let mut loaded = Game::from_json(&saved).expect("restore suppression");
+    assert_eq!(loaded.to_json().unwrap(), saved);
+    game.apply(Action::EndTurn).expect("raid after attacking");
+    loaded.apply(Action::EndTurn).expect("restored raid after attacking");
+    assert_eq!(game.to_json().unwrap(), loaded.to_json().unwrap());
+}
