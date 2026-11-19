@@ -78,6 +78,49 @@ fn three_real_play_actions_intercept_yinping_raid_and_preserve_resources() {
 
 
 #[test]
+fn four_paid_cards_expose_a_real_summoned_raider_for_followup_attack() {
+    // Controlled phase-two setup only; the escort itself is summoned by
+    // the real boss action, and the player must pay for four legal cards.
+    let mut game = fifth_act_alternate_boss();
+    game.apply(Action::Choose { index: 1 }).expect("enter fifth-act boss");
+    {
+        let b = game.battle.as_mut().unwrap();
+        b.foes[0].phase = 1;
+        b.foes[0].intent = Intent::Boss(BossMove::YinpingFlank(1));
+    }
+    game.apply(Action::EndTurn).expect("boss summons escort");
+    assert_eq!(game.battle.as_ref().unwrap().foes[1].id, "assassin");
+    {
+        let b = game.battle.as_mut().unwrap();
+        b.foes[0].intent = Intent::Boss(BossMove::YinpingFlank(1));
+        b.energy = 4;
+        for _ in 0..4 {
+            b.hand.push(three_kingdoms_spire_reborn::Card::new("defend"));
+        }
+    }
+    for _ in 0..4 {
+        let index = game.battle.as_ref().unwrap().hand.iter()
+            .position(|card| card.id == "defend").unwrap() + 1;
+        game.apply(Action::Play { index, target: 1 })
+            .expect("paid defensive action");
+    }
+    assert_eq!(game.battle.as_ref().unwrap().played_this_turn, 4);
+    let before = game.to_json().unwrap();
+    let mut restored = Game::from_json(&before).unwrap();
+    let report = game.apply(Action::EndTurn).unwrap();
+    assert_eq!(report, restored.apply(Action::EndTurn).unwrap());
+    assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
+    assert!(report.join("；").contains("连环出牌识破山道援军"), "{report:?}");
+    let battle = game.battle.as_ref().unwrap();
+    assert!(battle.foes[1].vulnerable > 0);
+    assert!(battle.events.iter().any(|e|
+        e.source == "yinping_raider_exposed"
+            && e.kind == three_kingdoms_spire_reborn::combat::EventKind::PowerTriggered));
+    assert_eq!(battle.foes[1].weak, 0,
+        "four-card offense must not inherit defense-only suppression");
+}
+
+#[test]
 fn second_phase_unchecked_yinping_calls_one_telegraphed_raider_after_save_restore() {
     // This is an isolated phase-two tactical fixture, NOT evidence that a
     // natural 0-to-40 campaign can reach the second phase or defeat it.
