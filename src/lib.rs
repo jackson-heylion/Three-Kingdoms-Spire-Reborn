@@ -2341,9 +2341,28 @@ impl Game {
                         + if retreat_reserve { 2 } else { 0 };
                     let inflicted = self.deal_enemy_damage_unblockable(
                         idx, counter, "yinping_interception");
-                    format!("阴平偷渡被截击：本回合出牌{played}/{required}{}，反击造成{inflicted}点无视护甲伤害，邓艾阵线暴露并易伤{}",
+                    // A successful phase-two defense can pin an existing
+                    // mountain raider as well as Deng Ai. This is a real
+                    // alternative to racing four cards: the player must
+                    // build the displayed armor threshold with legal actions.
+                    // The raider is already visible, so no hidden intent or
+                    // RNG is rewritten. Two weak stacks leave one after the
+                    // current EndTurn status decay, preserving a counterplay
+                    // window on its next actual attack.
+                    let pinned_raider = if defense_only && phase > 0 {
+                        self.battle.as_ref().and_then(|b| b.foes.iter()
+                            .position(|foe| foe.id == "assassin" && foe.hp > 0))
+                    } else { None };
+                    if let Some(raider_idx) = pinned_raider {
+                        self.apply_foe_status(raider_idx, "weak", 2);
+                        self.combat_event(EventKind::PowerTriggered,
+                            "yinping_raider_pinned", 1,
+                            Some(format!("foe:{raider_idx}")));
+                    }
+                    format!("阴平偷渡被截击：本回合出牌{played}/{required}{}，反击造成{inflicted}点无视护甲伤害，邓艾阵线暴露并易伤{}{}",
                         if guarded { "，护阵封锁山道" } else { "" },
-                        if defense_only { "；坚守扰乱偷渡军，下回合邓艾攻击虚弱" } else { "" })
+                        if defense_only { "；坚守扰乱偷渡军，下回合邓艾攻击虚弱" } else { "" },
+                        if pinned_raider.is_some() { "；山道援军也被压制，下次攻击虚弱" } else { "" })
                 } else {
                     let stolen = self.gold.min(10 + 5 * i32::from(phase > 0));
                     self.gold -= stolen;
