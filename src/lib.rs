@@ -447,7 +447,7 @@ impl Game {
                 Some(JietingPlan::RetreatSettled) => "街亭撤退先机兑现：额外军令+1、邓艾护甲+6；成功截击阴平偷渡额外反击2点；亲自击败山道援军并伤及邓艾可回收1点军令（至多5点）",
                 _ => "未携带街亭军议后果",
             };
-            return Some(format!("阴平史诗关底：回合末出牌至少3/4张或护甲达10/12可截击；第二阶段护甲达12且未凑够4牌可截击并压制援军；若仅有10护甲，仍可牵制已有援军并阻止追加掠金，但邓艾基础掠金仍生效；未牵制的存活援军会额外掠金至多5；存活援军在偶数回合会预告协同护阵，玩家可优先击杀；击败真实援军可截断山道并重创邓艾。{jieting}。"));
+            return Some(format!("阴平史诗关底：回合末出牌至少3/4张或护甲达10/12可截击；第二阶段护甲达12且未凑够4牌可截击并压制援军；若仅有10护甲，仍可牵制已有援军、削弱其当回合协同护阵并阻止追加掠金，但邓艾基础掠金仍生效；未牵制的存活援军会额外掠金至多5；存活援军在偶数回合会预告协同护阵，玩家可优先击杀；击败真实援军可截断山道并重创邓艾。{jieting}。"));
         }
         if self.stage == Stage::Combat && let Some(hp) = self.battle.as_ref().and_then(|b| b.siege_gate_hp) {
             let turn = self.battle.as_ref().expect("battle").turn;
@@ -2179,19 +2179,30 @@ impl Game {
         damage
     }
     fn ally_support(&mut self, foe_idx: usize, armor: i32) -> String {
-        let (origin, recipients, shielding) = {
+        let (origin, recipients, shielding, disrupted) = {
             let b = self.battle.as_mut().expect("battle");
             let origin = b.foes[foe_idx].id.clone();
+            // A guarded or weakened Yinping vanguard cannot provide full
+            // escort cover. Weak can be applied earlier in the SAME EndTurn
+            // by Deng Ai's intercepted signature; resolve actual support
+            // only after observing that committed status, not at intent roll.
+            // Other assassins, support enemies and legacy saves are unchanged.
+            let disrupted = self.difficulty.is_some() && self.floor == 40
+                && origin == "assassin" && b.foes[foe_idx].weak > 0
+                && b.foes.iter().any(|foe| foe.id == "dengai" && foe.hp > 0);
+            let effective_armor = if disrupted { armor.saturating_mul(3) / 4 } else { armor };
             let partners = b.foes.iter().enumerate()
                 .filter(|(idx,foe)| *idx != foe_idx && foe.hp > 0)
                 .map(|(idx,_)| idx).collect::<Vec<_>>();
             let targets = if partners.is_empty() { vec![foe_idx] } else { partners };
-            for idx in &targets { b.foes[*idx].block += armor; }
+            for idx in &targets { b.foes[*idx].block += effective_armor; }
             let count = targets.len() as i32;
-            (origin,targets.len(),count*armor)
+            (origin,targets.len(),count*effective_armor,disrupted)
         };
         self.combat_event(EventKind::EnemyTechnique,&origin,shielding,Some("allies".into()));
-        format!("{}为{}名友军布阵，累计护甲+{}",enemy_name(&origin),recipients,shielding)
+        format!("{}为{}名友军布阵，累计护甲+{}{}",
+            enemy_name(&origin),recipients,shielding,
+            if disrupted { "；援军遭虚弱牵制，护阵减弱" } else { "" })
     }
 
     fn boss_signature(&mut self, idx: usize, technique: BossMove) -> String {
