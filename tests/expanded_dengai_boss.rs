@@ -428,13 +428,23 @@ fn exposed_escort_loot_can_be_recovered_after_commander_falls() {
     let before = game.gold;
     let save = game.to_json().expect("save pending direct counterplay");
     let mut resumed = Game::from_json(&save).expect("restore pending direct counterplay");
+    // Killing the final foe also settles the boss victory and awards its
+    // normal gold. Compare identical legal final strikes with and without
+    // the exposure status to isolate the *additional* five-gold recovery.
+    // Comparing against before+5 accidentally counts the victory payout
+    // as a regression in the escort-recovery rule.
+    let mut unexposed = Game::from_json(&save).expect("comparison final strike");
+    unexposed.battle.as_mut().unwrap().foes[1].vulnerable = 0;
     let card = game.battle.as_ref().unwrap().hand.len();
     let result = game.apply(Action::Play { index: card, target: 2 })
         .expect("directly defeat exposed escort");
     assert_eq!(result, resumed.apply(Action::Play { index: card, target: 2 }).unwrap());
     assert_eq!(game.to_json().unwrap(), resumed.to_json().unwrap());
-    assert_eq!(game.gold, before + 5,
-        "the actual levy is recoverable even without a living commander");
+    unexposed.apply(Action::Play { index: card, target: 2 })
+        .expect("same legal final strike without exposed loot");
+    assert!(game.gold > before, "final boss victory still pays its normal reward");
+    assert_eq!(game.gold, unexposed.gold + 5,
+        "exposure recovers exactly five gold on top of identical victory rewards");
     assert_eq!(game.battle.as_ref().unwrap().events.iter().filter(|e|
         e.source == "yinping_escort_gold_recovered" && e.amount == 5
     ).count(), 1);
