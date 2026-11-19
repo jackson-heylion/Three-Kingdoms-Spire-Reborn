@@ -415,6 +415,20 @@ fn jieting_retreat_evacuation_reduces_real_water_raid_and_survives_restore() {
     assert_eq!(game.battle.as_ref().unwrap().convoy_hp, Some(12 - expected_raid));
     assert_eq!(game.battle.as_ref().unwrap().convoy_cover, Some(0));
     assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
+    // Real retreat guard recovers water only after a raid, and its replayed
+    // Action::Play must produce the same cover, water and event after restore.
+    for run in [&mut game, &mut restored] {
+        run.battle.as_mut().unwrap().hand.insert(0,
+            three_kingdoms_spire_reborn::Card::new("defend"));
+        let before = run.battle.as_ref().unwrap().convoy_hp.unwrap();
+        let report = run.apply(Action::Play { index: 1, target: 1 })
+            .expect("retreat guard salvages water");
+        assert!(report.join("；").contains("撤退布防抢救水源2点"), "{report:?}");
+        assert_eq!(run.battle.as_ref().unwrap().convoy_hp, Some((before + 2).min(12)));
+        assert!(run.event_history.as_ref().unwrap().iter().any(|e|
+            e.event.source == "jieting_retreat_water_salvaged" && e.event.amount == 2));
+    }
+    assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
 }
 
 #[test]
