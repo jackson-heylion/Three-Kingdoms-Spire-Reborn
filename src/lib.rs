@@ -447,7 +447,7 @@ impl Game {
                 Some(JietingPlan::RetreatSettled) => "街亭撤退先机兑现：额外军令+1、邓艾护甲+6；成功截击阴平偷渡额外反击2点；亲自击败山道援军并伤及邓艾可回收1点军令（至多5点）",
                 _ => "未携带街亭军议后果",
             };
-            return Some(format!("阴平史诗关底：回合末出牌至少3/4张或护甲达10/12可截击；击败真实援军可截断山道并重创邓艾。{jieting}。"));
+            return Some(format!("阴平史诗关底：回合末出牌至少3/4张或护甲达10/12可截击；第二阶段仅凭护阵截击还能压制存活山道援军，使其下次攻击虚弱；击败真实援军可截断山道并重创邓艾。{jieting}。"));
         }
         if self.stage == Stage::Combat && let Some(hp) = self.battle.as_ref().and_then(|b| b.siege_gate_hp) {
             let turn = self.battle.as_ref().expect("battle").turn;
