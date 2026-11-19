@@ -49,7 +49,15 @@ fn fight(game: &mut Game) -> Result<(), String> {
                 // lethal raid permits additional guards through Game::apply.
                 let protect_water = water_objective && incoming_water_loss > 0
                     && (!guarded || threatened_objective);
-                let defend = protect_water || (!guarded && b.block < 8
+                // The fifth-act Yinping raid is a telegraphed card-count OR
+                // armor defense. A legal guard is useful even without a direct
+                // attack intent; otherwise the driver discards a real counter.
+                let yinping_guard = b.foes.iter().any(|foe| foe.hp > 0
+                    && matches!(foe.intent,
+                        three_kingdoms_spire_reborn::Intent::Boss(
+                            three_kingdoms_spire_reborn::BossMove::YinpingFlank(_))));
+                let defend = protect_water || (yinping_guard && b.block < 12)
+                    || (!guarded && b.block < 8
                     && b.foes.iter().any(|foe| foe.hp > 0 && matches!(
                         foe.intent, three_kingdoms_spire_reborn::Intent::Attack(_)
                             | three_kingdoms_spire_reborn::Intent::MultiAttack(_, _)
