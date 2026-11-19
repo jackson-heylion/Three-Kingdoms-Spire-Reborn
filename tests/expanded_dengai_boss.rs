@@ -175,6 +175,12 @@ fn guarded_second_phase_interception_pins_visible_raider_and_replays() {
     }
     game.apply(Action::EndTurn).expect("real failed infiltration summons raider");
     assert_eq!(game.battle.as_ref().unwrap().foes[1].id, "assassin");
+    // The preceding failed raid legitimately costs one energy on the next
+    // turn. This controlled tactical case restores the third energy solely
+    // to validate the FULL 12-armor interception; the separate ten-armor
+    // case below keeps the actual two-energy penalty and its consequences.
+    assert_eq!(game.battle.as_ref().unwrap().energy, 2);
+    game.battle.as_mut().unwrap().energy = 3;
     // Three legal defensive plays reach 12 armor but not four-card threshold.
     // The controlled hand fixture isolates the new player-choice branch.
     for _ in 0..3 {
@@ -201,6 +207,52 @@ fn guarded_second_phase_interception_pins_visible_raider_and_replays() {
         event.source == "yinping_raider_pinned"
     ).count(), 1);
     assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
+}
+
+#[test]
+fn ten_armor_after_a_failed_raid_screens_existing_vanguard_without_free_interception() {
+    // Controlled second-phase opponent and cards; energy stays on the real
+    // two-point penalty from the first failed raid. This is not 0→40 evidence.
+    let mut game = fifth_act_alternate_boss();
+    game.apply(Action::Choose { index: 1 }).unwrap();
+    {
+        let battle = game.battle.as_mut().unwrap();
+        battle.foes[0].phase = 1;
+        battle.foes[0].intent = Intent::Boss(BossMove::YinpingFlank(1));
+    }
+    game.apply(Action::EndTurn).expect("failed raid summons visible raider");
+    assert_eq!(game.battle.as_ref().unwrap().energy, 2);
+    assert_eq!(game.battle.as_ref().unwrap().foes[1].id, "assassin");
+    for _ in 0..2 {
+        let battle = game.battle.as_mut().unwrap();
+        battle.hand.push(three_kingdoms_spire_reborn::Card::new("defend"));
+        let index = battle.hand.len();
+        game.apply(Action::Play { index, target: 1 }).expect("legal paid defense");
+    }
+    let battle = game.battle.as_ref().unwrap();
+    assert_eq!(battle.played_this_turn, 2);
+    assert_eq!(battle.block, 10);
+    assert_eq!(battle.energy, 0);
+    game.battle.as_mut().unwrap().foes[0].intent =
+        Intent::Boss(BossMove::YinpingFlank(1));
+    let gold_before = game.gold;
+    let boss_hp = game.battle.as_ref().unwrap().foes[0].hp;
+    let save = game.to_json().expect("save real paid defense actions");
+    let mut resumed = Game::from_json(&save).expect("restore penalized combat");
+    let messages = game.apply(Action::EndTurn).expect("partial defensive raid response");
+    assert_eq!(messages, resumed.apply(Action::EndTurn).unwrap());
+    assert_eq!(game.to_json().unwrap(), resumed.to_json().unwrap());
+    let report = messages.join("；");
+    assert!(report.contains("护阵牵制已有山道援军，攻击虚弱"), "{report}");
+    assert!(report.contains("阴平偷渡得手"), "boss must still succeed");
+    assert_eq!(game.gold, gold_before - gold_before.min(15));
+    let after = game.battle.as_ref().unwrap();
+    assert_eq!(after.foes[0].hp, boss_hp, "partial screen cannot claim intercept damage");
+    assert_eq!(after.foes[1].weak, 1, "screen persists past turn-end decay");
+    assert_eq!(after.events.iter().filter(|event|
+        event.source == "yinping_raider_screened" &&
+            event.kind == three_kingdoms_spire_reborn::combat::EventKind::PowerTriggered
+    ).count(), 1, "one screen must create one replayable event");
 }
 
 #[test]
