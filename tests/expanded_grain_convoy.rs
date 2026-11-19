@@ -481,6 +481,15 @@ fn jieting_hill_real_attack_suppresses_raiders_and_replays_after_restore() {
     assert!(game.event_history.as_ref().unwrap().iter().any(|e|
         e.event.source == "jieting_hill_suppression" && e.event.amount == 2));
 
+    // Piercing is also a real played attack. It must not silently bypass
+    // suppression or the card's visible promise to protect the wells.
+    game.battle.as_mut().unwrap().hand.insert(0,
+        three_kingdoms_spire_reborn::Card::new("jianshu"));
+    let piercing = game.apply(Action::Play { index: 1, target: foe })
+        .expect("piercing shot suppresses the water raider");
+    assert!(piercing.join("；").contains("水源掩护+2点"), "{piercing:?}");
+    assert_eq!(game.battle.as_ref().unwrap().convoy_cover, Some(before + 4));
+
     let saved = game.to_json().expect("save after suppression");
     let mut loaded = Game::from_json(&saved).expect("restore suppression");
     assert_eq!(loaded.to_json().unwrap(), saved);

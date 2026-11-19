@@ -1293,11 +1293,15 @@ impl Game {
             if foe.vulnerable > 0 { weakened.saturating_mul(3) / 2 } else { weakened }
         };
         let actual = self.deal_enemy_damage(idx, damage, "hero");
-        // High-ground troops can pin down water raiders with real, unblocked
-        // attack damage. This competes with defensive cards rather than
-        // requiring the player to survive purely by stacking Guard.
-        // Only the new Jieting water battle gets this temporary cover;
-        // ordinary convoy fights and legacy campaigns are untouched.
+        self.suppress_jieting_water(actual);
+    }
+
+    /// Only real player attack damage pins down Jieting water raiders.
+    /// Standard and piercing attacks share the same cover cap and event trail;
+    /// poison ticks, potions, and other passive damage do not trigger this.
+    fn suppress_jieting_water(&mut self, actual: i32) {
+        // The high ground controls raider routes only inside a real Jieting
+        // water encounter, never in ordinary combat or legacy campaigns.
         if actual > 0 && self.difficulty.is_some()
             && self.hero == Hero::ZhugeLiang
             && (26..=31).contains(&self.floor)
@@ -1655,7 +1659,8 @@ impl Game {
             }
             Effect::Pierce(n) => {
                 let idx = target_idx.expect("target");
-                self.deal_enemy_damage_unblockable(idx, n.saturating_add(bonus), "pierce");
+                let actual = self.deal_enemy_damage_unblockable(idx, n.saturating_add(bonus), "pierce");
+                self.suppress_jieting_water(actual);
             }
             Effect::DrawEnergy(n, energy) => {
                 self.battle.as_mut().expect("battle").energy += energy;
