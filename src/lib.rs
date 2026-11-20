@@ -5208,6 +5208,34 @@ mod tests {
     }
 
     #[test]
+    fn expanded_variants_select_fourth_and_fifth_act_independently_and_resume() {
+        let mut game = Game::new_with_campaign_difficulty(
+            Hero::ZhugeLiang, 7, Difficulty::Warlords, "five-act-branches".into(),
+        );
+        game.apply(Action::SetExpandedVariants {
+            act1: 0, act2: 0, act3: 1, act4: 0, act5: 1,
+        }).unwrap();
+        assert_eq!(game.act_variant(2), 1);
+        assert_eq!(game.act_variant(3), 0);
+        assert_eq!(game.act_variant(4), 1);
+        let saved = game.to_json().unwrap();
+        let restored = Game::from_json(&saved).unwrap();
+        assert_eq!(restored.to_json().unwrap(), saved);
+        assert_eq!(restored.act_variant(4), 1);
+        assert!(game.apply(Action::SetExpandedVariants {
+            act1: 0, act2: 0, act3: 0, act4: 0, act5: 2,
+        }).is_err());
+        assert_eq!(game.to_json().unwrap(), saved);
+        let mut legacy = Game::new_with_campaign_difficulty(
+            Hero::ZhugeLiang, 7, Difficulty::Warlords, "legacy-branches".into(),
+        );
+        legacy.apply(Action::SetVariants { act1: 0, act2: 0, act3: 1 }).unwrap();
+        assert_eq!(legacy.act_variant(2), 1);
+        assert_eq!(legacy.act_variant(3), 1);
+        assert_eq!(legacy.act_variant(4), 1);
+    }
+
+    #[test]
     fn act_variants_select_distinct_bosses_and_save_across_resume() {
         let mut g = Game::new(Hero::GuanYu, 1);
         g.apply(Action::SetVariants { act1: 1, act2: 1, act3: 1 }).unwrap();
