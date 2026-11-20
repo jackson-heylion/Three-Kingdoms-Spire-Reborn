@@ -1335,7 +1335,7 @@ mod gameplay_campaign_cli_tests {
         ));
         fs::create_dir_all(&directory).unwrap();
         let mut app = unloaded_app(&directory);
-        assert!(app.command("campaign zhuge 88421 warlords"), "{}", app.message);
+        assert!(app.command("campaign cao 88421 warlords"), "{}", app.message);
         assert!(app.command("variants5 0 1 0 1 1"), "{}", app.message);
         let saved = fs::read_to_string(save_path(&directory)).unwrap();
         let game = app.game.as_ref().unwrap();
