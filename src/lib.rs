@@ -422,7 +422,7 @@ impl Game {
             1 => Some("粮道保卫：下一层护送粮车；存活敌军每回合劫粮，防御牌可护粮"),
             2 => Some("伏击：下一层敌军前锋以8点护甲设伏；破甲后击退敌军可获16金反制赏金"),
             3 => Some("攻城：下一层须在第5回合前以 assault 指令消耗2军令攻城；守军尚存时破门4点，先击退全部守军可每次破门6点；城门破即获胜"),
-            18 => Some("水陆阵战：下一层护送12点耐久的战船；敌军回合末劫船，偶数回合逆流随难度加压2/4/6点。出防御牌可掩护4点，主动攻击造成实际伤害可掩护2点；亲自击败敌人可抢修2点船身"),
+            18 => Some("水陆阵战：下一层护送12点耐久的战船；敌军回合末劫船，偶数回合逆流随难度加压2/4/6点。出防御牌可掩护4点，主动攻击造成实际伤害可掩护2点；亲自击败敌人可抢修2点船身。歼敌胜利，或坚守至第4回合劫船结算后战船仍有至少6点耐久且本回合建立有效掩护，即可完成护航"),
             25..=30 if self.hero == Hero::ZhugeLiang && matches!(self.jieting_plan, Some(JietingPlan::WaterPending | JietingPlan::HillPending | JietingPlan::RetreatPending)) => {
                 if self.jieting_plan == Some(JietingPlan::HillPending) {
                     Some("街亭据山：下一场水源战开场先损失4点水源；敌军每回合劫水，防御牌可护水，水源耗尽立即战败")
@@ -488,7 +488,7 @@ impl Game {
                     _ => "",
                 };
                 return Some(format!(
-                    "水陆阵战：{chibi}战船耐久{hp}/12；存活敌军{living}名各劫船4点，偶数回合逆流按难度额外+2/+4/+6（本回合逆流+{current}）；防御牌提供4点掩护，攻击实际扣除敌军体力可提供2点掩护（本回合已护{cover}/8）；亲自击败敌军可抢修2点；本回合预计失船{raid}点。{warning}战船覆没即战败，击退敌军即可守住渡江舰队."
+                    "水陆阵战：{chibi}战船耐久{hp}/12；存活敌军{living}名各劫船4点，偶数回合逆流按难度额外+2/+4/+6（本回合逆流+{current}）；防御牌提供4点掩护，攻击实际扣除敌军体力可提供2点掩护（本回合已护{cover}/8）；亲自击败敌军可抢修2点；本回合预计失船{raid}点。{warning}战船覆没即战败；击退敌军或在第4回合劫船结算后耐久至少6且本回合有掩护，即可护航成功。"
                 ));
             }
             if (26..=31).contains(&self.floor) {
@@ -3063,6 +3063,22 @@ impl Game {
                     if water_objective { "街亭水源保卫失败，水源耗尽" }
                     else if fleet_objective { "水陆阵战失败，战船覆没" }
                     else { "粮道保卫失败，粮车被毁" }));
+            }
+            // A defense- or control-heavy deck can escort the fleet without
+            // exterminating every raider. The exit is earned only after four
+            // fully resolved enemy turns, the hull still has >=6 durability,
+            // and the player actually established fresh cover this turn.
+            // This cannot be claimed from a preloaded shield, short-circuit
+            // the enemy attack, or bypass a lethal hull raid. Use the normal
+            // battle seal and payout, retaining replay/save determinism.
+            if fleet_objective && cover > 0
+                && self.battle.as_ref().is_some_and(|b|
+                    b.turn >= 4 && b.convoy_hp.is_some_and(|hull| hull >= 6))
+            {
+                self.combat_event(EventKind::PowerTriggered,
+                    "naval_escort_delivered", 1, Some("fleet".into()));
+                messages.push("水陆护航：四回合交锋后舰队仍完整，成功突围渡江".into());
+                return Ok(format!("{}。{}", messages.join("；"), self.win_battle()));
             }
             // Only the paid Jieting water-defense plan can repair its wells.
             // A guard must have contributed cover to a real nonlethal raid;
