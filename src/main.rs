@@ -1327,6 +1327,35 @@ mod gameplay_campaign_cli_tests {
     use super::*;
 
     #[test]
+    fn five_act_cli_variants_are_persisted_replayed_and_invalid_commands_are_atomic() {
+        let directory = std::env::temp_dir().join(format!(
+            "tks-variants5-cli-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        let mut app = unloaded_app(&directory);
+        assert!(app.command("campaign zhuge 88421 warlords"), "{}", app.message);
+        assert!(app.command("variants5 0 1 0 1 1"), "{}", app.message);
+        let saved = fs::read_to_string(save_path(&directory)).unwrap();
+        let game = app.game.as_ref().unwrap();
+        game.verify_action_replay().expect("five-act CLI action replay");
+        let restored = Game::from_json(&saved).expect("five-act CLI JSON restore");
+        assert_eq!(restored.to_json().unwrap(), saved);
+        restored.verify_action_replay().expect("restored five-act CLI replay");
+
+        assert!(app.command("status"));
+        assert!(app.message.contains("五幕"), "{}", app.message);
+        assert!(app.command("variants5 0 1 2 1 1"));
+        assert!(app.message.contains("只能选择0或1"), "{}", app.message);
+        assert_eq!(fs::read_to_string(save_path(&directory)).unwrap(), saved);
+        assert!(app.command("variants5 0 1 0 1"));
+        assert!(app.message.contains("用法"), "{}", app.message);
+        assert_eq!(fs::read_to_string(save_path(&directory)).unwrap(), saved);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn three_tier_campaign_is_visible_and_rejects_unknown_tier_without_replacing_save() {
         let directory = std::env::temp_dir().join(format!(
             "tks-campaign-cli-{}-{}",
