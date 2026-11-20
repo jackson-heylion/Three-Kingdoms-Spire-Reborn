@@ -422,7 +422,7 @@ impl Game {
             1 => Some("粮道保卫：下一层护送粮车；存活敌军每回合劫粮，防御牌可护粮"),
             2 => Some("伏击：下一层敌军前锋以8点护甲设伏；破甲后击退敌军可获16金反制赏金"),
             3 => Some("攻城：下一层须在第5回合前以 assault 指令消耗2军令攻城；守军尚存时破门4点，先击退全部守军可每次破门6点；城门破即获胜"),
-            18 => Some("水陆阵战：下一层护送12点耐久的战船；敌军回合末劫船，偶数回合逆流加压2点。出防御牌可掩护4点，主动攻击造成实际伤害可掩护2点；击败敌人能抢修2点船身"),
+            18 => Some("水陆阵战：下一层护送12点耐久的战船；敌军回合末劫船，偶数回合逆流随难度加压2/4/6点。出防御牌可掩护4点，主动攻击造成实际伤害可掩护2点；亲自击败敌人可抢修2点船身"),
             25..=30 if self.hero == Hero::ZhugeLiang && matches!(self.jieting_plan, Some(JietingPlan::WaterPending | JietingPlan::HillPending | JietingPlan::RetreatPending)) => {
                 if self.jieting_plan == Some(JietingPlan::HillPending) {
                     Some("街亭据山：下一场水源战开场先损失4点水源；敌军每回合劫水，防御牌可护水，水源耗尽立即战败")
@@ -433,6 +433,21 @@ impl Game {
                 }
             },
             _ => None,
+        }
+    }
+
+    /// Extra river-current threat scales with the named new-campaign tier.
+    /// One read-only authority feeds both the forecast and EndTurn damage;
+    /// legacy 21-floor runs and other battles have no added tide hazard.
+    fn naval_tide_pressure(&self, turn: u32) -> u8 {
+        if self.floor != 19 || self.last_node != Some(Node::Battle)
+            || !turn.is_multiple_of(2)
+        { return 0; }
+        match self.difficulty {
+            Some(Difficulty::Warlords) => 2,
+            Some(Difficulty::Conqueror) => 4,
+            Some(Difficulty::Destiny) => 6,
+            None => 0,
         }
     }
 
@@ -462,7 +477,7 @@ impl Game {
         {
             let living = b.foes.iter().filter(|foe| foe.hp > 0).count();
             let naval = self.difficulty.is_some() && self.floor == 19 && self.last_node == Some(Node::Battle);
-            let current = if naval && b.turn.is_multiple_of(2) { 2 } else { 0 };
+            let current = if naval { self.naval_tide_pressure(b.turn) } else { 0 };
             let raid = (living as u8).saturating_mul(4).saturating_add(current).saturating_sub(cover).min(hp);
             if naval {
                 let warning = if hp > 0 && raid >= hp { "警告：回合末战船即将覆没！请攻击、守护或击退敌人。" } else { "" };
@@ -473,7 +488,7 @@ impl Game {
                     _ => "",
                 };
                 return Some(format!(
-                    "水陆阵战：{chibi}战船耐久{hp}/12；存活敌军{living}名各劫船4点，偶数回合逆流额外+2；防御牌提供4点掩护，攻击实际扣除敌军体力可提供2点掩护（本回合已护{cover}/8）；击败敌军可抢修2点；本回合预计失船{raid}点。{warning}战船覆没即战败，击退敌军即可守住渡江舰队。"
+                    "水陆阵战：{chibi}战船耐久{hp}/12；存活敌军{living}名各劫船4点，偶数回合逆流按难度额外+2/+4/+6（本回合逆流+{current}）；防御牌提供4点掩护，攻击实际扣除敌军体力可提供2点掩护（本回合已护{cover}/8）；亲自击败敌军可抢修2点；本回合预计失船{raid}点。{warning}战船覆没即战败，击退敌军即可守住渡江舰队."
                 ));
             }
             if (26..=31).contains(&self.floor) {
@@ -3011,9 +3026,9 @@ impl Game {
             };
             let fleet_objective = self.difficulty.is_some() && self.floor == 19
                 && self.last_node == Some(Node::Battle);
-            let adverse_current = if fleet_objective
-                && self.battle.as_ref().expect("battle").turn.is_multiple_of(2)
-            { 2 } else { 0 };
+            let adverse_current = if fleet_objective {
+                self.naval_tide_pressure(self.battle.as_ref().expect("battle").turn)
+            } else { 0 };
             let damage = enemy_count.saturating_mul(4)
                 .saturating_add(adverse_current).saturating_sub(cover);
             let actual = damage.min(hp);
