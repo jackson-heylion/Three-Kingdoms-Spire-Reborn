@@ -479,3 +479,50 @@ fn cao_cao_paid_companion_supplies_screen_fleet_without_passive_troop_bonus() {
     assert!(game.battle.as_ref().unwrap().events.iter().any(|e|
         e.source == "cao_naval_troop_screen" && e.amount == 4));
 }
+
+#[test]
+fn siege_rebate_never_decreases_energy_from_an_existing_above_cap_pool() {
+    let mut game = isolated_battle(4);
+    game.apply(Action::Choose { index: 1 }).unwrap();
+    {
+        let b = game.battle.as_mut().unwrap();
+        for foe in &mut b.foes { foe.hp = 0; foe.block = 0; }
+        b.foes[0].hp = 1;
+        b.energy = 7; // Controlled high-energy tactical checkpoint.
+        b.hand.push(Card::new("strike"));
+    }
+    let idx = game.battle.as_ref().unwrap().hand.len();
+    let saved = game.to_json().unwrap();
+    let mut restored = Game::from_json(&saved).unwrap();
+    let result = game.apply(Action::Play { index: idx, target: 1 })
+        .expect("real paid last-guard attack");
+    assert_eq!(result, restored.apply(Action::Play { index: idx, target: 1 }).unwrap());
+    assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
+    assert_eq!(game.battle.as_ref().unwrap().energy, 6,
+        "one energy paid, no capped bonus, never a destructive clamp to five");
+    assert!(!game.battle.as_ref().unwrap().events.iter().any(|event|
+        event.source == "siege_engine_reclaimed"));
+}
+
+#[test]
+fn passive_troop_damage_can_break_ambush_armor_but_never_earn_player_weakening() {
+    let mut game = isolated_battle_for(Hero::CaoCao, 3);
+    game.apply(Action::Choose { index: 1 }).unwrap();
+    {
+        let b = game.battle.as_mut().unwrap();
+        b.foes[0].block = 1;
+        b.foes[0].hp = b.foes[0].hp.max(50);
+        b.troops_hp = 12;
+        b.troops_attack = 2;
+    }
+    let saved = game.to_json().unwrap();
+    let mut loaded = Game::from_json(&saved).unwrap();
+    let result = game.apply(Action::EndTurn).expect("passive troop attack against ambush shield");
+    assert_eq!(result, loaded.apply(Action::EndTurn).unwrap());
+    assert_eq!(game.to_json().unwrap(), loaded.to_json().unwrap());
+    assert!(game.battle.as_ref().unwrap().ambush_armor_broken,
+        "existing armor-breach bounty remains available to legitimate allied help");
+    assert!(!game.battle.as_ref().unwrap().events.iter().any(|event|
+        event.source == "ambush_vanguard_reeling"),
+        "paid-player-only counter must not arise from passive troop damage");
+}
