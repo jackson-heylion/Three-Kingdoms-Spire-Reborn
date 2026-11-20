@@ -823,7 +823,7 @@ impl Game {
             // The displayed ambush shield scales mechanically by tier.
             // Breaking it also weakens the vanguard's impending attack;
             // old ascension/21-floor battles never receive this change.
-            let extra = 2 * i32::from(self.difficulty.expect("new tier").support_bonus());
+            let extra = 2 * self.difficulty.map_or(0, Difficulty::support_bonus);
             front.block = front.block.saturating_add(8 + extra);
         }
         let mut draw = self.deck.clone();
