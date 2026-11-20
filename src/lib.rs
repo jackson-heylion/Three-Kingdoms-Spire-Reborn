@@ -383,6 +383,8 @@ pub enum Action {
     Enchant { index: usize, kind: String },
     Discard { index: usize },
     SetVariants { act1: u8, act2: u8, act3: u8 },
+    /// New-campaign five-act branch selection; packed in existing three-byte save field.
+    SetExpandedVariants { act1: u8, act2: u8, act3: u8, act4: u8, act5: u8 },
     SetDoctrine { id: String },
     SetModifier { id: String, enabled: bool },
     /// Explicit, replayable modding action. Only available in unranked custom battles.
@@ -769,7 +771,7 @@ impl Game {
     fn act_variant(&self, act: u8) -> u64 {
         self.variants.map_or(
             self.seed.rotate_right(act as u32 * 11) & 1,
-            |v| u64::from(v[usize::from(act.min(2))]),
+            |v| if act < 2 { u64::from(v[usize::from(act)]) } else { u64::from((v[2] >> (act.min(4) - 2)) & 1) },
         )
     }
     fn generate_foes(&mut self, node: Node) -> Vec<Foe> {
@@ -4438,6 +4440,16 @@ impl Game {
                     Some(focus)
                 };
                 self.doctrine_status()
+            },
+            Action::SetExpandedVariants { act1, act2, act3, act4, act5 } => {
+                if self.difficulty.is_none() || self.floor != 0 || self.stage != Stage::Map {
+                    return Err("五幕变体只能在新制战役进入第一层前设置".into());
+                }
+                if [act1, act2, act3, act4, act5].iter().any(|n| *n > 1) {
+                    return Err("每幕仅允许变体0或1".into());
+                }
+                self.variants = Some([act1, act2, act3 | (act4 << 1) | (act5 << 2)]);
+                format!("五幕章节已选：{act1}/{act2}/{act3}/{act4}/{act5}")
             },
             Action::SetVariants { act1, act2, act3 } => {
                 if self.floor != 0 || self.stage != Stage::Map {
