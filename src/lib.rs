@@ -771,7 +771,7 @@ impl Game {
     fn act_variant(&self, act: u8) -> u64 {
         self.variants.map_or(
             self.seed.rotate_right(act as u32 * 11) & 1,
-            |v| if act < 2 { u64::from(v[usize::from(act)]) } else { u64::from((v[2] >> (act.min(4) - 2)) & 1) },
+            |v| if act < 2 { u64::from(v[usize::from(act)]) } else if v[2] & 8 == 0 { u64::from(v[2]) } else { u64::from((v[2] >> (act.min(4) - 2)) & 1) },
         )
     }
     fn generate_foes(&mut self, node: Node) -> Vec<Foe> {
@@ -4448,7 +4448,7 @@ impl Game {
                 if [act1, act2, act3, act4, act5].iter().any(|n| *n > 1) {
                     return Err("每幕仅允许变体0或1".into());
                 }
-                self.variants = Some([act1, act2, act3 | (act4 << 1) | (act5 << 2)]);
+                self.variants = Some([act1, act2, 8 | act3 | (act4 << 1) | (act5 << 2)]);
                 format!("五幕章节已选：{act1}/{act2}/{act3}/{act4}/{act5}")
             },
             Action::SetVariants { act1, act2, act3 } => {
