@@ -419,7 +419,7 @@ impl Game {
         // Keep forecasts aligned with authoritative combat objectives.
         match self.floor {
             0 => Some("突围：下一层须在第4回合结束前击退围军；或同回合合法打出至少3张牌并保持12点护甲结阵脱围，未做到则战败"),
-            1 => Some("粮道保卫：下一层护送粮车；存活敌军每回合劫粮，防御牌可护粮"),
+            1 => Some("粮道保卫：下一层护粮，敌军每回合劫粮4点；防御牌或真实玩家攻击可掩护2点，亲自击败劫粮敌人回收2点粮车耐久；三回合后粮车至少余4点且当回合掩护至少4点可完成护送"),
             2 => Some("伏击：下一层前锋护甲随三档难度分别为8/10/12点；亲自攻破前锋护甲可使其虚弱2层，破甲后赢得战斗另获16金反制赏金"),
             3 => Some("攻城：下一层须在第5回合前以 assault 指令消耗2军令攻城；守军尚存时破门4点，先击退全部守军可每次破门6点；城门破即获胜"),
             18 => Some("水陆阵战：下一层护送12点耐久的战船；敌军回合末劫船，偶数回合逆流随难度加压2/4/6点。出防御牌可掩护4点，主动攻击造成实际伤害可掩护2点；亲自击败敌人可抢修2点船身。歼敌胜利，或坚守至第4回合劫船结算后战船仍有至少6点耐久且本回合建立有效掩护，即可完成护航"),
@@ -521,7 +521,7 @@ impl Game {
                 ""
             };
             return Some(format!(
-                "粮道保卫：粮车剩余{hp}/12体力；每名存活敌军在回合末劫粮4点，打出防御牌每张可护粮2点（本回合已护{cover}点，上限8点）；本回合预计劫粮{raid}点。{lethal_warning}粮车耗尽立即战败，击退所有敌人即可保住粮道。"
+                "粮道保卫：第{}回合，粮车剩余{hp}/12体力；存活敌军{living}名每名劫粮4点。防御牌或实际攻击命中均可掩护2点（本回合已护{cover}点，上限8点），亲自击败敌军可收回2点耐久；本回合预计劫粮{raid}点。{lethal_warning}粮车耗尽立即战败；全歼敌军，或第三回合劫粮后粮车剩余至少4点且本回合掩护至少4点，即完成护送。", b.turn
             ));
         }
         if self.difficulty.is_some() && self.floor == 3
@@ -1482,6 +1482,7 @@ impl Game {
         };
         let actual = self.deal_enemy_damage(idx, damage, "hero");
         self.suppress_jieting_water(idx, actual);
+        self.suppress_grain_raiders(idx, actual);
         self.board_naval_raiders(idx, actual);
         self.reclaim_siege_equipment(idx, actual);
         self.cut_yinping_supply(idx, actual);
@@ -1630,6 +1631,37 @@ impl Game {
     /// troop damage and thorns cannot earn these player-led countermeasures.
     /// The same durable convoy fields are intentionally reused for fleet
     /// durability/cover; old saves and unrelated stage rules are unaffected.
+    /// Only direct player attacks can pin down a grain raider and reclaim
+    /// provisions on its defeat. Automatic allies, poison and potions do not
+    /// receive a player-led escort reward.
+    fn suppress_grain_raiders(&mut self, idx: usize, actual: i32) {
+        if actual <= 0 || self.difficulty.is_none() || self.floor != 2
+            || self.last_node != Some(Node::Battle)
+            || !self.battle.as_ref().is_some_and(|b| b.convoy_hp.is_some())
+        { return; }
+        let (cover, recovered) = {
+            let b = self.battle.as_mut().expect("grain convoy");
+            let before = b.convoy_cover.unwrap_or(0);
+            let after = before.saturating_add(2).min(8);
+            b.convoy_cover = Some(after);
+            let recovered = if b.foes[idx].hp == 0 {
+                let cargo = b.convoy_hp.as_mut().expect("grain cargo");
+                let old = *cargo;
+                *cargo = cargo.saturating_add(2).min(12);
+                *cargo - old
+            } else { 0 };
+            (after - before, recovered)
+        };
+        if cover > 0 {
+            self.combat_event(EventKind::PowerTriggered, "grain_raider_suppressed",
+                i32::from(cover), Some("convoy".into()));
+        }
+        if recovered > 0 {
+            self.combat_event(EventKind::PowerTriggered, "grain_provisions_recaptured",
+                i32::from(recovered), Some("convoy".into()));
+        }
+    }
+
     fn board_naval_raiders(&mut self, idx: usize, actual: i32) {
         if actual <= 0 || self.difficulty.is_none() || self.floor != 19
             || self.last_node != Some(Node::Battle)
@@ -1915,6 +1947,7 @@ impl Game {
 
     fn play(&mut self, index: usize, target: usize, selection: Option<usize>) -> Result<String, String> {
         let b = self.battle.as_ref().ok_or("当前不在战斗中")?;
+        let block_before = b.block;
         let cover_before = b.convoy_cover.unwrap_or(0);
         let water_before = b.convoy_hp.unwrap_or(0);
         let event_before = b.event_seq;
@@ -2056,6 +2089,7 @@ impl Game {
                 let idx = target_idx.expect("target");
                 let actual = self.deal_enemy_damage_unblockable(idx, n.saturating_add(bonus), "pierce");
                 self.suppress_jieting_water(idx, actual);
+                self.suppress_grain_raiders(idx, actual);
                 // Armor-piercing is still a direct paid player attack;
                 // don't deny its fleet suppression/repair counterplay.
                 self.board_naval_raiders(idx, actual);
@@ -2139,7 +2173,8 @@ impl Game {
         // Defense cards protect cargo as well as the hero. Log the real gain,
         // not fictional protection when the cap has been reached.
         if matches!(spec.effect, Effect::Guard(_) | Effect::GuardEnergy(_) | Effect::XGuard(_))
-            && self.battle.as_ref().is_some_and(|b| b.convoy_cover.is_some())
+            && self.battle.as_ref().is_some_and(|b|
+                b.convoy_cover.is_some() && b.block > block_before)
         {
             // A Jieting guard counters one four-point water raid; ordinary
             // floor-two grain protection retains its original two-point rate.
@@ -2324,6 +2359,16 @@ impl Game {
             if fleet_repair > 0 {
                 msg.push_str(&format!("抢修战船{fleet_repair}点（接舷驱敌或扑灭火势）。"));
             }
+        }
+        if self.difficulty.is_some() && self.floor == 2
+            && self.last_node == Some(Node::Battle)
+        {
+            let gained = self.battle.as_ref().and_then(|b| b.convoy_cover)
+                .unwrap_or(0).saturating_sub(cover_before);
+            let recovered = self.battle.as_ref().and_then(|b| b.convoy_hp)
+                .unwrap_or(0).saturating_sub(water_before);
+            if gained > 0 { msg.push_str(&format!("护粮掩护+{gained}。")); }
+            if recovered > 0 { msg.push_str(&format!("夺回粮车补给{recovered}点。")); }
         }
         let siege_reclaimed = self.battle.as_ref().map_or(0, |b| b.events.iter()
             .filter(|e| e.seq > event_before && e.source == "siege_engine_reclaimed")
@@ -3178,6 +3223,20 @@ impl Game {
                     if water_objective { "街亭水源保卫失败，水源耗尽" }
                     else if fleet_objective { "水陆阵战失败，战船覆没" }
                     else { "粮道保卫失败，粮车被毁" }));
+            }
+            // A genuine escort victory needs three resolved raiding turns,
+            // intact cargo and cover earned in the final turn. It is never
+            // awarded before enemy attacks or for a sinking convoy.
+            let grain_objective = self.difficulty.is_some() && self.floor == 2
+                && self.last_node == Some(Node::Battle);
+            if grain_objective && cover >= 4
+                && self.battle.as_ref().is_some_and(|b|
+                    b.turn >= 3 && b.convoy_hp.is_some_and(|cargo| cargo >= 4))
+            {
+                self.combat_event(EventKind::PowerTriggered,
+                    "grain_convoy_escorted", 1, Some("convoy".into()));
+                messages.push("粮道护送完成：三回合保护辎重并抵达营寨".into());
+                return Ok(format!("{}。{}", messages.join("；"), self.win_battle()));
             }
             // A defense- or control-heavy deck can escort the fleet without
             // exterminating every raider. The exit is earned only after four

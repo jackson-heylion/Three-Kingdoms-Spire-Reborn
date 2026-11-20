@@ -528,3 +528,103 @@ fn passive_troop_damage_can_break_ambush_armor_but_never_earn_player_weakening()
         event.source == "ambush_vanguard_reeling"),
         "paid-player-only counter must not arise from passive troop damage");
 }
+
+
+#[test]
+fn grain_convoy_direct_and_piercing_hits_add_replayable_supply_cover() {
+    let mut game = isolated_battle(2);
+    assert!(game.route_objective_hint(Node::Battle).unwrap().contains("真实玩家攻击"));
+    game.apply(Action::Choose { index: 1 }).unwrap();
+    assert!(game.tactical_objective().unwrap().contains("第三回合"));
+    {
+        let b = game.battle.as_mut().unwrap();
+        b.foes[0].max_hp = b.foes[0].max_hp.max(40);
+        b.foes[0].hp = b.foes[0].max_hp;
+        b.foes[0].block = 0;
+        b.energy = 3;
+        b.hand.push(Card::new("strike"));
+        b.hand.push(Card::new("jianshu"));
+    }
+    let mut restored = Game::from_json(&game.to_json().unwrap()).unwrap();
+    for id in ["strike", "jianshu"] {
+        let index = game.battle.as_ref().unwrap().hand.iter()
+            .position(|card| card.id == id).unwrap() + 1;
+        let result = game.apply(Action::Play { index, target: 1 }).unwrap();
+        assert_eq!(result, restored.apply(Action::Play { index, target: 1 }).unwrap());
+        assert!(result.join("；").contains("护粮掩护+2"));
+        assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
+    }
+    let b = game.battle.as_ref().unwrap();
+    assert_eq!(b.convoy_cover, Some(4));
+    assert_eq!(b.events.iter().filter(|e| e.source == "grain_raider_suppressed").count(), 2);
+}
+
+#[test]
+fn direct_grain_raider_kill_recovers_supplies_before_reward_and_replay() {
+    let mut game = isolated_battle(2);
+    game.apply(Action::Choose { index: 1 }).unwrap();
+    {
+        let b = game.battle.as_mut().unwrap();
+        b.foes[0].hp = 1;
+        b.foes[0].block = 0;
+        b.convoy_hp = Some(9);
+        b.hand.push(Card::new("strike"));
+    }
+    let index = game.battle.as_ref().unwrap().hand.len();
+    let mut restored = Game::from_json(&game.to_json().unwrap()).unwrap();
+    let result = game.apply(Action::Play { index, target: 1 }).unwrap();
+    assert_eq!(result, restored.apply(Action::Play { index, target: 1 }).unwrap());
+    assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
+    assert!(result.join("；").contains("夺回粮车补给2点"));
+    assert!(result.join("；").contains("保住粮车11/12"));
+    assert_eq!(game.stage, Stage::Reward);
+    assert!(game.battle.is_none());
+}
+
+#[test]
+fn three_turn_grain_escort_wins_only_after_real_guarded_raid() {
+    let mut game = isolated_battle(2);
+    game.apply(Action::Choose { index: 1 }).unwrap();
+    {
+        let b = game.battle.as_mut().unwrap();
+        b.turn = 3; // Controlled checkpoint, not natural campaign evidence.
+        b.convoy_hp = Some(8);
+        b.energy = 3;
+        b.hand.push(Card::new("defend"));
+        b.hand.push(Card::new("defend"));
+    }
+    let mut unguarded = Game::from_json(&game.to_json().unwrap()).unwrap();
+    let mut restored = Game::from_json(&game.to_json().unwrap()).unwrap();
+    for _ in 0..2 {
+        let index = game.battle.as_ref().unwrap().hand.iter()
+            .position(|c| c.id == "defend").unwrap() + 1;
+        assert_eq!(game.apply(Action::Play { index, target: 1 }).unwrap(),
+            restored.apply(Action::Play { index, target: 1 }).unwrap());
+    }
+    let result = game.apply(Action::EndTurn).unwrap();
+    assert_eq!(result, restored.apply(Action::EndTurn).unwrap());
+    assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
+    assert!(result.join("；").contains("粮道护送完成"));
+    assert_eq!(game.stage, Stage::Reward);
+    unguarded.apply(Action::EndTurn).unwrap();
+    assert_eq!(unguarded.stage, Stage::Combat,
+        "cargo remaining without current-turn cover cannot claim an escort");
+}
+
+#[test]
+fn zero_energy_x_guard_cannot_fabricate_cover_on_a_grain_convoy() {
+    let mut game = isolated_battle(2);
+    game.apply(Action::Choose { index: 1 }).unwrap();
+    {
+        let b = game.battle.as_mut().unwrap();
+        b.energy = 0;
+        b.hand.push(Card::new("x_bulwark"));
+    }
+    let index = game.battle.as_ref().unwrap().hand.len();
+    let mut restored = Game::from_json(&game.to_json().unwrap()).unwrap();
+    let result = game.apply(Action::Play { index, target: 1 }).unwrap();
+    assert_eq!(result, restored.apply(Action::Play { index, target: 1 }).unwrap());
+    assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
+    assert_eq!(game.battle.as_ref().unwrap().convoy_cover, Some(0));
+    assert!(!result.join("；").contains("护粮掩护+"));
+}
