@@ -420,7 +420,7 @@ impl Game {
         match self.floor {
             0 => Some("突围：下一层须在第4回合结束前击退围军；或同回合合法打出至少3张牌并保持12点护甲结阵脱围，未做到则战败"),
             1 => Some("粮道保卫：下一层护送粮车；存活敌军每回合劫粮，防御牌可护粮"),
-            2 => Some("伏击：下一层敌军前锋以8点护甲设伏；破甲后击退敌军可获16金反制赏金"),
+            2 => Some("伏击：下一层前锋护甲随三档难度分别为8/10/12点；亲自攻破前锋护甲可使其虚弱2层，破甲后赢得战斗另获16金反制赏金"),
             3 => Some("攻城：下一层须在第5回合前以 assault 指令消耗2军令攻城；守军尚存时破门4点，先击退全部守军可每次破门6点；城门破即获胜"),
             18 => Some("水陆阵战：下一层护送12点耐久的战船；敌军回合末劫船，偶数回合逆流随难度加压2/4/6点。出防御牌可掩护4点，主动攻击造成实际伤害可掩护2点；亲自击败敌人可抢修2点船身。歼敌胜利，或坚守至第4回合劫船结算后战船仍有至少6点耐久且本回合建立有效掩护，即可完成护航"),
             25..=30 if self.hero == Hero::ZhugeLiang && matches!(self.jieting_plan, Some(JietingPlan::WaterPending | JietingPlan::HillPending | JietingPlan::RetreatPending)) => {
@@ -523,7 +523,7 @@ impl Game {
             && self.last_node == Some(Node::Battle) && self.stage == Stage::Combat
         {
             return self.battle.as_ref().map(|b| format!(
-                "伏击：敌军前锋设伏，开战获得8点护甲；当前前锋护甲{}点。先用攻击破甲，再击退敌军可获16金反制赏金。",
+                "伏击：前锋初始护甲随难度为8/10/12点；当前护甲{}点。亲自打破前锋护甲可使其虚弱2层，战斗获胜另得16金反制赏金。",
                 b.foes.first().map_or(0, |foe| foe.block)
             ));
         }
@@ -815,7 +815,11 @@ impl Game {
         if self.difficulty.is_some() && self.floor == 3 && node == Node::Battle
             && let Some(front) = foes.first_mut()
         {
-            front.block = front.block.saturating_add(8);
+            // The displayed ambush shield scales mechanically by tier.
+            // Breaking it also weakens the vanguard's impending attack;
+            // old ascension/21-floor battles never receive this change.
+            let extra = 2 * i32::from(self.difficulty.expect("new tier").support_bonus());
+            front.block = front.block.saturating_add(8 + extra);
         }
         let mut draw = self.deck.clone();
         self.shuffle(&mut draw);
@@ -1474,6 +1478,7 @@ impl Game {
         let actual = self.deal_enemy_damage(idx, damage, "hero");
         self.suppress_jieting_water(idx, actual);
         self.board_naval_raiders(idx, actual);
+        self.reclaim_siege_equipment(idx, actual);
         self.cut_yinping_supply(idx, actual);
     }
 
@@ -1588,6 +1593,29 @@ impl Game {
         }
     }
 
+    /// Direct player attacks that defeat the final siege defender
+    /// recover a command point for the next breach. Poison, potions,
+    /// troop damage and passive thorns do not earn the player's reward.
+    /// The final defender dies once, so the refund cannot be farmed.
+    fn reclaim_siege_equipment(&mut self, idx: usize, actual: i32) {
+        if actual <= 0 || self.difficulty.is_none() || self.floor != 4
+            || self.last_node != Some(Node::Battle)
+            || !self.battle.as_ref().is_some_and(|b|
+                b.siege_gate_hp.is_some() && b.foes.get(idx).is_some_and(|f| f.hp == 0)
+                    && b.foes.iter().all(|f| f.hp == 0))
+        { return; }
+        let restored = {
+            let b = self.battle.as_mut().expect("siege battle");
+            let before = b.energy;
+            b.energy = b.energy.saturating_add(1).min(5);
+            b.energy - before
+        };
+        if restored > 0 {
+            self.combat_event(EventKind::PowerTriggered, "siege_engine_reclaimed",
+                restored, Some("gate".into()));
+        }
+    }
+
     /// In the third-act water-land crossing, direct attacks may guard the
     /// fleet as well as defeat the enemy: a hit pins down an enemy skiff,
     /// and a direct kill frees a crew to repair the hull. Passive poison,
@@ -1680,24 +1708,28 @@ impl Game {
             self.preflight_event(EventKind::DamageDealt,source,&format!("foe:{idx}"),damage)
                 .unwrap_or(0)
         } else { 0 };
-        let (actual, killed) = {
+        let (actual, killed, ambush_shattered) = {
             let b = self.battle.as_mut().expect("battle");
             let foe = &mut b.foes[idx];
             if foe.hp <= 0 { return 0; }
             let incoming = damage.max(0);
             let blocked = if ignores_block { 0 } else { incoming.min(foe.block) };
             foe.block -= blocked;
-            if idx == 0 && blocked > 0 && foe.block == 0
+            let ambush_shattered = idx == 0 && blocked > 0 && foe.block == 0
                 && self.difficulty.is_some() && self.floor == 3
                 && self.last_node == Some(Node::Battle)
-            {
-                b.ambush_armor_broken = true;
-            }
+                && !b.ambush_armor_broken;
+            if ambush_shattered { b.ambush_armor_broken = true; }
             let actual = foe.hp.min(incoming.saturating_sub(blocked));
             foe.hp -= actual;
-            (actual, actual > 0 && foe.hp == 0)
+            (actual, actual > 0 && foe.hp == 0, ambush_shattered && foe.hp > 0)
         };
         self.combat_event(EventKind::DamageDealt, source, actual, Some(format!("foe:{idx}")));
+        if ambush_shattered {
+            self.apply_foe_status(idx, "weak", 2);
+            self.combat_event(EventKind::PowerTriggered, "ambush_vanguard_reeling", 2,
+                Some(format!("foe:{idx}")));
+        }
         if killed {
             self.combat_event(EventKind::FoeDefeated, source, 1, Some(format!("foe:{idx}")));
         }
@@ -2014,6 +2046,7 @@ impl Game {
                 // Armor-piercing is still a direct paid player attack;
                 // don't deny its fleet suppression/repair counterplay.
                 self.board_naval_raiders(idx, actual);
+                self.reclaim_siege_equipment(idx, actual);
                 self.cut_yinping_supply(idx, actual);
             }
             Effect::DrawEnergy(n, energy) => {
@@ -2096,6 +2129,25 @@ impl Game {
                 self.combat_event(EventKind::PowerTriggered,
                     if fleet_battle { "naval_guard_cover" } else { "convoy_cover" },
                     i32::from(gained), Some(if fleet_battle { "fleet" } else { "convoy" }.into()));
+            }
+            // Red Cliffs fire burns our own fleet on entry, but paid
+            // defense may extinguish the burning rigging and recover one
+            // hull point per effective guard. Cover saturates at 8, so
+            // redundant guards do not mint unlimited ship repairs.
+            if fleet_battle && gained > 0
+                && self.chibi_plan == Some(ChibiPlan::FireBattleResolved)
+            {
+                let repaired = {
+                    let battle = self.battle.as_mut().expect("naval battle");
+                    let hull = battle.convoy_hp.as_mut().expect("naval hull");
+                    let old = *hull;
+                    *hull = hull.saturating_add(1).min(12);
+                    *hull - old
+                };
+                if repaired > 0 {
+                    self.combat_event(EventKind::PowerTriggered,
+                        "chibi_naval_fire_contained", i32::from(repaired), Some("fleet".into()));
+                }
             }
             // A retreating army can salvage abandoned water only while its
             // guards actually establish fresh cover. Capped cover cannot be
@@ -2239,8 +2291,19 @@ impl Game {
                 msg.push_str(&format!("舰队掩护+{fleet_cover}。"));
             }
             if fleet_repair > 0 {
-                msg.push_str(&format!("接舷驱敌抢修战船{fleet_repair}点。"));
+                msg.push_str(&format!("抢修战船{fleet_repair}点（接舷驱敌或扑灭火势）。"));
             }
+        }
+        let siege_reclaimed = self.battle.as_ref().map_or(0, |b| b.events.iter()
+            .filter(|e| e.seq > event_before && e.source == "siege_engine_reclaimed")
+            .map(|e| e.amount).sum::<i32>());
+        if siege_reclaimed > 0 {
+            msg.push_str(&format!("击溃最后守军，收复攻城器械，军令+{siege_reclaimed}。"));
+        }
+        let ambush_weak = self.battle.as_ref().is_some_and(|b| b.events.iter()
+            .any(|e| e.seq > event_before && e.source == "ambush_vanguard_reeling"));
+        if ambush_weak {
+            msg.push_str("伏兵盾阵被突破，前锋虚弱2层。");
         }
         // The commander suffers a visible consequence when a real card
         // defeats his summoned vanguard. Count only this action's combat
