@@ -287,3 +287,48 @@ fn river_tide_follows_new_difficulty_and_uses_the_same_risk_forecast_as_damage()
                 && event.amount == i32::from(4 + expected_tide)));
     }
 }
+
+#[test]
+fn river_fleet_fourth_turn_guard_escorts_without_killing_remaining_enemies() {
+    let mut game = isolated_battle(19);
+    game.apply(Action::Choose { index: 1 }).expect("enter actual river battle");
+    assert!(game.tactical_objective().unwrap().contains("第4回合"));
+    // A declared turn-four tactical checkpoint. The last escort turn's
+    // defense must be paid and enacted through Game::apply, after which the
+    // actual enemy intent, tide and raid resolve before victory is decided.
+    // This is not a natural 0→40 victory or fabricated historical trigger.
+    {
+        let b = game.battle.as_mut().unwrap();
+        b.turn = 4;
+        b.convoy_hp = Some(10);
+        b.convoy_cover = Some(0);
+        b.energy = 3;
+        for foe in &mut b.foes { foe.hp = 0; }
+        b.foes[0].hp = 8;
+        b.foes[0].intent = three_kingdoms_spire_reborn::Intent::Guard(0);
+        b.hand.push(Card::new("defend"));
+    }
+    let unguarded_save = game.to_json().unwrap();
+    let mut unguarded = Game::from_json(&unguarded_save).unwrap();
+    let index = game.battle.as_ref().unwrap().hand.len();
+    game.apply(Action::Play { index, target: 1 })
+        .expect("pay for one real fleet covering card");
+    assert_eq!(game.battle.as_ref().unwrap().convoy_cover, Some(4));
+    let before = game.to_json().unwrap();
+    let mut restored = Game::from_json(&before).expect("restore guarded turn-four fleet");
+    let outcome = game.apply(Action::EndTurn).expect("finish real fourth escort turn");
+    assert_eq!(outcome, restored.apply(Action::EndTurn).unwrap());
+    assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
+    assert!(outcome.join("；").contains("水陆护航"));
+    assert_eq!(game.stage, Stage::Reward);
+    assert!(game.battle.is_none());
+    assert!(game.event_history.as_ref().is_some_and(|history|
+        history.iter().any(|record| record.event.source == "naval_escort_delivered"
+            && record.event.amount == 1)));
+    // The same enemy survives if the player skips defensive commitment.
+    // The hull falls below the six-point evacuation threshold, so no win.
+    let missed = unguarded.apply(Action::EndTurn).expect("uncovered fleet suffers real raid");
+    assert!(!missed.join("；").contains("水陆护航"));
+    assert_eq!(unguarded.stage, Stage::Combat);
+    assert_eq!(unguarded.battle.as_ref().unwrap().convoy_hp, Some(4));
+}
