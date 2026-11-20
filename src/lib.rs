@@ -466,8 +466,14 @@ impl Game {
             let raid = (living as u8).saturating_mul(4).saturating_add(current).saturating_sub(cover).min(hp);
             if naval {
                 let warning = if hp > 0 && raid >= hp { "警告：回合末战船即将覆没！请攻击、守护或击退敌人。" } else { "" };
+                let chibi = match self.chibi_plan {
+                    Some(ChibiPlan::FleetBattleResolved) => "赤壁稳守水军：入阵额外4点舰队掩护；",
+                    Some(ChibiPlan::FireBattleResolved) => "赤壁火攻旧议：火攻灼伤敌前锋3层、己方战船先损2点；",
+                    Some(ChibiPlan::DeclineBattleResolved) => "赤壁不介入旧债：敌军前锋加甲4点；",
+                    _ => "",
+                };
                 return Some(format!(
-                    "水陆阵战：战船耐久{hp}/12；存活敌军{living}名各劫船4点，偶数回合逆流额外+2；防御牌提供4点掩护，攻击实际扣除敌军体力可提供2点掩护（本回合已护{cover}/8）；击败敌军可抢修2点；本回合预计失船{raid}点。{warning}战船覆没即战败，击退敌军即可守住渡江舰队。"
+                    "水陆阵战：{chibi}战船耐久{hp}/12；存活敌军{living}名各劫船4点，偶数回合逆流额外+2；防御牌提供4点掩护，攻击实际扣除敌军体力可提供2点掩护（本回合已护{cover}/8）；击败敌军可抢修2点；本回合预计失船{raid}点。{warning}战船覆没即战败，击退敌军即可守住渡江舰队。"
                 ));
             }
             if (26..=31).contains(&self.floor) {
@@ -1016,6 +1022,51 @@ impl Game {
                 _ => None,
             };
             if let Some(plan) = resolved { self.chibi_plan = Some(plan); }
+        }
+        // The Red Cliffs player decision has a second observable stake in
+        // the third-act water-land crossing, even when another earlier battle
+        // already spent the immediate one-shot fleet tactic. The choice
+        // remains exactly once in the persistent ChibiPlan; no new history
+        // flags, save fields, or fictional archival claims are needed.
+        if self.difficulty.is_some() && self.floor == 19 && node == Node::Battle {
+            match self.chibi_plan {
+                Some(ChibiPlan::FleetBattleResolved) => {
+                    let gained = {
+                        let b = self.battle.as_mut().expect("naval crossing");
+                        let old = b.convoy_cover.unwrap_or(0);
+                        b.convoy_cover = Some(old.saturating_add(4).min(8));
+                        b.convoy_cover.unwrap_or(0) - old
+                    };
+                    if gained > 0 {
+                        self.combat_event(EventKind::PowerTriggered,
+                            "chibi_naval_fleet_screen", i32::from(gained), Some("fleet".into()));
+                    }
+                }
+                Some(ChibiPlan::FireBattleResolved) => {
+                    // Burning an enemy skiff also risks the player's hull;
+                    // committed damage is carried by the existing convoy HP.
+                    let lost = {
+                        let b = self.battle.as_mut().expect("naval crossing");
+                        let hull = b.convoy_hp.as_mut().expect("ship hull");
+                        let old = *hull;
+                        *hull = hull.saturating_sub(2);
+                        old - *hull
+                    };
+                    if lost > 0 {
+                        self.combat_event(EventKind::EnemyTechnique,
+                            "chibi_naval_fire_spread", i32::from(lost), Some("fleet".into()));
+                    }
+                    self.apply_foe_status(0, "poison", 3);
+                }
+                Some(ChibiPlan::DeclineBattleResolved) => {
+                    if let Some(front) = self.battle.as_mut().and_then(|b| b.foes.first_mut()) {
+                        front.block = front.block.saturating_add(4);
+                    }
+                    self.combat_event(EventKind::EnemyTechnique,
+                        "chibi_naval_declined_cover", 4, Some("foe:0".into()));
+                }
+                _ => {}
+            }
         }
         if self.difficulty.is_some() {
             let resolved = match (self.floor, self.jieting_plan) {
