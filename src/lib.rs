@@ -557,8 +557,13 @@ impl Game {
             } else {
                 ""
             };
+            let class_hint = match self.hero {
+                Hero::CaoCao => "曹操付费亲兵补给牌可增加2点护粮掩护；",
+                Hero::SunShangxiang => "孙尚香实际耗费弃换次数可增加2点护粮掩护；",
+                _ => "",
+            };
             return Some(format!(
-                "粮道保卫：第{}回合，粮车剩余{hp}/12体力；存活敌军{living}名每名劫粮4点，偶数回合三档补给失序额外+0/+2/+4（本回合+{current}）。防御牌或实际攻击命中均可掩护2点（本回合已护{cover}点，上限8点），亲自击败敌军可收回2点耐久；本回合预计劫粮{raid}点。{lethal_warning}粮车耗尽立即战败；全歼敌军，或第三回合劫粮后粮车剩余至少4点且本回合掩护至少4点，即完成护送。", b.turn
+                "粮道保卫：{class_hint}第{}回合，粮车剩余{hp}/12体力；存活敌军{living}名每名劫粮4点，偶数回合三档补给失序额外+0/+2/+4（本回合+{current}）。防御牌或实际攻击命中均可掩护2点（本回合已护{cover}点，上限8点），亲自击败敌军可收回2点耐久；本回合预计劫粮{raid}点。{lethal_warning}粮车耗尽立即战败；全歼敌军，或第三回合劫粮后粮车剩余至少4点且本回合掩护至少4点，即完成护送。", b.turn
             ));
         }
         if self.difficulty.is_some() && self.floor == 3
@@ -2196,6 +2201,8 @@ impl Game {
             }
             Effect::Energy(n) => self.battle.as_mut().expect("battle").energy += n + i32::from(card.upgraded),
             Effect::Companion(amount) => {
+                let grain_command = self.difficulty.is_some() && self.floor == 2
+                    && self.last_node == Some(Node::Battle) && self.hero == Hero::CaoCao;
                 let naval_command = self.difficulty.is_some() && self.floor == 19
                     && self.last_node == Some(Node::Battle) && self.hero == Hero::CaoCao;
                 let screen = {
@@ -2205,9 +2212,9 @@ impl Game {
                     // A paid Cao Cao logistics card can protect the actual
                     // fleet even when a defensive guard was not drawn. The
                     // passive troop attack itself never grants free cover.
-                    if naval_command {
+                    if naval_command || grain_command {
                         if let Some(old) = b.convoy_cover {
-                            let next = old.saturating_add(4).min(8);
+                            let next = old.saturating_add(if grain_command { 2 } else { 4 }).min(8);
                             b.convoy_cover = Some(next);
                             next - old
                         } else { 0 }
@@ -2215,7 +2222,10 @@ impl Game {
                 };
                 if screen > 0 {
                     self.combat_event(EventKind::PowerTriggered,
-                        "cao_naval_troop_screen", i32::from(screen), Some("fleet".into()));
+                        if grain_command { "cao_grain_troop_screen" }
+                        else { "cao_naval_troop_screen" },
+                        i32::from(screen),
+                        Some(if grain_command { "convoy" } else { "fleet" }.into()));
                 }
             }
             Effect::Tactics(amount) => {
@@ -2557,8 +2567,10 @@ impl Game {
         // tokens and Action::Discard actually consumes one. Discard-triggered
         // flat damage is still ineligible for damage-based boarding bonuses.
         if self.hero == Hero::SunShangxiang && self.difficulty.is_some()
-            && self.floor == 19 && self.last_node == Some(Node::Battle)
+            && matches!(self.floor, 2 | 19)
+            && self.last_node == Some(Node::Battle)
         {
+            let grain = self.floor == 2;
             let gained = {
                 let b = self.battle.as_mut().expect("naval battle");
                 if let Some(old) = b.convoy_cover {
@@ -2569,8 +2581,11 @@ impl Game {
             };
             if gained > 0 {
                 self.combat_event(EventKind::PowerTriggered,
-                    "sun_naval_redeployment", i32::from(gained), Some("fleet".into()));
-                msg.push_str(&format!("；换阵掩护战船+{gained}"));
+                    if grain { "sun_grain_redeployment" }
+                    else { "sun_naval_redeployment" }, i32::from(gained),
+                    Some(if grain { "convoy" } else { "fleet" }.into()));
+                msg.push_str(&format!("；换阵掩护{}+{gained}",
+                    if grain { "粮车" } else { "战船" }));
             }
         }
         if temporary {

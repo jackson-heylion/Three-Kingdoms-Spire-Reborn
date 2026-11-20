@@ -690,3 +690,58 @@ fn grain_raid_sabotage_is_telegraphed_and_settled_per_new_difficulty() {
         assert_eq!(game.battle.as_ref().unwrap().convoy_hp, Some(8 - pressure));
     }
 }
+
+
+#[test]
+fn cao_cao_paid_companion_can_screen_grain_convoy_without_passive_troop_credit() {
+    let mut game = isolated_battle_for(Hero::CaoCao, 2);
+    game.apply(Action::Choose { index: 1 }).unwrap();
+    assert!(game.tactical_objective().unwrap().contains("曹操付费亲兵"));
+    let mut restored;
+    let index;
+    {
+        let b = game.battle.as_mut().unwrap();
+        b.energy = b.energy.max(1);
+        b.hand.push(Card::new("qingqi"));
+        index = b.hand.len();
+    }
+    restored = Game::from_json(&game.to_json().unwrap()).unwrap();
+    let feedback = game.apply(Action::Play { index, target: 1 }).unwrap();
+    assert_eq!(feedback, restored.apply(Action::Play { index, target: 1 }).unwrap());
+    assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
+    assert!(feedback.join("；").contains("护粮掩护+2"));
+    assert_eq!(game.battle.as_ref().unwrap().convoy_cover, Some(2));
+    assert!(game.battle.as_ref().unwrap().events.iter().any(|e|
+        e.source == "cao_grain_troop_screen" && e.amount == 2));
+    game.apply(Action::EndTurn).unwrap();
+    assert_eq!(game.to_json().unwrap(), {
+        restored.apply(Action::EndTurn).unwrap();
+        restored.to_json().unwrap()
+    });
+}
+
+#[test]
+fn sun_shangxiang_paid_tactics_and_actual_discard_can_screen_grain_convoy() {
+    let mut game = isolated_battle_for(Hero::SunShangxiang, 2);
+    game.apply(Action::Choose { index: 1 }).unwrap();
+    assert!(game.tactical_objective().unwrap().contains("孙尚香"));
+    {
+        let b = game.battle.as_mut().unwrap();
+        b.hand.push(Card::new("jiecang"));
+        b.hand.push(Card::new("defend"));
+    }
+    let tactics_idx = game.battle.as_ref().unwrap().hand.iter()
+        .position(|c| c.id == "jiecang").unwrap() + 1;
+    game.apply(Action::Play { index: tactics_idx, target: 1 }).unwrap();
+    assert!(game.battle.as_ref().unwrap().discard_tokens > 0);
+    let card_idx = game.battle.as_ref().unwrap().hand.iter()
+        .position(|c| c.id == "defend").unwrap() + 1;
+    let mut restored = Game::from_json(&game.to_json().unwrap()).unwrap();
+    let feedback = game.apply(Action::Discard { index: card_idx }).unwrap();
+    assert_eq!(feedback, restored.apply(Action::Discard { index: card_idx }).unwrap());
+    assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
+    assert!(feedback.join("；").contains("换阵掩护粮车+2"));
+    assert_eq!(game.battle.as_ref().unwrap().convoy_cover, Some(2));
+    assert!(game.battle.as_ref().unwrap().events.iter().any(|e|
+        e.source == "sun_grain_redeployment" && e.amount == 2));
+}
