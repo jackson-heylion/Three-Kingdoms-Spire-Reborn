@@ -1334,7 +1334,14 @@ mod gameplay_campaign_cli_tests {
             SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
         ));
         fs::create_dir_all(&directory).unwrap();
-        let mut app = unloaded_app(&directory);
+        let mut app = App {
+            game: None,
+            profile: Profile::new(),
+            theme: Theme::Dark,
+            dir: directory.clone(),
+            use_ansi: false,
+            message: String::new(),
+        };
         assert!(app.command("campaign cao 88421 warlords"), "{}", app.message);
         assert!(app.command("variants5 0 1 0 1 1"), "{}", app.message);
         let saved = fs::read_to_string(save_path(&directory)).unwrap();
