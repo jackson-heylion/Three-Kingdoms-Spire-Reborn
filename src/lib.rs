@@ -1612,7 +1612,10 @@ impl Game {
         let restored = {
             let b = self.battle.as_mut().expect("siege battle");
             let before = b.energy;
-            b.energy = b.energy.saturating_add(1).min(5);
+            // Never *reduce* an already larger energy pool to the rebate
+            // cap. Above five, the player gets no additional energy but
+            // keeps every point earned by earlier legal card effects.
+            if before < 5 { b.energy = b.energy.saturating_add(1); }
             b.energy - before
         };
         if restored > 0 {
@@ -1720,11 +1723,16 @@ impl Game {
             let incoming = damage.max(0);
             let blocked = if ignores_block { 0 } else { incoming.min(foe.block) };
             foe.block -= blocked;
-            let ambush_shattered = idx == 0 && blocked > 0 && foe.block == 0
+            let first_ambush_break = idx == 0 && blocked > 0 && foe.block == 0
                 && self.difficulty.is_some() && self.floor == 3
                 && self.last_node == Some(Node::Battle)
                 && !b.ambush_armor_broken;
-            if ambush_shattered { b.ambush_armor_broken = true; }
+            if first_ambush_break { b.ambush_armor_broken = true; }
+            // The historic first shield break still qualifies for the old
+            // counter-bounty. The new enemy-weakening tactical advantage,
+            // however, belongs only to a paid player attack, never to
+            // troop, potion, or other automatic damage sources.
+            let ambush_shattered = first_ambush_break && source == "hero";
             let actual = foe.hp.min(incoming.saturating_sub(blocked));
             foe.hp -= actual;
             (actual, actual > 0 && foe.hp == 0, ambush_shattered && foe.hp > 0)
