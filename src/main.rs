@@ -268,7 +268,15 @@ impl App {
             }
             println!(" 章节：{}；变体：{}",
                 g.act_name(),
-                g.variants.map_or("随种子".into(),|choices| format!("{}/{}/{}",choices[0],choices[1],choices[2])));
+                g.variants.map_or("随种子".into(), |choices| {
+                    if g.difficulty.is_some() && choices[2] & 8 != 0 {
+                        let packed = choices[2];
+                        format!("{}/{}/{}/{}/{}", choices[0], choices[1], packed & 1,
+                            (packed >> 1) & 1, (packed >> 2) & 1)
+                    } else {
+                        format!("{}/{}/{}", choices[0], choices[1], choices[2])
+                    }
+                }));
             if !g.boons.is_empty() {
                 println!(" 先贤赐福：{}",g.boons.iter().map(|id|
                     three_kingdoms_spire_reborn::items::boon_name(id)).collect::<Vec<_>>().join("、"));
@@ -822,6 +830,20 @@ impl App {
                     "variant" => parsed(1, 9).and_then(|act1| parsed(2, 9)
                         .and_then(|act2| parsed(3, 9).map(|act3|
                             Action::SetVariants { act1: act1 as u8, act2: act2 as u8, act3: act3 as u8 }))),
+                    "variants5" => (|| {
+                        if args.len() != 6 { return Err("用法：variants5 0|1 0|1 0|1 0|1 0|1".into()); }
+                        let mut values = [0u8; 5];
+                        for (index, value) in values.iter_mut().enumerate() {
+                            *value = match args[index + 1] {
+                                "0" => 0, "1" => 1,
+                                _ => return Err("五幕变体只能选择0或1".into()),
+                            };
+                        }
+                        Ok(Action::SetExpandedVariants {
+                            act1: values[0], act2: values[1], act3: values[2],
+                            act4: values[3], act5: values[4],
+                        })
+                    })(),
                     "enchant" => parsed(1, 0).and_then(|index|
                         args.get(2).map_or(Err("请指定附魔类型".into()),|kind|
                             Ok(Action::Enchant { index, kind: (*kind).to_owned() }))),
