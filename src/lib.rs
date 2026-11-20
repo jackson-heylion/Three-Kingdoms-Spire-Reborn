@@ -415,6 +415,19 @@ impl Game {
         if node != Node::Battle {
             return None;
         }
+        // The optional act-II Wuchao bargain is paid again in the act-III
+        // crossing. Forecast its risk before the route is committed.
+        if self.floor == 18 && self.hero == Hero::CaoCao {
+            match self.wuchao_plan {
+                Some(WuchaoPlan::RaidResolved) =>
+                    return Some("水陆阵战：战船12耐久；乌巢夜袭余威使劫船前锋虚弱2层，可趁机护送或击退敌军。偶数回合逆流2/4/6点"),
+                Some(WuchaoPlan::FortifyResolved) =>
+                    return Some("水陆阵战：乌巢守粮军资为战船先提供4点掩护，船体12；偶数回合逆流2/4/6点，掩护可反制劫船"),
+                Some(WuchaoPlan::DeclineResolved) =>
+                    return Some("水陆阵战：乌巢失机导致后勤短缺，战船入阵先损2点耐久；偶数回合逆流2/4/6点，可通过掩护与击退敌军应对"),
+                _ => {}
+            }
+        }
         // The map cursor is the last completed floor; a route enters floor + 1.
         // Keep forecasts aligned with authoritative combat objectives.
         match self.floor {
@@ -486,6 +499,14 @@ impl Game {
                     Hero::SunShangxiang => "孙尚香实际消耗弃换次数可为战船增加2点掩护；",
                     _ => "",
                 };
+                let wuchao = if self.hero == Hero::CaoCao {
+                    match self.wuchao_plan {
+                        Some(WuchaoPlan::RaidResolved) => "乌巢夜袭后续：劫船前锋虚弱2层；",
+                        Some(WuchaoPlan::FortifyResolved) => "乌巢守粮后续：入阵预留4点舰队掩护；",
+                        Some(WuchaoPlan::DeclineResolved) => "乌巢失机旧债：舰船入阵短缺2点耐久；",
+                        _ => "",
+                    }
+                } else { "" };
                 let chibi = match self.chibi_plan {
                     Some(ChibiPlan::FleetBattleResolved) => "赤壁稳守水军：入阵额外4点舰队掩护；",
                     Some(ChibiPlan::FireBattleResolved) => "赤壁火攻旧议：火攻灼伤敌前锋3层、己方战船先损2点；",
@@ -493,7 +514,7 @@ impl Game {
                     _ => "",
                 };
                 return Some(format!(
-                    "水陆阵战：{chibi}{class_hint}战船耐久{hp}/12；存活敌军{living}名各劫船4点，偶数回合逆流按难度额外+2/+4/+6（本回合逆流+{current}）；防御牌提供4点掩护，攻击实际扣除敌军体力可提供2点掩护（本回合已护{cover}/8）；亲自击败敌军可抢修2点；本回合预计失船{raid}点。{warning}战船覆没即战败；击退敌军或在第4回合劫船结算后耐久至少6且本回合有掩护，即可护航成功。"
+                    "水陆阵战：{wuchao}{chibi}{class_hint}战船耐久{hp}/12；存活敌军{living}名各劫船4点，偶数回合逆流按难度额外+2/+4/+6（本回合逆流+{current}）；防御牌提供4点掩护，攻击实际扣除敌军体力可提供2点掩护（本回合已护{cover}/8）；亲自击败敌军可抢修2点；本回合预计失船{raid}点。{warning}战船覆没即战败；击退敌军或在第4回合劫船结算后耐久至少6且本回合有掩护，即可护航成功。"
                 ));
             }
             if (26..=31).contains(&self.floor) {
@@ -1052,6 +1073,53 @@ impl Game {
         // already spent the immediate one-shot fleet tactic. The choice
         // remains exactly once in the persistent ChibiPlan; no new history
         // flags, save fields, or fictional archival claims are needed.
+        if self.difficulty.is_some() && self.floor == 19
+            && node == Node::Battle && self.hero == Hero::CaoCao
+        {
+            // Wuchao's act-II choice persists after its first act-III
+            // settlement. These are fixed, one-time entry consequences on
+            // the later fleet objective, not repeatable story rewards.
+            match self.wuchao_plan {
+                Some(WuchaoPlan::RaidResolved) => {
+                    if let Some(front) = self.battle.as_mut()
+                        .and_then(|b| b.foes.first_mut())
+                    {
+                        front.weak = front.weak.saturating_add(2);
+                    }
+                    self.combat_event(EventKind::PowerTriggered,
+                        "wuchao_naval_raid_disruption", 2, Some("foe:0".into()));
+                }
+                Some(WuchaoPlan::FortifyResolved) => {
+                    let gained = {
+                        let b = self.battle.as_mut().expect("fleet");
+                        let old = b.convoy_cover.unwrap_or(0);
+                        let next = old.saturating_add(4).min(8);
+                        b.convoy_cover = Some(next);
+                        next - old
+                    };
+                    if gained > 0 {
+                        self.combat_event(EventKind::PowerTriggered,
+                            "wuchao_naval_supply_screen", i32::from(gained),
+                            Some("fleet".into()));
+                    }
+                }
+                Some(WuchaoPlan::DeclineResolved) => {
+                    let lost = {
+                        let b = self.battle.as_mut().expect("fleet");
+                        let hull = b.convoy_hp.as_mut().expect("ship hull");
+                        let old = *hull;
+                        *hull = hull.saturating_sub(2);
+                        old - *hull
+                    };
+                    if lost > 0 {
+                        self.combat_event(EventKind::EnemyTechnique,
+                            "wuchao_naval_supply_shortage", i32::from(lost),
+                            Some("fleet".into()));
+                    }
+                }
+                _ => {}
+            }
+        }
         if self.difficulty.is_some() && self.floor == 19 && node == Node::Battle {
             match self.chibi_plan {
                 Some(ChibiPlan::FleetBattleResolved) => {
@@ -1222,6 +1290,16 @@ impl Game {
                         Some(JietingPlan::WaterSettled) => "；街亭守水远期兑现：入阵护甲+10、邓艾虚弱2层",
                         Some(JietingPlan::HillSettled) => "；街亭据山远期债务：邓艾武勇+2、护甲+10，我军武勇+1；击溃山道援军可额外反击8点",
                         Some(JietingPlan::RetreatSettled) => "；街亭撤退远期先机：军令+1、邓艾护甲+6",
+                        _ => "",
+                    });
+                }
+                if self.difficulty.is_some() && self.floor == 19
+                    && self.hero == Hero::CaoCao
+                {
+                    msg.push_str(match self.wuchao_plan {
+                        Some(WuchaoPlan::RaidResolved) => "；乌巢夜袭余威：舰队敌前锋虚弱2层",
+                        Some(WuchaoPlan::FortifyResolved) => "；乌巢守粮军需：入阵战船掩护+4",
+                        Some(WuchaoPlan::DeclineResolved) => "；乌巢失机：入阵战船耐久-2",
                         _ => "",
                     });
                 }

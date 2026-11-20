@@ -3,7 +3,7 @@
 //! NOT a fabricated natural 0→40 victory or historical choice. All consequential
 //! actions are committed through Game::apply and compared across JSON restore.
 use three_kingdoms_spire_reborn::{
-    Action, ChibiPlan, Difficulty, Game, Node, Stage, Card, content::Hero, map,
+    Action, ChibiPlan, WuchaoPlan, Difficulty, Game, Node, Stage, Card, content::Hero, map,
 };
 
 fn isolated_battle(floor: u8) -> Game {
@@ -627,4 +627,38 @@ fn zero_energy_x_guard_cannot_fabricate_cover_on_a_grain_convoy() {
     assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
     assert_eq!(game.battle.as_ref().unwrap().convoy_cover, Some(0));
     assert!(!result.join("；").contains("护粮掩护+"));
+}
+
+
+#[test]
+fn cao_cao_wuchao_responsibility_reaches_later_fleet_with_three_distinct_outcomes() {
+    // Controlled act-III checkpoint for an earlier act-II optional choice.
+    // The battle entry, effects and subsequent turns are Game::apply actions.
+    for (plan, marker) in [
+        (WuchaoPlan::RaidResolved, "wuchao_naval_raid_disruption"),
+        (WuchaoPlan::FortifyResolved, "wuchao_naval_supply_screen"),
+        (WuchaoPlan::DeclineResolved, "wuchao_naval_supply_shortage"),
+    ] {
+        let mut game = isolated_battle_for(Hero::CaoCao, 19);
+        game.wuchao_plan = Some(plan);
+        let forecast = game.route_objective_hint(Node::Battle).unwrap();
+        assert!(forecast.contains("乌巢"), "{forecast}");
+        game.apply(Action::Choose { index: 1 }).unwrap();
+        assert_eq!(game.stage, Stage::Combat);
+        assert_eq!(game.wuchao_plan, Some(plan));
+        assert!(game.tactical_objective().unwrap().contains("乌巢"));
+        let b = game.battle.as_ref().unwrap();
+        assert!(b.events.iter().any(|event| event.source == marker));
+        match plan {
+            WuchaoPlan::RaidResolved => assert!(b.foes[0].weak >= 2),
+            WuchaoPlan::FortifyResolved => assert_eq!(b.convoy_cover, Some(4)),
+            WuchaoPlan::DeclineResolved => assert_eq!(b.convoy_hp, Some(10)),
+            _ => unreachable!(),
+        }
+        let saved = game.to_json().unwrap();
+        let mut restored = Game::from_json(&saved).unwrap();
+        let outcome = game.apply(Action::EndTurn).unwrap();
+        assert_eq!(outcome, restored.apply(Action::EndTurn).unwrap());
+        assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
+    }
 }
