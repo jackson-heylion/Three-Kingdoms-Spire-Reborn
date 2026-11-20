@@ -1431,10 +1431,28 @@ impl Game {
                 if raider.id != "assassin" || raider.hp > 0 || raider.vulnerable == 0
                     || !battle.foes.iter().any(|foe| foe.id == "dengai")
                 { return None; }
-                battle.events.iter().rev().find(|event|
-                    event.kind == EventKind::EnemyTechnique
-                        && event.source == "yinping_raider_escort_levy"
-                ).map(|event| event.amount.clamp(0, 5))
+                // The 80-entry battle window is only a UI/debug trace.
+                // It can evict a real levy long before a patient player
+                // finally defeats the escort. New campaigns persist a full,
+                // encounter-scoped event archive: consult that authoritative
+                // record for the recoverable amount instead of silently
+                // denying the player's earned reward after a long fight.
+                // Legacy saves with no archive retain their bounded window;
+                // they cannot ordinarily contain the new Deng Ai encounter.
+                let levy = if let Some(history) = &self.event_history {
+                    history.iter().rev().find(|record|
+                        record.encounter == self.telemetry.totals.battles_started
+                            && record.floor == self.floor
+                            && record.event.kind == EventKind::EnemyTechnique
+                            && record.event.source == "yinping_raider_escort_levy"
+                    ).map(|record| record.event.amount)
+                } else {
+                    battle.events.iter().rev().find(|event|
+                        event.kind == EventKind::EnemyTechnique
+                            && event.source == "yinping_raider_escort_levy"
+                    ).map(|event| event.amount)
+                };
+                levy.map(|gold| gold.clamp(0, 5))
             }).unwrap_or(0)
         } else { 0 };
         if recoverable > 0 {
