@@ -412,6 +412,17 @@ impl Game {
                 _ => None,
             };
         }
+        // The act-II alternate commander is a coalition, not a solo
+        // armor sponge. A visible officer can shield Yuan Shao and restrict
+        // next-turn command, but can be eliminated by actual player attacks.
+        if node == Node::Boss && self.floor == 15 && self.act_variant(1) == 1 {
+            return Some(match self.wuchao_plan {
+                Some(WuchaoPlan::RaidPending) => "官渡关底：袁绍亲卫军官护阵；乌巢夜袭将削弱亲卫并损其体力，优先击败军官可断援、破统帅护阵及下回合军令封锁",
+                Some(WuchaoPlan::FortifyPending) => "官渡关底：袁绍亲卫军官护阵；乌巢守粮令我军进场获得10点护甲，击败亲卫可断援和军令封锁",
+                Some(WuchaoPlan::DeclinePending) => "官渡关底：袁绍亲卫军官护阵；未干预乌巢会强化敌方军官武勇与护甲，击败亲卫可断援和军令封锁",
+                _ => "官渡关底：袁绍携亲卫军官护阵并可压制下回合军令；先击败军官能削弱统帅并断绝第二阶段援军",
+            });
+        }
         if node != Node::Battle {
             return None;
         }
@@ -480,6 +491,26 @@ impl Game {
     }
 
     pub fn tactical_objective(&self) -> Option<String> {
+        if self.stage == Stage::Combat && self.difficulty.is_some() && self.floor == 16
+            && self.last_node == Some(Node::Boss)
+            && self.battle.as_ref().is_some_and(|b|
+                b.foes.first().is_some_and(|f| f.id == "yuanshao"))
+        {
+            let officer_alive = self.battle.as_ref().expect("battle").foes.iter()
+                .any(|f| f.id == "officer" && f.hp > 0);
+            let tax = if self.difficulty == Some(Difficulty::Destiny)
+                && self.battle.as_ref().expect("battle").foes[0].phase > 0 { 2 } else { 1 };
+            return Some(format!(
+                "官渡盟军关底：{}；袁绍列阵时若亲卫存活，下回合军令减少{tax}（天命二阶段-2）；亲自击败亲卫可打断封粮、令袁绍易伤并击破至多6点护甲，已歼灭亲卫则第二阶段无法再次召援。当前亲卫{}。",
+                if self.hero == Hero::CaoCao { match self.wuchao_plan {
+                    Some(WuchaoPlan::RaidPending) => "乌巢夜袭已削弱亲卫",
+                    Some(WuchaoPlan::FortifyPending) => "乌巢守粮使我军先得10护甲",
+                    Some(WuchaoPlan::DeclinePending) => "放弃乌巢令亲卫更强",
+                    _ => "无乌巢军议支援",
+                }} else { "观察军令并集中火力截断盟军供给" },
+                if officer_alive { "存活" } else { "已败" }
+            ));
+        }
         if self.stage == Stage::Combat && self.floor == 40
             && self.hero == Hero::ZhugeLiang
             && self.battle.as_ref().is_some_and(|b|
@@ -719,6 +750,14 @@ impl Game {
                 } else { vec![first] }
             }
         };
+        // Only new campaigns' act-II Yuan Shao formation deploys with a
+        // visible officer from turn one. Existing 21-floor boss seeds retain
+        // their original single-enemy encounter and RNG sequence.
+        let ids = if self.difficulty.is_some() && node == Node::Boss
+            && act == 1 && branch == 1
+        {
+            vec!["yuanshao", "officer"]
+        } else { ids };
         ids.into_iter().map(|id| {
             let hp = enemy_hp(id);
             Foe {
@@ -909,6 +948,42 @@ impl Game {
             && let Some(front) = self.battle.as_mut().and_then(|b| b.foes.first_mut())
         {
             front.strength += 1;
+        }
+        // Cao Cao's optional act-II Wuchao council changes Yuan Shao's
+        // playable coalition immediately, without prematurely consuming the
+        // separate, one-shot act-III historical responsibility.
+        if self.difficulty.is_some() && self.hero == Hero::CaoCao
+            && self.floor == 16 && node == Node::Boss
+            && self.battle.as_ref().is_some_and(|b|
+                b.foes.first().is_some_and(|f| f.id == "yuanshao"))
+        {
+            let effect = {
+                let b = self.battle.as_mut().expect("Yuan Shao coalition");
+                match self.wuchao_plan {
+                    Some(WuchaoPlan::RaidPending) => {
+                        let officer = &mut b.foes[1];
+                        let lost = (officer.hp - 1).min(8);
+                        officer.hp -= lost;
+                        officer.weak = officer.weak.saturating_add(2);
+                        Some(("wuchao_coalition_raid", lost))
+                    }
+                    Some(WuchaoPlan::FortifyPending) => {
+                        b.block += 10;
+                        Some(("wuchao_coalition_fortified", 10))
+                    }
+                    Some(WuchaoPlan::DeclinePending) => {
+                        let officer = &mut b.foes[1];
+                        officer.strength += 2;
+                        officer.block += 8;
+                        Some(("wuchao_coalition_unchecked", 8))
+                    }
+                    _ => None,
+                }
+            };
+            if let Some((source, amount)) = effect {
+                self.combat_event(EventKind::PowerTriggered,
+                    source, amount, Some("guandu".into()));
+            }
         }
         self.roll_intents();
         let extra_draw = usize::from(self.relics.iter().any(|r| r == "虎翼"));
@@ -1314,6 +1389,17 @@ impl Game {
                         _ => "",
                     });
                 }
+                if self.difficulty.is_some() && self.floor == 16
+                    && self.hero == Hero::CaoCao
+                    && node == Node::Boss
+                {
+                    msg.push_str(match self.wuchao_plan {
+                        Some(WuchaoPlan::RaidPending) => "；乌巢夜袭前线兑现：亲卫失去8点体力并虚弱2层",
+                        Some(WuchaoPlan::FortifyPending) => "；乌巢守粮前线兑现：我军护甲+10",
+                        Some(WuchaoPlan::DeclinePending) => "；乌巢放任前线代价：敌方亲卫武勇+2、护甲+8",
+                        _ => "",
+                    });
+                }
                 if self.difficulty.is_some() && self.floor == 19
                     && self.hero == Hero::CaoCao
                 {
@@ -1584,6 +1670,7 @@ impl Game {
         self.suppress_grain_raiders(idx, actual);
         self.board_naval_raiders(idx, actual);
         self.reclaim_siege_equipment(idx, actual);
+        self.sever_yuanshao_escort(idx, actual);
         self.cut_yinping_supply(idx, actual);
     }
 
@@ -1721,6 +1808,35 @@ impl Game {
         if restored > 0 {
             self.combat_event(EventKind::PowerTriggered, "siege_engine_reclaimed",
                 restored, Some("gate".into()));
+        }
+    }
+
+    /// A paid player attack against Yuan Shao's coalition officer can sever
+    /// the supply line, open the commander for follow-up damage and prevent
+    /// any new second-phase officer. Non-card sources can kill the officer
+    /// but never receive this active breach bonus.
+    fn sever_yuanshao_escort(&mut self, idx: usize, actual: i32) {
+        if actual <= 0 || self.difficulty.is_none() || self.floor != 16
+            || self.last_node != Some(Node::Boss)
+        { return; }
+        let commander = self.battle.as_ref().and_then(|b| {
+            if b.foes.get(idx).is_none_or(|f| f.id != "officer" || f.hp > 0) {
+                return None;
+            }
+            b.foes.iter().position(|f| f.id == "yuanshao" && f.hp > 0)
+        });
+        if let Some(boss_idx) = commander {
+            let broken = {
+                let b = self.battle.as_mut().expect("coalition");
+                let boss = &mut b.foes[boss_idx];
+                let removed = boss.block.min(6);
+                boss.block -= removed;
+                removed
+            };
+            self.apply_foe_status(boss_idx, "vulnerable", 3);
+            self.combat_event(EventKind::PowerTriggered,
+                "yuanshao_escort_severed", broken + 1,
+                Some(format!("foe:{boss_idx}")));
         }
     }
 
@@ -2193,6 +2309,7 @@ impl Game {
                 // don't deny its fleet suppression/repair counterplay.
                 self.board_naval_raiders(idx, actual);
                 self.reclaim_siege_equipment(idx, actual);
+                self.sever_yuanshao_escort(idx, actual);
                 self.cut_yinping_supply(idx, actual);
             }
             Effect::DrawEnergy(n, energy) => {
@@ -2474,6 +2591,11 @@ impl Game {
             if gained > 0 { msg.push_str(&format!("护粮掩护+{gained}。")); }
             if recovered > 0 { msg.push_str(&format!("夺回粮车补给{recovered}点。")); }
         }
+        let escort_severed = self.battle.as_ref().is_some_and(|b| b.events.iter()
+            .any(|e| e.seq > event_before && e.source == "yuanshao_escort_severed"));
+        if escort_severed {
+            msg.push_str("截断袁绍盟军粮道：亲卫溃败，统帅失去护甲并易伤，第二阶段不能再征召亲卫。");
+        }
         let siege_reclaimed = self.battle.as_ref().map_or(0, |b| b.events.iter()
             .filter(|e| e.seq > event_before && e.source == "siege_engine_reclaimed")
             .map(|e| e.amount).sum::<i32>());
@@ -2730,7 +2852,10 @@ impl Game {
                 }
             }
             BossMove::GrandAlliance(armor) => {
-                let count = {
+                let coalition = self.difficulty.is_some() && self.floor == 16
+                    && id == "yuanshao";
+                let destiny = self.difficulty == Some(Difficulty::Destiny);
+                let (count, tax) = {
                     let b = self.battle.as_mut().expect("battle");
                     let mut count = 0;
                     for foe in &mut b.foes {
@@ -2740,10 +2865,28 @@ impl Game {
                             count +=1;
                         }
                     }
-                    count
+                    // The officer coordinates the supply interdiction.
+                    // Defeating him before this telegraphed signature means
+                    // the commander can still guard but cannot tax command.
+                    let tax = if coalition && b.foes.iter().any(|f|
+                        f.id == "officer" && f.hp > 0) {
+                        let penalty = if destiny && phase > 0 { 2 } else { 1 };
+                        b.next_turn_energy_penalty =
+                            b.next_turn_energy_penalty.max(penalty);
+                        penalty
+                    } else { 0 };
+                    (count,tax)
                 };
-                format!("四世三公列阵，{count}名敌军护甲+{armor}{}",
-                    if phase>0 {"，援军武勇+1"} else {""})
+                if tax > 0 {
+                    self.combat_event(EventKind::EnemyTechnique,
+                        "yuanshao_supply_interdiction", i32::from(tax),
+                        Some("hero".into()));
+                }
+                format!("四世三公列阵，{count}名敌军护甲+{armor}{}{}",
+                    if phase>0 {"，援军武勇+1"} else {""},
+                    if tax > 0 { format!("；亲卫封锁粮道，下回合军令-{tax}") }
+                    else if coalition { "；亲卫被歼，封粮中断".into() }
+                    else { String::new() })
             }
             BossMove::HiddenScheme(penalty) => {
                 let b = self.battle.as_mut().expect("battle");
@@ -3031,6 +3174,10 @@ impl Game {
             .map(|(i,foe)| (i,foe.id.clone())).collect();
         let mut messages = vec![];
         for (idx,id) in changes {
+            let yuan_support_cut = self.difficulty.is_some()
+                && self.floor == 16 && id == "yuanshao"
+                && !self.battle.as_ref().expect("battle").foes.iter()
+                    .any(|foe| foe.id == "officer" && foe.hp > 0);
             let b = self.battle.as_mut().expect("battle");
             let mut summoned: Option<(&'static str, usize)> = None;
             b.foes[idx].phase = 1;
@@ -3040,7 +3187,7 @@ impl Game {
                         "zhangjiao" => "yellow_turban",
                         "yuanshao" => "officer", _ => "shaman",
                     };
-                    if b.foes.len() < 4 {
+                    if b.foes.len() < 4 && !yuan_support_cut {
                         let hp = enemy_hp(ally);
                         let new_index = b.foes.len();
                         b.foes.push(Foe {
@@ -3057,6 +3204,7 @@ impl Game {
                     messages.push(format!("{}进入第二阶段{}",
                         enemy_name(&id),
                         if summoned.is_some() {"并呼叫援军（援军下回合开始行动）"}
+                        else if yuan_support_cut {"，亲卫被歼，粮道断绝无法再召援军"}
                         else {"，但战场编制已满，无法增援"}));
                 }
                 "lumeng" => {
