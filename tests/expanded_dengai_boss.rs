@@ -679,11 +679,13 @@ fn jieting_three_decisions_have_distinct_replayable_fifth_act_boss_consequences(
     // after entering Deng Ai through an ordinary Action::Choose.
     // The forecast uses the same act_variant(4) resolver as boss spawning,
     // even when no explicit variant was selected at floor zero.
-    for (seed, expected_alternate) in [(1_u64 << 44, true), (0_u64, false)] {
+    for (variant, expected_alternate) in [(1_usize, true), (0_usize, false)] {
         let mut seeded = Game::new_with_campaign_difficulty(
-            Hero::ZhugeLiang, seed, Difficulty::Warlords,
-            format!("seeded-jieting-yinping-{seed}"),
+            Hero::ZhugeLiang, 1_u64 << 44, Difficulty::Warlords,
+            format!("selected-jieting-yinping-{variant}"),
         );
+        seeded.apply(Action::SetVariants { act1: 0, act2: 0, act3: variant })
+            .expect("select fifth-act commander through legal campaign setup");
         seeded.floor = 39;
         seeded.jieting_plan = Some(JietingPlan::WaterSettled);
         let saved = seeded.to_json().unwrap();
