@@ -218,3 +218,30 @@ fn defensive_breakout_is_an_actual_paid_three_card_escape_and_replays() {
             record.event.source == "breakout_formation_escape"
                 && record.event.amount == 1)));
 }
+
+#[test]
+fn piercing_attack_is_a_paid_player_boarding_hit_not_a_passive_damage_exemption() {
+    let mut game = isolated_battle_for(Hero::SunShangxiang, 19);
+    game.apply(Action::Choose { index: 1 }).expect("enter real fleet combat");
+    {
+        let b = game.battle.as_mut().unwrap();
+        // A deliberately controlled high-armor raider: direct piercing
+        // should still protect the ship even though ordinary strikes
+        // would be entirely absorbed by armor.
+        b.foes[0].block = 12;
+        b.foes[0].hp = b.foes[0].hp.max(8);
+        b.energy = b.energy.max(1);
+        b.hand.push(Card::new("jianshu"));
+    }
+    let idx = game.battle.as_ref().unwrap().hand.len();
+    let before = game.to_json().unwrap();
+    let mut restored = Game::from_json(&before).unwrap();
+    let message = game.apply(Action::Play { index: idx, target: 1 })
+        .expect("play piercing card with paid energy");
+    assert_eq!(message, restored.apply(Action::Play { index: idx, target: 1 }).unwrap());
+    assert!(message.join("；").contains("舰队掩护+2"));
+    assert_eq!(game.battle.as_ref().unwrap().convoy_cover, Some(2));
+    assert!(game.battle.as_ref().unwrap().events.iter().any(|e|
+        e.source == "naval_boarding_cover" && e.amount == 2));
+    assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
+}
