@@ -1996,6 +1996,9 @@ impl Game {
                 let idx = target_idx.expect("target");
                 let actual = self.deal_enemy_damage_unblockable(idx, n.saturating_add(bonus), "pierce");
                 self.suppress_jieting_water(idx, actual);
+                // Armor-piercing is still a direct paid player attack;
+                // don't deny its fleet suppression/repair counterplay.
+                self.board_naval_raiders(idx, actual);
                 self.cut_yinping_supply(idx, actual);
             }
             Effect::DrawEnergy(n, energy) => {
