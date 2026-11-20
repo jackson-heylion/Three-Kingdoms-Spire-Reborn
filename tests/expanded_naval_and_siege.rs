@@ -662,3 +662,31 @@ fn cao_cao_wuchao_responsibility_reaches_later_fleet_with_three_distinct_outcome
         assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
     }
 }
+
+
+#[test]
+fn grain_raid_sabotage_is_telegraphed_and_settled_per_new_difficulty() {
+    for (tier, pressure) in [
+        (Difficulty::Warlords, 0_u8),
+        (Difficulty::Conqueror, 2_u8),
+        (Difficulty::Destiny, 4_u8),
+    ] {
+        let mut game = isolated_battle_for_tier(Hero::GuanYu, 2, tier);
+        assert!(game.route_objective_hint(Node::Battle).unwrap().contains("0/2/4"));
+        game.apply(Action::Choose { index: 1 }).unwrap();
+        {
+            let b = game.battle.as_mut().unwrap();
+            b.turn = 2; // Explicit checkpoint for the announced sabotage turn.
+            b.convoy_hp = Some(12);
+            b.convoy_cover = Some(0);
+        }
+        let objective = game.tactical_objective().unwrap();
+        assert!(objective.contains(&format!("本回合+{pressure}")), "{objective}");
+        let mut resumed = Game::from_json(&game.to_json().unwrap()).unwrap();
+        let result = game.apply(Action::EndTurn).unwrap();
+        assert_eq!(result, resumed.apply(Action::EndTurn).unwrap());
+        assert_eq!(game.to_json().unwrap(), resumed.to_json().unwrap());
+        assert!(result.join("；").contains(&format!("额外+{pressure}")));
+        assert_eq!(game.battle.as_ref().unwrap().convoy_hp, Some(8 - pressure));
+    }
+}

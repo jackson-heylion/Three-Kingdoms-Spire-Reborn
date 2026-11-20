@@ -419,11 +419,11 @@ impl Game {
         // crossing. Forecast its risk before the route is committed.
         if self.floor == 18 && self.hero == Hero::CaoCao {
             match self.wuchao_plan {
-                Some(WuchaoPlan::RaidResolved) =>
+                Some(WuchaoPlan::RaidPending | WuchaoPlan::RaidResolved) =>
                     return Some("水陆阵战：战船12耐久；乌巢夜袭余威使劫船前锋虚弱2层，可趁机护送或击退敌军。偶数回合逆流2/4/6点"),
-                Some(WuchaoPlan::FortifyResolved) =>
+                Some(WuchaoPlan::FortifyPending | WuchaoPlan::FortifyResolved) =>
                     return Some("水陆阵战：乌巢守粮军资为战船先提供4点掩护，船体12；偶数回合逆流2/4/6点，掩护可反制劫船"),
-                Some(WuchaoPlan::DeclineResolved) =>
+                Some(WuchaoPlan::DeclinePending | WuchaoPlan::DeclineResolved) =>
                     return Some("水陆阵战：乌巢失机导致后勤短缺，战船入阵先损2点耐久；偶数回合逆流2/4/6点，可通过掩护与击退敌军应对"),
                 _ => {}
             }
@@ -432,7 +432,7 @@ impl Game {
         // Keep forecasts aligned with authoritative combat objectives.
         match self.floor {
             0 => Some("突围：下一层须在第4回合结束前击退围军；或同回合合法打出至少3张牌并保持12点护甲结阵脱围，未做到则战败"),
-            1 => Some("粮道保卫：下一层护粮，敌军每回合劫粮4点；防御牌或真实玩家攻击可掩护2点，亲自击败劫粮敌人回收2点粮车耐久；三回合后粮车至少余4点且当回合掩护至少4点可完成护送"),
+            1 => Some("粮道保卫：下一层护粮，敌军每回合劫粮4点，新三档在偶数回合额外劫粮0/2/4点；防御牌或真实玩家攻击可掩护2点，亲自击败劫粮敌人回收2点粮车耐久；三回合后粮车至少余4点且当回合掩护至少4点可完成护送"),
             2 => Some("伏击：下一层前锋护甲随三档难度分别为8/10/12点；亲自攻破前锋护甲可使其虚弱2层，破甲后赢得战斗另获16金反制赏金"),
             3 => Some("攻城：下一层须在第5回合前以 assault 指令消耗2军令攻城；守军尚存时破门4点，先击退全部守军可每次破门6点；城门破即获胜"),
             18 => Some("水陆阵战：下一层护送12点耐久的战船；敌军回合末劫船，偶数回合逆流随难度加压2/4/6点。出防御牌可掩护4点，主动攻击造成实际伤害可掩护2点；亲自击败敌人可抢修2点船身。歼敌胜利，或坚守至第4回合劫船结算后战船仍有至少6点耐久且本回合建立有效掩护，即可完成护航"),
@@ -446,6 +446,21 @@ impl Game {
                 }
             },
             _ => None,
+        }
+    }
+
+    /// In grain protection, enemy sabotage targets the convoy every even
+    /// turn. The displayed tier pressure and the committed raid share one
+    /// calculation, so the player can counter it without hidden rolls.
+    fn grain_raid_pressure(&self, turn: u32) -> u8 {
+        if self.difficulty.is_none() || self.floor != 2
+            || self.last_node != Some(Node::Battle) || !turn.is_multiple_of(2)
+        { return 0; }
+        match self.difficulty {
+            Some(Difficulty::Warlords) => 0,
+            Some(Difficulty::Conqueror) => 2,
+            Some(Difficulty::Destiny) => 4,
+            None => 0,
         }
     }
 
@@ -490,7 +505,8 @@ impl Game {
         {
             let living = b.foes.iter().filter(|foe| foe.hp > 0).count();
             let naval = self.difficulty.is_some() && self.floor == 19 && self.last_node == Some(Node::Battle);
-            let current = if naval { self.naval_tide_pressure(b.turn) } else { 0 };
+            let current = if naval { self.naval_tide_pressure(b.turn) }
+                else { self.grain_raid_pressure(b.turn) };
             let raid = (living as u8).saturating_mul(4).saturating_add(current).saturating_sub(cover).min(hp);
             if naval {
                 let warning = if hp > 0 && raid >= hp { "警告：回合末战船即将覆没！请攻击、守护或击退敌人。" } else { "" };
@@ -542,7 +558,7 @@ impl Game {
                 ""
             };
             return Some(format!(
-                "粮道保卫：第{}回合，粮车剩余{hp}/12体力；存活敌军{living}名每名劫粮4点。防御牌或实际攻击命中均可掩护2点（本回合已护{cover}点，上限8点），亲自击败敌军可收回2点耐久；本回合预计劫粮{raid}点。{lethal_warning}粮车耗尽立即战败；全歼敌军，或第三回合劫粮后粮车剩余至少4点且本回合掩护至少4点，即完成护送。", b.turn
+                "粮道保卫：第{}回合，粮车剩余{hp}/12体力；存活敌军{living}名每名劫粮4点，偶数回合三档补给失序额外+0/+2/+4（本回合+{current}）。防御牌或实际攻击命中均可掩护2点（本回合已护{cover}点，上限8点），亲自击败敌军可收回2点耐久；本回合预计劫粮{raid}点。{lethal_warning}粮车耗尽立即战败；全歼敌军，或第三回合劫粮后粮车剩余至少4点且本回合掩护至少4点，即完成护送。", b.turn
             ));
         }
         if self.difficulty.is_some() && self.floor == 3
@@ -3266,7 +3282,9 @@ impl Game {
                 && self.last_node == Some(Node::Battle);
             let adverse_current = if fleet_objective {
                 self.naval_tide_pressure(self.battle.as_ref().expect("battle").turn)
-            } else { 0 };
+            } else {
+                self.grain_raid_pressure(self.battle.as_ref().expect("battle").turn)
+            };
             let damage = enemy_count.saturating_mul(4)
                 .saturating_add(adverse_current).saturating_sub(cover);
             let actual = damage.min(hp);
@@ -3289,7 +3307,7 @@ impl Game {
                 format!("水陆阵战：{}敌船突袭，战船失去{actual}点耐久，剩余{}点",
                     if adverse_current > 0 { "逆流中" } else { "" }, hp - actual)
             } else {
-                format!("粮车遭劫{actual}体力，剩余{}体力", hp - actual)
+                format!("粮车遭劫{actual}体力（本回合补给失序额外+{adverse_current}），剩余{}体力", hp - actual)
             });
             if actual == hp {
                 self.record_metric(|c| c.battles_lost = c.battles_lost.saturating_add(1));
