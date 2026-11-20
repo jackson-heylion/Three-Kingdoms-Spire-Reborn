@@ -17,7 +17,7 @@ fn isolated_battle_for(hero: Hero, floor: u8) -> Game {
     );
     game.floor = floor - 1;
     game.stage = Stage::Map;
-    game.act_map = Some(map::ActMap::generate_expanded(|_| 0, usize::from((floor - 1) / 8)));
+    game.act_map = Some(map::ActMap::generate_expanded(|_| 0, (floor - 1) / 8));
     game.map_lane = None;
     game.route = vec![Node::Battle];
     game.route_lanes = vec![0];
