@@ -689,7 +689,12 @@ fn jieting_three_decisions_have_distinct_replayable_fifth_act_boss_consequences(
         seeded.floor = 39;
         seeded.jieting_plan = Some(JietingPlan::WaterSettled);
         let saved = seeded.to_json().unwrap();
-        assert_eq!(seeded.route_objective_hint(Node::Boss).is_some(), expected_alternate);
+        let forecast = seeded.route_objective_hint(Node::Boss)
+            .expect("both fifth-act commanders must preview settled Jieting consequences");
+        assert_eq!(forecast.contains("邓艾·阴平"), expected_alternate,
+            "forecast must name the selected commander: {forecast}");
+        assert_eq!(forecast.contains("姜维·北伐"), !expected_alternate,
+            "the other commander must have its own historical forecast: {forecast}");
         assert_eq!(seeded.to_json().unwrap(), saved, "seed forecast must be read-only");
     }
     let cases = [
