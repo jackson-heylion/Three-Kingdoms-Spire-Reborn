@@ -463,6 +463,72 @@ fn surviving_raider_escorts_extra_gold_unless_defeated_or_guarded() {
 }
 
 #[test]
+fn escorted_supplies_remain_recoverable_after_eighty_logged_events() {
+    // Long-battle tactical fixture, not a natural floor-zero journey.
+    // The levy and vanguard are emitted by genuine EndTurn boss actions.
+    // A patient player must not lose the earned recovery merely because
+    // the recent 80-event UI window no longer displays the original raid.
+    let mut game = fifth_act_alternate_boss();
+    game.apply(Action::Choose { index: 1 }).expect("enter Deng Ai");
+    {
+        let battle = game.battle.as_mut().unwrap();
+        battle.foes[0].phase = 1;
+        battle.foes[0].intent = Intent::Boss(BossMove::YinpingFlank(1));
+    }
+    game.apply(Action::EndTurn).expect("real boss summons escort");
+    game.battle.as_mut().unwrap().foes[0].intent =
+        Intent::Boss(BossMove::YinpingFlank(1));
+    game.apply(Action::EndTurn).expect("real escort steals supplies");
+    assert!(game.battle.as_ref().unwrap().events.iter().any(|event|
+        event.source == "yinping_raider_escort_levy" && event.amount == 5));
+    // Controlled hand/energy replenishment exercises repeated PAID actions
+    // and their normal event emission, without injecting synthetic events,
+    // history flags, RNG outcomes, enemies, or a false campaign conclusion.
+    for _ in 0..80 {
+        if !game.battle.as_ref().unwrap().events.iter().any(|event|
+            event.source == "yinping_raider_escort_levy") {
+            break;
+        }
+        let battle = game.battle.as_mut().unwrap();
+        battle.energy = battle.energy.max(1);
+        battle.hand.push(three_kingdoms_spire_reborn::Card::new("defend"));
+        let index = battle.hand.len();
+        game.apply(Action::Play { index, target: 1 })
+            .expect("legal defensive card emits ordinary battle events");
+    }
+    assert!(!game.battle.as_ref().unwrap().events.iter().any(|event|
+        event.source == "yinping_raider_escort_levy"),
+        "the bounded UI journal must truly have evicted the levy");
+    assert!(game.event_history.as_ref().is_some_and(|history|
+        history.iter().any(|record|
+            record.floor == 40 && record.event.source == "yinping_raider_escort_levy"
+                && record.event.amount == 5)),
+        "the durable encounter archive retains the actual levy");
+    {
+        let battle = game.battle.as_mut().unwrap();
+        battle.foes[1].hp = 1;
+        battle.foes[1].block = 0;
+        // This setup preserves the exposure already earned from the actual
+        // escorted levy; it does not manufacture a historical consequence.
+        assert!(battle.foes[1].vulnerable > 0);
+        battle.energy = battle.energy.max(1);
+        battle.hand.push(three_kingdoms_spire_reborn::Card::new("strike"));
+    }
+    let before = game.gold;
+    let index = game.battle.as_ref().unwrap().hand.len();
+    let save = game.to_json().expect("persist after window eviction");
+    let mut loaded = Game::from_json(&save).expect("restore long-fight archive");
+    let feedback = game.apply(Action::Play { index, target: 2 })
+        .expect("legally kill loot-carrying raider after long fight");
+    assert_eq!(feedback, loaded.apply(Action::Play { index, target: 2 }).unwrap());
+    assert_eq!(game.to_json().unwrap(), loaded.to_json().unwrap());
+    assert_eq!(game.gold, before + 5,
+        "archived escorted levy, not the recent UI window, pays recovery");
+    assert!(game.battle.as_ref().unwrap().events.iter().any(|event|
+        event.source == "yinping_escort_gold_recovered" && event.amount == 5));
+}
+
+#[test]
 fn exposed_escort_loot_can_be_recovered_after_commander_falls() {
     // A controlled phase-two encounter: real EndTurn summons the escort
     // and records the gold levy. The commander is then staged as defeated
