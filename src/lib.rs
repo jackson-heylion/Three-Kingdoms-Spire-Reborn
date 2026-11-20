@@ -412,6 +412,21 @@ impl Game {
                 _ => None,
             };
         }
+        // The other fifth-act commander must also honor Zhuge Liang's
+        // act-IV Jieting choice; it is not a Deng-Ai-only hidden fixture.
+        if node == Node::Boss && self.floor == 39 && self.hero == Hero::ZhugeLiang
+            && self.act_variant(4) == 0
+        {
+            return match self.jieting_plan {
+                Some(JietingPlan::WaterResolved | JietingPlan::WaterSettled) =>
+                    Some("姜维·北伐：街亭守水的补给旧部在关底加护甲8并使姜维虚弱2层；防守姜维断粮意图还能让其易伤"),
+                Some(JietingPlan::HillResolved | JietingPlan::HillSettled) =>
+                    Some("姜维·北伐：街亭据山导致姜维武勇+2、护甲+8，我军也获武勇+1；需预留反制牌突破封锁"),
+                Some(JietingPlan::RetreatResolved | JietingPlan::RetreatSettled) =>
+                    Some("姜维·北伐：街亭撤退保留机动，入阵额外军令+1、护甲+4，但姜维护甲+6；需把军令投入对抗断粮"),
+                _ => None,
+            };
+        }
         // The act-II alternate commander is a coalition, not a solo
         // armor sponge. A visible officer can shield Yuan Shao and restrict
         // next-turn command, but can be eliminated by actual player attacks.
@@ -504,6 +519,23 @@ impl Game {
     }
 
     pub fn tactical_objective(&self) -> Option<String> {
+        if self.stage == Stage::Combat && self.difficulty.is_some()
+            && self.floor == 40 && self.last_node == Some(Node::Boss)
+            && self.hero == Hero::ZhugeLiang
+            && self.battle.as_ref().is_some_and(|b|
+                b.foes.first().is_some_and(|f| f.id == "jiangwei"))
+        {
+            let history = match self.jieting_plan {
+                Some(JietingPlan::WaterSettled) =>
+                    "街亭守水：入阵护甲+8且姜维虚弱2层",
+                Some(JietingPlan::HillSettled) =>
+                    "街亭据山：姜维武勇+2、护甲+8，我军武勇+1",
+                Some(JietingPlan::RetreatSettled) =>
+                    "街亭撤退：军令+1、护甲+4，姜维护甲+6",
+                _ => "未有街亭下游责任",
+            };
+            return Some(format!("北伐史诗关底：{history}；姜维的预告断粮需护甲8/10点反制，失败将损失下一回合军令并混入军心涣散。"));
+        }
         if self.stage == Stage::Combat && self.difficulty.is_some()
             && self.floor == 32 && self.last_node == Some(Node::Boss)
             && matches!(self.hero, Hero::ZhugeLiang | Hero::SunShangxiang)
@@ -1105,6 +1137,43 @@ impl Game {
                 b.strength += 1;
             }
         }
+        // The standard fifth-act commander also reacts to the earlier
+        // Jieting decision. Distinct moves preserve the player's agency:
+        // supply defense disrupts the commander, hill pressure raises both
+        // offense and threat, and retreat trades extra resources for armor.
+        if self.difficulty.is_some() && self.hero == Hero::ZhugeLiang
+            && self.floor == 40 && node == Node::Boss
+            && self.battle.as_ref().is_some_and(|b|
+                b.foes.first().is_some_and(|f| f.id == "jiangwei"))
+        {
+            let effect = {
+                let b = self.battle.as_mut().expect("north expedition final");
+                match self.jieting_plan {
+                    Some(JietingPlan::WaterResolved | JietingPlan::WaterSettled) => {
+                        b.block += 8;
+                        b.foes[0].weak = b.foes[0].weak.saturating_add(2);
+                        Some(("jieting_jiangwei_wells", 8))
+                    }
+                    Some(JietingPlan::HillResolved | JietingPlan::HillSettled) => {
+                        b.foes[0].strength += 2;
+                        b.foes[0].block += 8;
+                        b.strength += 1;
+                        Some(("jieting_jiangwei_hills", 8))
+                    }
+                    Some(JietingPlan::RetreatResolved | JietingPlan::RetreatSettled) => {
+                        b.energy += 1;
+                        b.block += 4;
+                        b.foes[0].block += 6;
+                        Some(("jieting_jiangwei_retreat", 1))
+                    }
+                    _ => None,
+                }
+            };
+            if let Some((source, amount)) = effect {
+                self.combat_event(EventKind::PowerTriggered,
+                    source, amount, Some("north_expedition".into()));
+            }
+        }
         // A real act-IV Jieting choice continues into the alternate fifth-act
         // historical commander. Existing settled plan identity is the durable
         // receipt: no extra save field, no repeated reward from reload, and no
@@ -1435,6 +1504,20 @@ impl Game {
                         Some(JietingPlan::WaterSettled) => "；街亭守水兑现：第五幕护甲+8",
                         Some(JietingPlan::HillSettled) => "；街亭断水债务：损失至多12金",
                         Some(JietingPlan::RetreatSettled) => "；街亭撤退兑现：恢复至多8体力",
+                        _ => "",
+                    });
+                }
+                if self.floor == 40 && self.hero == Hero::ZhugeLiang
+                    && self.battle.as_ref().is_some_and(|b|
+                        b.foes.first().is_some_and(|f| f.id == "jiangwei"))
+                {
+                    msg.push_str(match self.jieting_plan {
+                        Some(JietingPlan::WaterSettled) =>
+                            "；街亭守水北伐兑现：入阵护甲+8、姜维虚弱2层",
+                        Some(JietingPlan::HillSettled) =>
+                            "；街亭据山北伐旧债：姜维武勇+2、护甲+8，我军武勇+1",
+                        Some(JietingPlan::RetreatSettled) =>
+                            "；街亭撤退北伐先机：军令+1、护甲+4，姜维护甲+6",
                         _ => "",
                     });
                 }
