@@ -481,6 +481,11 @@ impl Game {
             let raid = (living as u8).saturating_mul(4).saturating_add(current).saturating_sub(cover).min(hp);
             if naval {
                 let warning = if hp > 0 && raid >= hp { "警告：回合末战船即将覆没！请攻击、守护或击退敌人。" } else { "" };
+                let class_hint = match self.hero {
+                    Hero::CaoCao => "曹操亲兵补给牌可为战船增加4点掩护；",
+                    Hero::SunShangxiang => "孙尚香实际消耗弃换次数可为战船增加2点掩护；",
+                    _ => "",
+                };
                 let chibi = match self.chibi_plan {
                     Some(ChibiPlan::FleetBattleResolved) => "赤壁稳守水军：入阵额外4点舰队掩护；",
                     Some(ChibiPlan::FireBattleResolved) => "赤壁火攻旧议：火攻灼伤敌前锋3层、己方战船先损2点；",
@@ -488,7 +493,7 @@ impl Game {
                     _ => "",
                 };
                 return Some(format!(
-                    "水陆阵战：{chibi}战船耐久{hp}/12；存活敌军{living}名各劫船4点，偶数回合逆流按难度额外+2/+4/+6（本回合逆流+{current}）；防御牌提供4点掩护，攻击实际扣除敌军体力可提供2点掩护（本回合已护{cover}/8）；亲自击败敌军可抢修2点；本回合预计失船{raid}点。{warning}战船覆没即战败；击退敌军或在第4回合劫船结算后耐久至少6且本回合有掩护，即可护航成功。"
+                    "水陆阵战：{chibi}{class_hint}战船耐久{hp}/12；存活敌军{living}名各劫船4点，偶数回合逆流按难度额外+2/+4/+6（本回合逆流+{current}）；防御牌提供4点掩护，攻击实际扣除敌军体力可提供2点掩护（本回合已护{cover}/8）；亲自击败敌军可抢修2点；本回合预计失船{raid}点。{warning}战船覆没即战败；击退敌军或在第4回合劫船结算后耐久至少6且本回合有掩护，即可护航成功。"
                 ));
             }
             if (26..=31).contains(&self.floor) {
@@ -2055,9 +2060,27 @@ impl Game {
             }
             Effect::Energy(n) => self.battle.as_mut().expect("battle").energy += n + i32::from(card.upgraded),
             Effect::Companion(amount) => {
-                let b = self.battle.as_mut().expect("battle");
-                b.troops_hp += amount + bonus;
-                b.troops_attack += (amount / 4).max(1);
+                let naval_command = self.difficulty.is_some() && self.floor == 19
+                    && self.last_node == Some(Node::Battle) && self.hero == Hero::CaoCao;
+                let screen = {
+                    let b = self.battle.as_mut().expect("battle");
+                    b.troops_hp += amount + bonus;
+                    b.troops_attack += (amount / 4).max(1);
+                    // A paid Cao Cao logistics card can protect the actual
+                    // fleet even when a defensive guard was not drawn. The
+                    // passive troop attack itself never grants free cover.
+                    if naval_command {
+                        if let Some(old) = b.convoy_cover {
+                            let next = old.saturating_add(4).min(8);
+                            b.convoy_cover = Some(next);
+                            next - old
+                        } else { 0 }
+                    } else { 0 }
+                };
+                if screen > 0 {
+                    self.combat_event(EventKind::PowerTriggered,
+                        "cao_naval_troop_screen", i32::from(screen), Some("fleet".into()));
+                }
             }
             Effect::Tactics(amount) => {
                 self.battle.as_mut().expect("battle").discard_tokens += amount;
@@ -2364,7 +2387,7 @@ impl Game {
         let temporary = card.temporary;
         let card_id = card.id.clone();
         self.combat_event(EventKind::CardDiscarded, &card.id, 1, None);
-        let msg = if auto { format!("弃换【{}】：触发策应攻击", card.name()) }
+        let mut msg = if auto { format!("弃换【{}】：触发策应攻击", card.name()) }
                   else { format!("弃换【{}】", card.name()) };
         {
             let b = self.battle.as_mut().expect("battle");
@@ -2381,6 +2404,27 @@ impl Game {
                 c.sun_discard_block = c.sun_discard_block.saturating_add(2);
             });
             self.combat_event(EventKind::PowerTriggered,"sun_discard_guard",2,None);
+        }
+        // Sun Shangxiang's deliberate formation swap can screen a naval
+        // raid, but only after a real paid tactics card earned discard
+        // tokens and Action::Discard actually consumes one. Discard-triggered
+        // flat damage is still ineligible for damage-based boarding bonuses.
+        if self.hero == Hero::SunShangxiang && self.difficulty.is_some()
+            && self.floor == 19 && self.last_node == Some(Node::Battle)
+        {
+            let gained = {
+                let b = self.battle.as_mut().expect("naval battle");
+                if let Some(old) = b.convoy_cover {
+                    let next = old.saturating_add(2).min(8);
+                    b.convoy_cover = Some(next);
+                    next - old
+                } else { 0 }
+            };
+            if gained > 0 {
+                self.combat_event(EventKind::PowerTriggered,
+                    "sun_naval_redeployment", i32::from(gained), Some("fleet".into()));
+                msg.push_str(&format!("；换阵掩护战船+{gained}"));
+            }
         }
         if temporary {
             self.combat_event(EventKind::CardExhausted,&card_id,1,None);
