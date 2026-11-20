@@ -418,7 +418,7 @@ impl Game {
         // The map cursor is the last completed floor; a route enters floor + 1.
         // Keep forecasts aligned with authoritative combat objectives.
         match self.floor {
-            0 => Some("突围：下一层须在第4回合结束前击退全部围军，否则战败"),
+            0 => Some("突围：下一层须在第4回合结束前击退围军；或同回合合法打出至少3张牌并保持12点护甲结阵脱围，未做到则战败"),
             1 => Some("粮道保卫：下一层护送粮车；存活敌军每回合劫粮，防御牌可护粮"),
             2 => Some("伏击：下一层敌军前锋以8点护甲设伏；破甲后击退敌军可获16金反制赏金"),
             3 => Some("攻城：下一层须在第5回合前以 assault 指令消耗2军令攻城；守军尚存时破门4点，先击退全部守军可每次破门6点；城门破即获胜"),
@@ -516,8 +516,8 @@ impl Game {
             && self.last_node == Some(Node::Battle) && self.stage == Stage::Combat
         {
             self.battle.as_ref().map(|b| format!(
-                "突围：须在第{BREAKOUT_TURN_LIMIT}回合结束前击退全部围军；当前第{}回合。超时即战败。",
-                b.turn
+                "突围：须在第{BREAKOUT_TURN_LIMIT}回合结束前击退围军，或本回合打出至少3张牌且护甲达到12便可结阵脱围；当前第{}回合，已出牌{}张，护甲{}。超时即战败。",
+                b.turn, b.played_this_turn, b.block
             ))
         } else {
             None
@@ -2895,6 +2895,22 @@ impl Game {
         if self.defeated() { return Ok(self.win_battle()); }
         self.troop_attack();
         if self.defeated() { return Ok(self.win_battle()); }
+        // A timed breakout need not force an attack-only deck: a player who
+        // pays for three cards and maintains a 12-point shield can retreat
+        // in formation before the enemy gets another strike. Both conditions
+        // come exclusively from legal Game::apply(Action::Play) actions and
+        // the authoritative player block snapshot at EndTurn. It is a full
+        // victory settlement, not free escape on an unplayed starting shield.
+        let formation_escape = self.difficulty.is_some() && self.floor == 1
+            && self.last_node == Some(Node::Battle)
+            && self.battle.as_ref().is_some_and(|b|
+                b.played_this_turn >= 3 && b.block >= 12);
+        if formation_escape {
+            self.combat_event(EventKind::PowerTriggered,
+                "breakout_formation_escape", 1, Some("hero".into()));
+            return Ok(format!("突围结阵成功：连贯出牌并以12点护甲护送全军脱围。{}",
+                self.win_battle()));
+        }
         // The fire first ignites during a telegraphed enemy action; damage
         // arrives next turn, after the player could use defense to extinguish it.
         let fire = self.battle.as_ref().expect("battle").wildfire;
