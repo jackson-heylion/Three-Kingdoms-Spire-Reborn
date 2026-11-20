@@ -11,8 +11,12 @@ fn isolated_battle(floor: u8) -> Game {
 }
 
 fn isolated_battle_for(hero: Hero, floor: u8) -> Game {
+    isolated_battle_for_tier(hero, floor, Difficulty::Warlords)
+}
+
+fn isolated_battle_for_tier(hero: Hero, floor: u8, tier: Difficulty) -> Game {
     let mut game = Game::new_with_campaign_difficulty(
-        hero, 1_u64 << 44, Difficulty::Warlords,
+        hero, 1_u64 << 44, tier,
         format!("special-battle-floor-{floor}"),
     );
     game.floor = floor - 1;
@@ -244,4 +248,42 @@ fn piercing_attack_is_a_paid_player_boarding_hit_not_a_passive_damage_exemption(
     assert!(game.battle.as_ref().unwrap().events.iter().any(|e|
         e.source == "naval_boarding_cover" && e.amount == 2));
     assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
+}
+
+#[test]
+fn river_tide_follows_new_difficulty_and_uses_the_same_risk_forecast_as_damage() {
+    for (tier, expected_tide) in [
+        (Difficulty::Warlords, 2_u8),
+        (Difficulty::Conqueror, 4_u8),
+        (Difficulty::Destiny, 6_u8),
+    ] {
+        let mut game = isolated_battle_for_tier(Hero::GuanYu, 19, tier);
+        game.apply(Action::Choose { index: 1 }).expect("real river crossing");
+        // Explicit second-turn tactical checkpoint: all three campaigns
+        // retain the same actual raider and must share the same Game rule.
+        // No artificial event, result, history flag, RNG or map is injected.
+        {
+            let b = game.battle.as_mut().unwrap();
+            b.turn = 2;
+            b.convoy_hp = Some(12);
+            b.convoy_cover = Some(0);
+            b.foes[0].hp = b.foes[0].hp.max(1);
+            for foe in b.foes.iter_mut().skip(1) { foe.hp = 0; }
+            b.foes[0].intent = three_kingdoms_spire_reborn::Intent::Guard(0);
+        }
+        let risk = game.tactical_objective().unwrap();
+        assert!(risk.contains(&format!("本回合逆流+{expected_tide}")));
+        assert!(risk.contains(&format!("本回合预计失船{}点", 4 + expected_tide)));
+        let snapshot = game.to_json().unwrap();
+        let mut restored = Game::from_json(&snapshot).unwrap();
+        let result = game.apply(Action::EndTurn).expect("real tier-specific naval raid");
+        assert_eq!(result, restored.apply(Action::EndTurn).unwrap());
+        assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
+        assert_eq!(game.battle.as_ref().unwrap().convoy_hp,
+            Some(8 - expected_tide),
+            "expected one living raider and the difficulty's actual adverse current");
+        assert!(game.battle.as_ref().unwrap().events.iter().any(|event|
+            event.source == "naval_hull_raided"
+                && event.amount == i32::from(4 + expected_tide)));
+    }
 }
