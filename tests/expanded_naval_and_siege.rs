@@ -7,8 +7,12 @@ use three_kingdoms_spire_reborn::{
 };
 
 fn isolated_battle(floor: u8) -> Game {
+    isolated_battle_for(Hero::GuanYu, floor)
+}
+
+fn isolated_battle_for(hero: Hero, floor: u8) -> Game {
     let mut game = Game::new_with_campaign_difficulty(
-        Hero::GuanYu, 1_u64 << 44, Difficulty::Warlords,
+        hero, 1_u64 << 44, Difficulty::Warlords,
         format!("special-battle-floor-{floor}"),
     );
     game.floor = floor - 1;
@@ -142,7 +146,7 @@ fn red_cliffs_council_responsibility_changes_the_later_fleet_battle() {
         (ChibiPlan::FirePending, ChibiPlan::FireBattleResolved),
         (ChibiPlan::DeclinePending, ChibiPlan::DeclineBattleResolved),
     ] {
-        let mut game = isolated_battle(19);
+        let mut game = isolated_battle_for(Hero::ZhugeLiang, 19);
         game.chibi_plan = Some(chosen);
         game.apply(Action::Choose { index: 1 })
             .expect("real entry into naval fight applies an existing Chibi choice");
