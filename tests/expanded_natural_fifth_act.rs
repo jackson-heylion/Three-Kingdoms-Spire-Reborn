@@ -36,12 +36,19 @@ fn fight(game: &mut Game) -> Result<(), String> {
                 // Applying it to the ordinary early-floor grain convoy changed
                 // card ordering and caused every fixed Zhuge Liang seed to die
                 // before the council in the previous two-platform CI.
+                let fleet_objective = game.floor == 19
+                    && game.last_node == Some(Node::Battle)
+                    && b.convoy_hp.is_some();
+                // Third-act tides add two raiding points every even turn;
+                // the driver observes the same posted objective as a player,
+                // rather than treating every escort as identical cargo.
+                let tide = if fleet_objective && b.turn.is_multiple_of(2) { 2 } else { 0 };
                 let incoming_water_loss = raiders.saturating_mul(4)
-                    .saturating_sub(b.convoy_cover.unwrap_or(0));
+                    .saturating_add(tide).saturating_sub(b.convoy_cover.unwrap_or(0));
                 let water_objective = game.hero == Hero::ZhugeLiang
                     && (26..=31).contains(&game.floor)
                     && b.convoy_hp.is_some();
-                let threatened_objective = water_objective
+                let threatened_objective = (water_objective || fleet_objective)
                     && b.convoy_hp.is_some_and(|hp| incoming_water_loss >= hp);
                 // Preserve water before it reaches the lethal threshold. Waiting
                 // until the last four points cannot recover already-lost supply.
@@ -49,6 +56,9 @@ fn fight(game: &mut Game) -> Result<(), String> {
                 // lethal raid permits additional guards through Game::apply.
                 let protect_water = water_objective && incoming_water_loss > 0
                     && (!guarded || threatened_objective);
+                let protect_fleet = fleet_objective && incoming_water_loss > 0
+                    && (!guarded || threatened_objective);
+                let protect_objective = protect_water || protect_fleet;
                 // The fifth-act Yinping raid is a telegraphed card-count OR
                 // armor defense. A legal guard is useful even without a direct
                 // attack intent; otherwise the driver discards a real counter.
@@ -56,7 +66,7 @@ fn fight(game: &mut Game) -> Result<(), String> {
                     && matches!(foe.intent,
                         three_kingdoms_spire_reborn::Intent::Boss(
                             three_kingdoms_spire_reborn::BossMove::YinpingFlank(_))));
-                let defend = protect_water || (yinping_guard && b.block < 12)
+                let defend = protect_objective || (yinping_guard && b.block < 12)
                     || (!guarded && b.block < 8
                     && b.foes.iter().any(|foe| foe.hp > 0 && matches!(
                         foe.intent, three_kingdoms_spire_reborn::Intent::Attack(_)
@@ -86,7 +96,7 @@ fn fight(game: &mut Game) -> Result<(), String> {
                         | Effect::HitVulnerable(_, _) | Effect::Leech(_)
                         | Effect::HitPoison(_, _) => 2,
                         Effect::Guard(_) | Effect::GuardEnergy(_) | Effect::XGuard(_)
-                            if protect_water => 1,
+                            if protect_objective => 1,
                         Effect::Guard(_) | Effect::GuardEnergy(_) | Effect::XGuard(_) => 3,
                         _ => 4,
                     };
@@ -120,8 +130,9 @@ fn fight(game: &mut Game) -> Result<(), String> {
             // No fixture injection: the restored engine executes the same
             // Game::apply action and must produce identical feedback and
             // state, including any Deng Ai raid, summoned escort, or gold.
-            let resume = if game.floor == 40
-                && game.last_node == Some(Node::Boss)
+            let resume = if (game.floor == 40
+                && game.last_node == Some(Node::Boss))
+                || (game.floor == 19 && game.last_node == Some(Node::Battle))
             {
                 let snapshot = game.to_json()?;
                 Some(Game::from_json(&snapshot)?)
@@ -131,7 +142,8 @@ fn fight(game: &mut Game) -> Result<(), String> {
                 let replayed = restored.apply(Action::EndTurn)?;
                 if outcome != replayed || game.to_json()? != restored.to_json()? {
                     return Err(format!(
-                        "natural floor-40 turn {} diverged after JSON resume",
+                        "natural special-battle floor {} turn {} diverged after JSON resume",
+                        restored.floor,
                         restored.battle.as_ref().map_or(0, |b| b.turn)
                     ));
                 }
