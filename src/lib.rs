@@ -423,6 +423,19 @@ impl Game {
                 _ => "官渡关底：袁绍携亲卫军官护阵并可压制下回合军令；先击败军官能削弱统帅并断绝第二阶段援军",
             });
         }
+        if node == Node::Boss && self.floor == 31
+            && matches!(self.hero, Hero::ZhugeLiang | Hero::SunShangxiang)
+        {
+            return match self.chibi_plan {
+                Some(ChibiPlan::FireBattleResolved | ChibiPlan::FireSettled) =>
+                    Some("赤壁火攻余波：第四幕关底敌统帅开场虚弱2层，可乘势突击；该效果不抵销此前火攻后勤债务"),
+                Some(ChibiPlan::FleetBattleResolved | ChibiPlan::FleetSettled) =>
+                    Some("赤壁稳守旧部：第四幕关底我军开场护甲+8、军令+1，护阵可以反制关底致命意图"),
+                Some(ChibiPlan::DeclineBattleResolved | ChibiPlan::DeclineSettled) =>
+                    Some("赤壁失机余波：第四幕关底敌统帅武勇+1、护甲+10；需先破阵或蓄力输出"),
+                _ => None,
+            };
+        }
         if node != Node::Battle {
             return None;
         }
@@ -491,6 +504,21 @@ impl Game {
     }
 
     pub fn tactical_objective(&self) -> Option<String> {
+        if self.stage == Stage::Combat && self.difficulty.is_some()
+            && self.floor == 32 && self.last_node == Some(Node::Boss)
+            && matches!(self.hero, Hero::ZhugeLiang | Hero::SunShangxiang)
+        {
+            let effect = match self.chibi_plan {
+                Some(ChibiPlan::FireBattleResolved | ChibiPlan::FireSettled) =>
+                    "赤壁火攻：敌统帅入阵虚弱2层，抓住反击窗口",
+                Some(ChibiPlan::FleetBattleResolved | ChibiPlan::FleetSettled) =>
+                    "赤壁稳守：我军入阵护甲+8且多1点军令",
+                Some(ChibiPlan::DeclineBattleResolved | ChibiPlan::DeclineSettled) =>
+                    "赤壁失机：敌统帅入阵武勇+1并获得10点护甲，先破盾",
+                _ => "未携带赤壁军议后果",
+            };
+            return Some(format!("第四幕史诗关底：{effect}。阶段意图仍以敌方预告为准。"));
+        }
         if self.stage == Stage::Combat && self.difficulty.is_some() && self.floor == 16
             && self.last_node == Some(Node::Boss)
             && self.battle.as_ref().is_some_and(|b|
@@ -985,6 +1013,38 @@ impl Game {
                     source, amount, Some("guandu".into()));
             }
         }
+        // Red Cliffs' optional act-III choice follows the fleet into the
+        // independent act-IV commander. Its early act-IV payoff remains
+        // separate and once-only; the boss effect is applied on battle entry
+        // from existing settled plan identity, without introducing save fields.
+        if self.difficulty.is_some() && self.floor == 32 && node == Node::Boss
+            && matches!(self.hero, Hero::ZhugeLiang | Hero::SunShangxiang)
+        {
+            let effect = {
+                let b = self.battle.as_mut().expect("act IV commander");
+                match self.chibi_plan {
+                    Some(ChibiPlan::FireBattleResolved | ChibiPlan::FireSettled) => {
+                        b.foes[0].weak = b.foes[0].weak.saturating_add(2);
+                        Some(("chibi_fourth_act_fire", 2))
+                    }
+                    Some(ChibiPlan::FleetBattleResolved | ChibiPlan::FleetSettled) => {
+                        b.block += 8;
+                        b.energy += 1;
+                        Some(("chibi_fourth_act_fleet", 8))
+                    }
+                    Some(ChibiPlan::DeclineBattleResolved | ChibiPlan::DeclineSettled) => {
+                        b.foes[0].strength += 1;
+                        b.foes[0].block += 10;
+                        Some(("chibi_fourth_act_declined", 10))
+                    }
+                    _ => None,
+                }
+            };
+            if let Some((source, amount)) = effect {
+                self.combat_event(EventKind::PowerTriggered,
+                    source, amount, Some("act_four_boss".into()));
+            }
+        }
         self.roll_intents();
         let extra_draw = usize::from(self.relics.iter().any(|r| r == "虎翼"));
         let boon_draw = usize::from(self.boons.iter().any(|b| b == "strategist")) * 2;
@@ -1386,6 +1446,20 @@ impl Game {
                         Some(JietingPlan::WaterSettled) => "；街亭守水远期兑现：入阵护甲+10、邓艾虚弱2层",
                         Some(JietingPlan::HillSettled) => "；街亭据山远期债务：邓艾武勇+2、护甲+10，我军武勇+1；击溃山道援军可额外反击8点",
                         Some(JietingPlan::RetreatSettled) => "；街亭撤退远期先机：军令+1、邓艾护甲+6",
+                        _ => "",
+                    });
+                }
+                if self.difficulty.is_some() && self.floor == 32
+                    && matches!(self.hero, Hero::ZhugeLiang | Hero::SunShangxiang)
+                    && node == Node::Boss
+                {
+                    msg.push_str(match self.chibi_plan {
+                        Some(ChibiPlan::FireBattleResolved | ChibiPlan::FireSettled) =>
+                            "；赤壁火攻余波兑现：敌统帅虚弱2层",
+                        Some(ChibiPlan::FleetBattleResolved | ChibiPlan::FleetSettled) =>
+                            "；赤壁稳守余波兑现：入阵护甲+8、军令+1",
+                        Some(ChibiPlan::DeclineBattleResolved | ChibiPlan::DeclineSettled) =>
+                            "；赤壁失机余波兑现：敌统帅武勇+1、护甲+10",
                         _ => "",
                     });
                 }
