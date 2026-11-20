@@ -66,8 +66,8 @@ fn direct_player_hit_breaks_coalition_and_disables_second_phase_recruitment() {
     assert!(b.events.iter().any(|e| e.source == "yuanshao_escort_severed"));
     // A separate controlled half-health transition confirms the lasting
     // strategy: a killed officer cannot be replaced for free at phase two.
-    game.battle.as_mut().unwrap().foes[0].hp =
-        game.battle.as_ref().unwrap().foes[0].max_hp / 2;
+    let phase_threshold = game.battle.as_ref().unwrap().foes[0].max_hp / 2;
+    game.battle.as_mut().unwrap().foes[0].hp = phase_threshold;
     let mut resumed = Game::from_json(&game.to_json().unwrap()).unwrap();
     assert_eq!(game.apply(Action::EndTurn).unwrap(), resumed.apply(Action::EndTurn).unwrap());
     assert_eq!(game.to_json().unwrap(), resumed.to_json().unwrap());
