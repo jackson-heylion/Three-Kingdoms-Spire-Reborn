@@ -3,7 +3,7 @@
 //! NOT a fabricated natural 0→40 victory or historical choice. All consequential
 //! actions are committed through Game::apply and compared across JSON restore.
 use three_kingdoms_spire_reborn::{
-    Action, Difficulty, Game, Node, Stage, Card, content::Hero, map,
+    Action, ChibiPlan, Difficulty, Game, Node, Stage, Card, content::Hero, map,
 };
 
 fn isolated_battle(floor: u8) -> Game {
@@ -130,4 +130,87 @@ fn defeating_siege_defenders_before_assault_improves_real_breach() {
     assert_eq!(game.to_json().unwrap(), loaded.to_json().unwrap());
     assert!(breach.join("；").contains("攻城破门6点"));
     assert_eq!(game.battle.as_ref().unwrap().siege_gate_hp, Some(6));
+}
+
+#[test]
+fn red_cliffs_council_responsibility_changes_the_later_fleet_battle() {
+    // Historical plans are explicitly staged here as controlled checkpoints.
+    // The resulting battle deployment, event log, and subsequent actions
+    // are produced by the authoritative Game::apply boundary.
+    for (chosen, settled) in [
+        (ChibiPlan::FleetPending, ChibiPlan::FleetBattleResolved),
+        (ChibiPlan::FirePending, ChibiPlan::FireBattleResolved),
+        (ChibiPlan::DeclinePending, ChibiPlan::DeclineBattleResolved),
+    ] {
+        let mut game = isolated_battle(19);
+        game.chibi_plan = Some(chosen);
+        game.apply(Action::Choose { index: 1 })
+            .expect("real entry into naval fight applies an existing Chibi choice");
+        assert_eq!(game.chibi_plan, Some(settled));
+        let battle = game.battle.as_ref().unwrap();
+        match chosen {
+            ChibiPlan::FleetPending => {
+                assert_eq!(battle.convoy_cover, Some(4));
+                assert!(battle.events.iter().any(|e|
+                    e.source == "chibi_naval_fleet_screen" && e.amount == 4));
+                assert!(game.tactical_objective().unwrap().contains("赤壁稳守水军"));
+            }
+            ChibiPlan::FirePending => {
+                assert_eq!(battle.convoy_hp, Some(10));
+                assert!(battle.foes[0].poison >= 3);
+                assert!(battle.events.iter().any(|e|
+                    e.source == "chibi_naval_fire_spread" && e.amount == 2));
+                assert!(game.tactical_objective().unwrap().contains("赤壁火攻旧议"));
+            }
+            ChibiPlan::DeclinePending => {
+                assert!(battle.foes[0].block >= 16,
+                    "declining the council retains the existing 12 armor plus four naval");
+                assert!(battle.events.iter().any(|e|
+                    e.source == "chibi_naval_declined_cover" && e.amount == 4));
+                assert!(game.tactical_objective().unwrap().contains("赤壁不介入旧债"));
+            }
+            _ => unreachable!(),
+        }
+        let saved = game.to_json().unwrap();
+        let mut loaded = Game::from_json(&saved).expect("persist Chibi naval consequence");
+        let result = game.apply(Action::EndTurn).expect("turn after council consequence");
+        assert_eq!(result, loaded.apply(Action::EndTurn).unwrap());
+        assert_eq!(game.to_json().unwrap(), loaded.to_json().unwrap());
+    }
+}
+
+#[test]
+fn defensive_breakout_is_an_actual_paid_three_card_escape_and_replays() {
+    // Controlled initial-floor encounter, NOT a simulated win across 40 floors.
+    let mut game = isolated_battle(1);
+    assert!(game.route_objective_hint(Node::Battle).unwrap().contains("结阵脱围"));
+    game.apply(Action::Choose { index: 1 }).expect("enter real breakout");
+    assert_eq!(game.floor, 1);
+    assert!(game.tactical_objective().unwrap().contains("3张牌"));
+    {
+        let battle = game.battle.as_mut().unwrap();
+        battle.energy = 3;
+        for _ in 0..3 { battle.hand.push(Card::new("defend")); }
+    }
+    for count in 1..=3 {
+        let index = game.battle.as_ref().unwrap().hand.iter()
+            .position(|c| c.id == "defend").unwrap() + 1;
+        game.apply(Action::Play { index, target: 1 })
+            .expect("pay for a real defense card");
+        assert_eq!(game.battle.as_ref().unwrap().played_this_turn, count);
+    }
+    assert!(game.battle.as_ref().unwrap().block >= 12);
+    let checkpoint = game.to_json().expect("save paid breakout");
+    let mut loaded = Game::from_json(&checkpoint).expect("resume paid breakout");
+    let result = game.apply(Action::EndTurn).expect("retreat by actual EndTurn");
+    assert_eq!(result, loaded.apply(Action::EndTurn).unwrap());
+    assert_eq!(game.to_json().unwrap(), loaded.to_json().unwrap());
+    assert!(result.join("；").contains("突围结阵成功"));
+    assert_eq!(game.stage, Stage::Reward,
+        "defensive breakout must settle the same battle reward exactly once");
+    assert!(game.battle.is_none());
+    assert!(game.event_history.as_ref().is_some_and(|history|
+        history.iter().any(|record|
+            record.event.source == "breakout_formation_escape"
+                && record.event.amount == 1)));
 }
