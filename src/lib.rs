@@ -421,7 +421,8 @@ impl Game {
             0 => Some("突围：下一层须在第4回合结束前击退全部围军，否则战败"),
             1 => Some("粮道保卫：下一层护送粮车；存活敌军每回合劫粮，防御牌可护粮"),
             2 => Some("伏击：下一层敌军前锋以8点护甲设伏；破甲后击退敌军可获16金反制赏金"),
-            3 => Some("攻城：下一层须在第5回合前以 assault 指令消耗2军令攻城，每次削减4点城门耐久；城门破即获胜"),
+            3 => Some("攻城：下一层须在第5回合前以 assault 指令消耗2军令攻城；守军尚存时破门4点，先击退全部守军可每次破门6点；城门破即获胜"),
+            18 => Some("水陆阵战：下一层护送12点耐久的战船；敌军回合末劫船，偶数回合逆流加压2点。出防御牌可掩护4点，主动攻击造成实际伤害可掩护2点；击败敌人能抢修2点船身"),
             25..=30 if self.hero == Hero::ZhugeLiang && matches!(self.jieting_plan, Some(JietingPlan::WaterPending | JietingPlan::HillPending | JietingPlan::RetreatPending)) => {
                 if self.jieting_plan == Some(JietingPlan::HillPending) {
                     Some("街亭据山：下一场水源战开场先损失4点水源；敌军每回合劫水，防御牌可护水，水源耗尽立即战败")
@@ -451,14 +452,24 @@ impl Game {
         }
         if self.stage == Stage::Combat && let Some(hp) = self.battle.as_ref().and_then(|b| b.siege_gate_hp) {
             let turn = self.battle.as_ref().expect("battle").turn;
-            return Some(format!("攻城：城门耐久{hp}/12；每次 assault 消耗2军令、破门4点；第5回合结束前须破门，敌军仍会攻击；当前第{turn}回合。"));
+            let defenders = self.battle.as_ref().expect("battle").foes.iter().filter(|foe| foe.hp > 0).count();
+            let breach = if defenders == 0 { 6 } else { 4 };
+            return Some(format!("攻城：城门耐久{hp}/12；存活守军{defenders}名；每次 assault 消耗2军令、当前破门{breach}点（清除守军后提升至6点）；第5回合结束前须破门；当前第{turn}回合。"));
         }
         if self.stage == Stage::Combat
             && let Some(b) = self.battle.as_ref()
             && let (Some(hp), Some(cover)) = (b.convoy_hp, b.convoy_cover)
         {
             let living = b.foes.iter().filter(|foe| foe.hp > 0).count();
-            let raid = (living as u8).saturating_mul(4).saturating_sub(cover).min(hp);
+            let naval = self.difficulty.is_some() && self.floor == 19 && self.last_node == Some(Node::Battle);
+            let current = if naval && b.turn.is_multiple_of(2) { 2 } else { 0 };
+            let raid = (living as u8).saturating_mul(4).saturating_add(current).saturating_sub(cover).min(hp);
+            if naval {
+                let warning = if hp > 0 && raid >= hp { "警告：回合末战船即将覆没！请攻击、守护或击退敌人。" } else { "" };
+                return Some(format!(
+                    "水陆阵战：战船耐久{hp}/12；存活敌军{living}名各劫船4点，偶数回合逆流额外+2；防御牌提供4点掩护，攻击实际扣除敌军体力可提供2点掩护（本回合已护{cover}/8）；击败敌军可抢修2点；本回合预计失船{raid}点。{warning}战船覆没即战败，击退敌军即可守住渡江舰队。"
+                ));
+            }
             if (26..=31).contains(&self.floor) {
                 let lethal_warning = if hp > 0 && raid >= hp {
                     "警告：本回合水源将被夺！请击退敌人或打出防御牌。"
@@ -797,11 +808,11 @@ impl Game {
             played_this_turn: 0, last_turn_cards: 0, next_turn_energy_penalty: 0,
             wildfire: 0,
             convoy_hp: (self.difficulty.is_some() && node == Node::Battle
-                && (self.floor == 2 || ((26..=31).contains(&self.floor) && self.hero == Hero::ZhugeLiang
+                && (self.floor == 2 || self.floor == 19 || ((26..=31).contains(&self.floor) && self.hero == Hero::ZhugeLiang
                     && matches!(self.jieting_plan, Some(JietingPlan::WaterPending
                         | JietingPlan::HillPending | JietingPlan::RetreatPending))))).then_some(12),
             convoy_cover: (self.difficulty.is_some() && node == Node::Battle
-                && (self.floor == 2 || ((26..=31).contains(&self.floor) && self.hero == Hero::ZhugeLiang
+                && (self.floor == 2 || self.floor == 19 || ((26..=31).contains(&self.floor) && self.hero == Hero::ZhugeLiang
                     && matches!(self.jieting_plan, Some(JietingPlan::WaterPending
                         | JietingPlan::HillPending | JietingPlan::RetreatPending))))).then_some(0),
             troops_hp: if self.hero == Hero::CaoCao { 12 } else { 0 },
@@ -1396,6 +1407,7 @@ impl Game {
         };
         let actual = self.deal_enemy_damage(idx, damage, "hero");
         self.suppress_jieting_water(idx, actual);
+        self.board_naval_raiders(idx, actual);
         self.cut_yinping_supply(idx, actual);
     }
 
@@ -1510,6 +1522,40 @@ impl Game {
         }
     }
 
+    /// In the third-act water-land crossing, direct attacks may guard the
+    /// fleet as well as defeat the enemy: a hit pins down an enemy skiff,
+    /// and a direct kill frees a crew to repair the hull. Passive poison,
+    /// troop damage and thorns cannot earn these player-led countermeasures.
+    /// The same durable convoy fields are intentionally reused for fleet
+    /// durability/cover; old saves and unrelated stage rules are unaffected.
+    fn board_naval_raiders(&mut self, idx: usize, actual: i32) {
+        if actual <= 0 || self.difficulty.is_none() || self.floor != 19
+            || self.last_node != Some(Node::Battle)
+            || !self.battle.as_ref().is_some_and(|b| b.convoy_hp.is_some())
+        { return; }
+        let (cover, repaired) = {
+            let battle = self.battle.as_mut().expect("naval battle");
+            let old_cover = battle.convoy_cover.unwrap_or(0);
+            let new_cover = old_cover.saturating_add(2).min(8);
+            battle.convoy_cover = Some(new_cover);
+            let repaired = if battle.foes[idx].hp == 0 {
+                let hull = battle.convoy_hp.as_mut().expect("ship hull");
+                let previous = *hull;
+                *hull = hull.saturating_add(2).min(12);
+                *hull - previous
+            } else { 0 };
+            (new_cover - old_cover, repaired)
+        };
+        if cover > 0 {
+            self.combat_event(EventKind::PowerTriggered, "naval_boarding_cover",
+                i32::from(cover), Some("fleet".into()));
+        }
+        if repaired > 0 {
+            self.combat_event(EventKind::PowerTriggered, "naval_boarding_repair",
+                i32::from(repaired), Some("fleet".into()));
+        }
+    }
+
     /// Only real player attack damage pins down Jieting water raiders.
     /// Standard and piercing attacks share the same cover cap and event trail;
     /// poison ticks, potions, and other passive damage do not trigger this.
@@ -1605,11 +1651,17 @@ impl Game {
         let hp = b.siege_gate_hp.ok_or("当前并非攻城关卡")?;
         if b.energy < 2 { return Err("破门需要2点军令".into()); }
         b.energy -= 2;
-        let remaining = hp.saturating_sub(4);
+        // Players can rush the gate under fire or first eliminate the
+        // defenders to double down on the breach. This creates a real
+        // target-order choice without creating a second combat objective.
+        let breach = if b.foes.iter().all(|foe| foe.hp == 0) { 6 } else { 4 };
+        let remaining = hp.saturating_sub(breach);
         b.siege_gate_hp = Some(remaining);
-        self.combat_event(EventKind::DamageDealt, "siege_gate", i32::from(hp - remaining), Some("gate".into()));
+        let actual = hp - remaining;
+        self.combat_event(EventKind::DamageDealt, "siege_gate", i32::from(actual), Some("gate".into()));
         if remaining == 0 { Ok(format!("城门已破！{}", self.win_battle())) }
-        else { Ok(format!("攻城破门4点，城门剩余{remaining}/12耐久。")) }
+        else { Ok(format!("攻城破门{actual}点{}，城门剩余{remaining}/12耐久。",
+            if breach == 6 { "（守军溃散，攻城加速）" } else { "" })) }
     }
     fn defeated(&self) -> bool {
         self.battle.as_ref().is_some_and(|b| b.siege_gate_hp.is_none() && b.foes.iter().all(|f| f.hp <= 0))
@@ -1653,7 +1705,9 @@ impl Game {
             let bonus = i32::from(hp) * 2; // Never more than 24, once per victory.
             self.gold += bonus;
             format!("保住{}{hp}/12，额外获得{bonus}金，",
-                if (26..=31).contains(&self.floor) && self.hero == Hero::ZhugeLiang { "水源" } else { "粮车" })
+                if self.difficulty.is_some() && self.floor == 19 { "战船" }
+                else if (26..=31).contains(&self.floor) && self.hero == Hero::ZhugeLiang { "水源" }
+                else { "粮车" })
         } else {
             String::new()
         };
@@ -1956,6 +2010,8 @@ impl Game {
         {
             // A Jieting guard counters one four-point water raid; ordinary
             // floor-two grain protection retains its original two-point rate.
+            let fleet_battle = self.difficulty.is_some() && self.floor == 19
+                && self.last_node == Some(Node::Battle);
             let water_battle = self.difficulty.is_some()
                 && self.hero == Hero::ZhugeLiang
                 && (26..=31).contains(&self.floor)
@@ -1963,13 +2019,14 @@ impl Game {
             let gained = {
                 let b = self.battle.as_mut().expect("battle");
                 let old = b.convoy_cover.unwrap_or(0);
-                let next = old.saturating_add(if water_battle { 4 } else { 2 }).min(8);
+                let next = old.saturating_add(if water_battle || fleet_battle { 4 } else { 2 }).min(8);
                 b.convoy_cover = Some(next);
                 next - old
             };
             if gained > 0 {
-                self.combat_event(EventKind::PowerTriggered, "convoy_cover",
-                    i32::from(gained), Some("convoy".into()));
+                self.combat_event(EventKind::PowerTriggered,
+                    if fleet_battle { "naval_guard_cover" } else { "convoy_cover" },
+                    i32::from(gained), Some(if fleet_battle { "fleet" } else { "convoy" }.into()));
             }
             // A retreating army can salvage abandoned water only while its
             // guards actually establish fresh cover. Capped cover cannot be
@@ -2102,6 +2159,20 @@ impl Game {
                 .unwrap_or(0).saturating_sub(water_before)
         } else { 0 };
         let mut msg = format!("使用了【{}】。", card.name());
+        if self.difficulty.is_some() && self.floor == 19
+            && self.last_node == Some(Node::Battle)
+        {
+            let fleet_cover = self.battle.as_ref().and_then(|b| b.convoy_cover)
+                .unwrap_or(0).saturating_sub(cover_before);
+            let fleet_repair = self.battle.as_ref().and_then(|b| b.convoy_hp)
+                .unwrap_or(0).saturating_sub(water_before);
+            if fleet_cover > 0 {
+                msg.push_str(&format!("舰队掩护+{fleet_cover}。"));
+            }
+            if fleet_repair > 0 {
+                msg.push_str(&format!("接舷驱敌抢修战船{fleet_repair}点。"));
+            }
+        }
         // The commander suffers a visible consequence when a real card
         // defeats his summoned vanguard. Count only this action's combat
         // events; restored actions produce the same bounded event stream.
@@ -2868,7 +2939,13 @@ impl Game {
                 (b.foes.iter().filter(|foe| foe.hp > 0).count() as u8,
                     b.convoy_cover.unwrap_or(0))
             };
-            let damage = enemy_count.saturating_mul(4).saturating_sub(cover);
+            let fleet_objective = self.difficulty.is_some() && self.floor == 19
+                && self.last_node == Some(Node::Battle);
+            let adverse_current = if fleet_objective
+                && self.battle.as_ref().expect("battle").turn.is_multiple_of(2)
+            { 2 } else { 0 };
+            let damage = enemy_count.saturating_mul(4)
+                .saturating_add(adverse_current).saturating_sub(cover);
             let actual = damage.min(hp);
             {
                 let b = self.battle.as_mut().expect("battle");
@@ -2878,10 +2955,16 @@ impl Game {
             let water_objective = self.difficulty.is_some() && (26..=31).contains(&self.floor)
                 && self.hero == Hero::ZhugeLiang;
             self.combat_event(EventKind::EnemyTechnique,
-                if water_objective { "water_raided" } else { "convoy_raided" },
-                i32::from(actual), Some(if water_objective { "water" } else { "convoy" }.into()));
-            messages.push(if (26..=31).contains(&self.floor) && self.hero == Hero::ZhugeLiang {
+                if water_objective { "water_raided" }
+                else if fleet_objective { "naval_hull_raided" }
+                else { "convoy_raided" },
+                i32::from(actual), Some(if water_objective { "water" }
+                    else if fleet_objective { "fleet" } else { "convoy" }.into()));
+            messages.push(if water_objective {
                 format!("水源遭劫{actual}点，剩余{}点", hp - actual)
+            } else if fleet_objective {
+                format!("水陆阵战：{}敌船突袭，战船失去{actual}点耐久，剩余{}点",
+                    if adverse_current > 0 { "逆流中" } else { "" }, hp - actual)
             } else {
                 format!("粮车遭劫{actual}体力，剩余{}体力", hp - actual)
             });
@@ -2892,9 +2975,9 @@ impl Game {
                 self.stage = Stage::Lost;
                 self.battle = None;
                 return Ok(format!("{}。{}，征途结束。", messages.join("；"),
-                    if (26..=31).contains(&self.floor) && self.hero == Hero::ZhugeLiang {
-                        "街亭水源保卫失败，水源耗尽"
-                    } else { "粮道保卫失败，粮车被毁" }));
+                    if water_objective { "街亭水源保卫失败，水源耗尽" }
+                    else if fleet_objective { "水陆阵战失败，战船覆没" }
+                    else { "粮道保卫失败，粮车被毁" }));
             }
             // Only the paid Jieting water-defense plan can repair its wells.
             // A guard must have contributed cover to a real nonlethal raid;
