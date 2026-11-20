@@ -424,3 +424,58 @@ fn red_cliffs_fire_damage_can_be_repaired_by_paid_fleet_guard() {
     assert!(game.battle.as_ref().unwrap().events.iter().any(|event|
         event.source == "chibi_naval_fire_contained" && event.amount == 1));
 }
+
+#[test]
+fn sun_formation_swap_uses_real_discard_token_to_screen_fleet() {
+    let mut game = isolated_battle_for(Hero::SunShangxiang, 19);
+    game.apply(Action::Choose { index: 1 }).expect("enter naval combat");
+    assert!(game.tactical_objective().unwrap().contains("孙尚香"));
+    {
+        let battle = game.battle.as_mut().unwrap();
+        battle.hand.push(Card::new("jiecang"));
+        battle.hand.push(Card::new("defend"));
+    }
+    let tactics_idx = game.battle.as_ref().unwrap().hand.iter()
+        .position(|c| c.id == "jiecang").unwrap() + 1;
+    game.apply(Action::Play { index: tactics_idx, target: 1 })
+        .expect("real tactics card grants discard action");
+    assert!(game.battle.as_ref().unwrap().discard_tokens > 0);
+    let guard_idx = game.battle.as_ref().unwrap().hand.iter()
+        .position(|c| c.id == "defend").unwrap() + 1;
+    let saved = game.to_json().unwrap();
+    let mut resumed = Game::from_json(&saved).unwrap();
+    let result = game.apply(Action::Discard { index: guard_idx })
+        .expect("spend the earned real formation-swap token");
+    assert_eq!(result, resumed.apply(Action::Discard { index: guard_idx }).unwrap());
+    assert_eq!(game.to_json().unwrap(), resumed.to_json().unwrap());
+    assert!(result.join("；").contains("换阵掩护战船+2"));
+    assert_eq!(game.battle.as_ref().unwrap().convoy_cover, Some(2));
+    assert!(game.battle.as_ref().unwrap().events.iter().any(|e|
+        e.source == "sun_naval_redeployment" && e.amount == 2));
+    assert_eq!(game.battle.as_ref().unwrap().discard_tokens, 0);
+}
+
+#[test]
+fn cao_cao_paid_companion_supplies_screen_fleet_without_passive_troop_bonus() {
+    let mut game = isolated_battle_for(Hero::CaoCao, 19);
+    game.apply(Action::Choose { index: 1 }).expect("enter naval combat");
+    assert!(game.tactical_objective().unwrap().contains("曹操亲兵"));
+    let initial_cover = game.battle.as_ref().unwrap().convoy_cover;
+    assert_eq!(initial_cover, Some(0));
+    {
+        let battle = game.battle.as_mut().unwrap();
+        battle.energy = battle.energy.max(1);
+        battle.hand.push(Card::new("qingqi"));
+    }
+    let idx = game.battle.as_ref().unwrap().hand.len();
+    let saved = game.to_json().unwrap();
+    let mut resumed = Game::from_json(&saved).unwrap();
+    let result = game.apply(Action::Play { index: idx, target: 1 })
+        .expect("pay for companion logistics");
+    assert_eq!(result, resumed.apply(Action::Play { index: idx, target: 1 }).unwrap());
+    assert_eq!(game.to_json().unwrap(), resumed.to_json().unwrap());
+    assert!(result.join("；").contains("舰队掩护+4"));
+    assert_eq!(game.battle.as_ref().unwrap().convoy_cover, Some(4));
+    assert!(game.battle.as_ref().unwrap().events.iter().any(|e|
+        e.source == "cao_naval_troop_screen" && e.amount == 4));
+}
