@@ -332,3 +332,95 @@ fn river_fleet_fourth_turn_guard_escorts_without_killing_remaining_enemies() {
     assert_eq!(unguarded.stage, Stage::Combat);
     assert_eq!(unguarded.battle.as_ref().unwrap().convoy_hp, Some(4));
 }
+
+#[test]
+fn ambush_difficulty_shield_and_paid_break_weaken_vanguard_only_once() {
+    // The floor-three setup is a controlled battle entry, not a natural
+    // campaign. All shield-breaking consequences are paid Action::Play.
+    for (tier, minimum) in [
+        (Difficulty::Warlords, 8),
+        (Difficulty::Conqueror, 10),
+        (Difficulty::Destiny, 12),
+    ] {
+        let mut game = isolated_battle_for_tier(Hero::GuanYu, 3, tier);
+        assert!(game.route_objective_hint(Node::Battle).unwrap()
+            .contains("8/10/12"));
+        game.apply(Action::Choose { index: 1 }).expect("enter ambush");
+        assert!(game.battle.as_ref().unwrap().foes[0].block >= minimum);
+        assert!(!game.battle.as_ref().unwrap().ambush_armor_broken);
+        {
+            let battle = game.battle.as_mut().unwrap();
+            battle.foes[0].block = 1;
+            battle.foes[0].hp = battle.foes[0].hp.max(50);
+            battle.energy = battle.energy.max(1);
+            battle.hand.push(Card::new("strike"));
+        }
+        let idx = game.battle.as_ref().unwrap().hand.len();
+        let saved = game.to_json().unwrap();
+        let mut loaded = Game::from_json(&saved).unwrap();
+        let result = game.apply(Action::Play { index: idx, target: 1 })
+            .expect("paid attack breaks actual shield");
+        assert_eq!(result, loaded.apply(Action::Play { index: idx, target: 1 }).unwrap());
+        assert_eq!(game.to_json().unwrap(), loaded.to_json().unwrap());
+        assert!(result.join("；").contains("前锋虚弱2层"));
+        let battle = game.battle.as_ref().unwrap();
+        assert!(battle.ambush_armor_broken);
+        assert!(battle.foes[0].weak >= 2);
+        assert_eq!(battle.events.iter().filter(|event|
+            event.source == "ambush_vanguard_reeling").count(), 1);
+    }
+}
+
+#[test]
+fn siege_last_guard_paid_kill_recovers_gear_for_next_breach() {
+    let mut game = isolated_battle(4);
+    game.apply(Action::Choose { index: 1 }).expect("enter siege");
+    {
+        let battle = game.battle.as_mut().unwrap();
+        for foe in &mut battle.foes { foe.hp = 0; foe.block = 0; }
+        battle.foes[0].hp = 1;
+        battle.energy = 2;
+        battle.hand.push(Card::new("strike"));
+    }
+    let before = game.to_json().unwrap();
+    let mut loaded = Game::from_json(&before).unwrap();
+    let idx = game.battle.as_ref().unwrap().hand.len();
+    let result = game.apply(Action::Play { index: idx, target: 1 })
+        .expect("real paid strike removes the last siege defender");
+    assert_eq!(result, loaded.apply(Action::Play { index: idx, target: 1 }).unwrap());
+    assert_eq!(game.to_json().unwrap(), loaded.to_json().unwrap());
+    assert!(result.join("；").contains("收复攻城器械"));
+    assert_eq!(game.battle.as_ref().unwrap().energy, 2,
+        "one paid strike costs 1 and the last guard restores exactly 1");
+    assert_eq!(game.battle.as_ref().unwrap().events.iter().filter(|event|
+        event.source == "siege_engine_reclaimed" && event.amount == 1).count(), 1);
+    let breach = game.apply(Action::AssaultGate).expect("spend the recovered siege energy");
+    assert!(breach.join("；").contains("攻城破门6点"));
+    assert_eq!(game.battle.as_ref().unwrap().siege_gate_hp, Some(6));
+}
+
+#[test]
+fn red_cliffs_fire_damage_can_be_repaired_by_paid_fleet_guard() {
+    // The earlier council flag is staged, but its enactment, actual guard
+    // payment, event and save restoration go through Game::apply.
+    let mut game = isolated_battle_for(Hero::ZhugeLiang, 19);
+    game.chibi_plan = Some(ChibiPlan::FirePending);
+    game.apply(Action::Choose { index: 1 }).expect("enter fiery naval battle");
+    assert_eq!(game.battle.as_ref().unwrap().convoy_hp, Some(10));
+    {
+        let battle = game.battle.as_mut().unwrap();
+        battle.energy = battle.energy.max(1);
+        battle.hand.push(Card::new("defend"));
+    }
+    let before = game.to_json().unwrap();
+    let mut loaded = Game::from_json(&before).unwrap();
+    let idx = game.battle.as_ref().unwrap().hand.len();
+    let result = game.apply(Action::Play { index: idx, target: 1 })
+        .expect("play a paid guard card to contain Red Cliffs fire");
+    assert_eq!(result, loaded.apply(Action::Play { index: idx, target: 1 }).unwrap());
+    assert_eq!(game.to_json().unwrap(), loaded.to_json().unwrap());
+    assert!(result.join("；").contains("抢修战船1点"));
+    assert_eq!(game.battle.as_ref().unwrap().convoy_hp, Some(11));
+    assert!(game.battle.as_ref().unwrap().events.iter().any(|event|
+        event.source == "chibi_naval_fire_contained" && event.amount == 1));
+}
