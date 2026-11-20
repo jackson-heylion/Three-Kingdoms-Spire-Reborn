@@ -771,7 +771,15 @@ impl Game {
     fn act_variant(&self, act: u8) -> u64 {
         self.variants.map_or(
             self.seed.rotate_right(act as u32 * 11) & 1,
-            |v| if act < 2 { u64::from(v[usize::from(act)]) } else if v[2] & 8 == 0 { u64::from(v[2]) } else { u64::from((v[2] >> (act.min(4) - 2)) & 1) },
+            |v| {
+                if act < 2 {
+                    u64::from(v[usize::from(act)])
+                } else if v[2] & 8 == 0 {
+                    u64::from(v[2])
+                } else {
+                    u64::from((v[2] >> (act.min(4) - 2)) & 1)
+                }
+            },
         )
     }
     fn generate_foes(&mut self, node: Node) -> Vec<Foe> {
