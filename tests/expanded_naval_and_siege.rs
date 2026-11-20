@@ -351,7 +351,8 @@ fn ambush_difficulty_shield_and_paid_break_weaken_vanguard_only_once() {
         {
             let battle = game.battle.as_mut().unwrap();
             battle.foes[0].block = 1;
-            battle.foes[0].hp = battle.foes[0].hp.max(50);
+            battle.foes[0].max_hp = battle.foes[0].max_hp.max(50);
+            battle.foes[0].hp = battle.foes[0].max_hp;
             battle.energy = battle.energy.max(1);
             battle.hand.push(Card::new("strike"));
         }
@@ -511,7 +512,8 @@ fn passive_troop_damage_can_break_ambush_armor_but_never_earn_player_weakening()
     {
         let b = game.battle.as_mut().unwrap();
         b.foes[0].block = 1;
-        b.foes[0].hp = b.foes[0].hp.max(50);
+        b.foes[0].max_hp = b.foes[0].max_hp.max(50);
+        b.foes[0].hp = b.foes[0].max_hp;
         b.troops_hp = 12;
         b.troops_attack = 2;
     }
