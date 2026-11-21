@@ -814,8 +814,8 @@ impl Game {
                     // The fifth act has its own enemy pressure and route identity.
                     // Keep the existing five-entry draw and RNG calls unchanged;
                     // only expanded campaigns reach act 4.
-                    (4,0) if self.difficulty.is_some() => ["tactician", "iron_guard", "horse_archer", "assassin", "officer"],
-                    (4,_) if self.difficulty.is_some() => ["shaman", "witch", "firelancer", "assassin", "panther"],
+                    (4,0) if self.difficulty.is_some() => ["tactician", "tomb_guard", "horse_archer", "raider", "officer"],
+                    (4,_) if self.difficulty.is_some() => ["shaman", "witch", "firelancer", "raider", "panther"],
                     _ => ["shaman", "witch", "panther", "firelancer", "tomb_guard"],
                 };
                 let first = band[self.random(band.len())];
