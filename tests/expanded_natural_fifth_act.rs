@@ -172,8 +172,28 @@ fn advance(game: &mut Game) -> Result<(), String> {
             let index = if game.rewards.is_empty() { 0 } else { 1 };
             game.apply(Action::Choose { index }).map(|_| ())
         },
-        Stage::Camp => game.apply(Action::Choose { index: 1 }).map(|_| ()),
-        Stage::Market => game.apply(Action::Choose { index: 0 }).map(|_| ()),
+        // Rest when damaged, otherwise grow the long-campaign health budget.
+        // The previous driver always rested, even at full HP.
+        Stage::Camp => {
+            let index = if game.max_hp - game.hp >= (game.max_hp * 30 / 100).max(1) {
+                1
+            } else {
+                3
+            };
+            game.apply(Action::Choose { index }).map(|_| ())
+        },
+        // Market purchases do not end the scene. Spend earned gold on a
+        // permanent relic first, then an affordable card, before leaving.
+        // All acquisitions use ordinary Game::apply and are replayable.
+        Stage::Market => {
+            if game.gold >= 155 && game.shop_relic.is_some() {
+                game.apply(Action::Choose { index: 5 })?;
+            }
+            if game.gold >= 45 && !game.market.is_empty() {
+                game.apply(Action::Choose { index: 1 })?;
+            }
+            game.apply(Action::Choose { index: 0 }).map(|_| ())
+        },
         Stage::Story => game.apply(Action::Choose { index: 3 }).map(|_| ()),
         // A victorious boss reward transitions to the mandatory Ancient boon choice.
         // This is a real player decision, not a terminal stage or a synthetic skip.
