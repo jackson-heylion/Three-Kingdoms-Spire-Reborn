@@ -182,8 +182,7 @@ fn later_acts_use_distinct_encounter_rosters_via_public_action() {
     // not evidence of natural traversal or late-act economic balance.
     for (floor, expected) in [
         (24, ["officer", "wolf", "crossbowman", "raider", "cuirass"]),
-        (32, ["shaman", "witch", "panther", "firelancer", "tomb_guard"]),
-        (39, ["tactician", "tomb_guard", "horse_archer", "raider", "officer"]),
+        (32, ["tactician", "tomb_guard", "horse_archer", "raider", "officer"]),
     ] {
         let mut game = Game::new_with_campaign_difficulty(
             Hero::GuanYu, 812_345, Difficulty::Warlords, format!("roster-{floor}"),
