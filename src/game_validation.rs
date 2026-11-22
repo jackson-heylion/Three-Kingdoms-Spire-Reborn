@@ -56,7 +56,11 @@ impl Game {
         if self.doctrine.is_some_and(|focus| focus.hero() != self.hero) {
             return Err("当前战法与武将不匹配".into());
         }
-        if self.variants.is_some_and(|settings| settings.iter().any(|n| *n > 1)) {
+        if self.variants.is_some_and(|settings| {
+            settings[0] > 1 || settings[1] > 1
+                || (settings[2] > 1
+                    && (self.difficulty.is_none() || !(8..=15).contains(&settings[2])))
+        }) {
             return Err("章节变体必须为0或1".into());
         }
         if self.map_lane.is_some_and(|lane| lane >= map::LANES)

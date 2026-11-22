@@ -268,7 +268,15 @@ impl App {
             }
             println!(" 章节：{}；变体：{}",
                 g.act_name(),
-                g.variants.map_or("随种子".into(),|choices| format!("{}/{}/{}",choices[0],choices[1],choices[2])));
+                g.variants.map_or("随种子".into(), |choices| {
+                    if g.difficulty.is_some() && choices[2] & 8 != 0 {
+                        let packed = choices[2];
+                        format!("{}/{}/{}/{}/{}", choices[0], choices[1], packed & 1,
+                            (packed >> 1) & 1, (packed >> 2) & 1)
+                    } else {
+                        format!("{}/{}/{}", choices[0], choices[1], choices[2])
+                    }
+                }));
             if !g.boons.is_empty() {
                 println!(" 先贤赐福：{}",g.boons.iter().map(|id|
                     three_kingdoms_spire_reborn::items::boon_name(id)).collect::<Vec<_>>().join("、"));
@@ -419,7 +427,7 @@ impl App {
                     )),
                 }
             }
-            "help" | "h" => Ok("campaign [武将] [seed] [warlords|conqueror|destiny] 新三档五幕40层战役；new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 在出征前指定三幕变体；daily YYYY-MM-DD；load/save；choose N；play N [目标] [副选牌编号]；selections N 查可选副牌；discard N 弃换；end；use [药剂号] [目标]（火/毒指定存活目标，弱化影响全体） ；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看路径与评分；inventory 背包；achievements 成就；codex 图鉴；relics；lore 看纪事；bonds 看人物羁绊；chapter 1-120 回目索引；powers 持续能力/监听器；react-remove ID 注销监听；react <ID> <weak|vulnerable|poison|damage:来源|damage:foe:N|power:军略ID> <hero|foe:0..3> <cancel|reduce|replace> [数值] [优先级] [次数]（仅自由战斗）；events [游标] [条数1-80] 分页审计当前战斗事件；eventsource 查看跨战斗记录；verify-events 重建校验全量战斗事件；metrics 战役统计；verify 回放检验；history 最近操作；doctrine 查看流派 / doctrine auto|代码 选择；builds 查看3套候选构筑及反制；chronicle；timeline 战功时间线；modifier 查看挑战 / modifier 代码 on|off；theme dark|light|highcontrast；status；quit。".into()),
+            "help" | "h" => Ok("campaign [武将] [seed] [warlords|conqueror|destiny] 新三档五幕40层战役；new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 旧三幕兼容；variants5 0|1 0|1 0|1 0|1 0|1 新制五幕独立选择；daily YYYY-MM-DD；load/save；choose N；play N [目标] [副选牌编号]；selections N 查可选副牌；discard N 弃换；end；use [药剂号] [目标]（火/毒指定存活目标，弱化影响全体） ；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看路径与评分；inventory 背包；achievements 成就；codex 图鉴；relics；lore 看纪事；bonds 看人物羁绊；chapter 1-120 回目索引；powers 持续能力/监听器；react-remove ID 注销监听；react <ID> <weak|vulnerable|poison|damage:来源|damage:foe:N|power:军略ID> <hero|foe:0..3> <cancel|reduce|replace> [数值] [优先级] [次数]（仅自由战斗）；events [游标] [条数1-80] 分页审计当前战斗事件；eventsource 查看跨战斗记录；verify-events 重建校验全量战斗事件；metrics 战役统计；verify 回放检验；history 最近操作；doctrine 查看流派 / doctrine auto|代码 选择；builds 查看3套候选构筑及反制；chronicle；timeline 战功时间线；modifier 查看挑战 / modifier 代码 on|off；theme dark|light|highcontrast；status；quit。".into()),
             "campaign" => {
                 let hero = args.get(1).and_then(|s| Hero::parse(s)).unwrap_or(Hero::GuanYu);
                 let seed = args.get(2).and_then(|s| s.parse::<u64>().ok()).unwrap_or_else(|| {
@@ -755,7 +763,7 @@ impl App {
             "relics" => Ok(self.game.as_ref().map_or("尚未开局".into(), |g| {
                 g.relics.iter().map(|r| format!("{}：{}",r, three_kingdoms_spire_reborn::items::relic_name(r))).collect::<Vec<_>>().join("\n")
             })),
-            "choose" | "c" | "play" | "p" | "end" | "assault" | "use" | "upgrade" | "remove" | "enchant" | "discard" | "variant" | "doctrine" | "modifier" | "modifiers" | "react" | "react-remove" => {
+            "choose" | "c" | "play" | "p" | "end" | "assault" | "use" | "upgrade" | "remove" | "enchant" | "discard" | "variant" | "variants5" | "doctrine" | "modifier" | "modifiers" | "react" | "react-remove" => {
                 let action = match args[0] {
                     "choose" | "c" => parsed(1, 0).map(|index| Action::Choose { index }),
                     "play" | "p" => parsed(1, 0).and_then(|index| parsed(2, 1)
@@ -822,6 +830,20 @@ impl App {
                     "variant" => parsed(1, 9).and_then(|act1| parsed(2, 9)
                         .and_then(|act2| parsed(3, 9).map(|act3|
                             Action::SetVariants { act1: act1 as u8, act2: act2 as u8, act3: act3 as u8 }))),
+                    "variants5" => (|| {
+                        if args.len() != 6 { return Err("用法：variants5 0|1 0|1 0|1 0|1 0|1".into()); }
+                        let mut values = [0u8; 5];
+                        for (index, value) in values.iter_mut().enumerate() {
+                            *value = match args[index + 1] {
+                                "0" => 0, "1" => 1,
+                                _ => return Err("五幕变体只能选择0或1".into()),
+                            };
+                        }
+                        Ok(Action::SetExpandedVariants {
+                            act1: values[0], act2: values[1], act3: values[2],
+                            act4: values[3], act5: values[4],
+                        })
+                    })(),
                     "enchant" => parsed(1, 0).and_then(|index|
                         args.get(2).map_or(Err("请指定附魔类型".into()),|kind|
                             Ok(Action::Enchant { index, kind: (*kind).to_owned() }))),
@@ -1303,6 +1325,42 @@ mod profile_reconciliation_tests {
 #[cfg(test)]
 mod gameplay_campaign_cli_tests {
     use super::*;
+
+    #[test]
+    fn five_act_cli_variants_are_persisted_replayed_and_invalid_commands_are_atomic() {
+        let directory = std::env::temp_dir().join(format!(
+            "tks-variants5-cli-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        let mut app = App {
+            game: None,
+            profile: Profile::new(),
+            theme: Theme::Dark,
+            dir: directory.clone(),
+            use_ansi: false,
+            message: String::new(),
+        };
+        assert!(app.command("campaign cao 88421 warlords"), "{}", app.message);
+        assert!(app.command("variants5 0 1 0 1 1"), "{}", app.message);
+        let saved = fs::read_to_string(save_path(&directory)).unwrap();
+        let game = app.game.as_ref().unwrap();
+        game.verify_action_replay().expect("five-act CLI action replay");
+        let restored = Game::from_json(&saved).expect("five-act CLI JSON restore");
+        assert_eq!(restored.to_json().unwrap(), saved);
+        restored.verify_action_replay().expect("restored five-act CLI replay");
+
+        assert!(app.command("status"));
+        assert!(app.message.contains("五幕"), "{}", app.message);
+        assert!(app.command("variants5 0 1 2 1 1"));
+        assert!(app.message.contains("只能选择0或1"), "{}", app.message);
+        assert_eq!(fs::read_to_string(save_path(&directory)).unwrap(), saved);
+        assert!(app.command("variants5 0 1 0 1"));
+        assert!(app.message.contains("用法"), "{}", app.message);
+        assert_eq!(fs::read_to_string(save_path(&directory)).unwrap(), saved);
+        fs::remove_dir_all(directory).unwrap();
+    }
 
     #[test]
     fn three_tier_campaign_is_visible_and_rejects_unknown_tier_without_replacing_save() {

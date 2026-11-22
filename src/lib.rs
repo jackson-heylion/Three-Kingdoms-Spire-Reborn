@@ -133,8 +133,9 @@ pub enum BossMove {
     Mirage(i32),       // 左慈：回复并立盾
     FireCamp(u8),      // 陆逊：积累可用防御牌扑灭的焚营火势
     WhiteClothes,      // 吕蒙：按回合末护甲判定是否识破白衣伏兵
-    NorthernExpedition(u8),
-    StarOmen(u8), // Fifth-act celestial omen; defend to expose the illusion // 姜维：兵粮封锁，可用护甲识破并反制
+    NorthernExpedition(u8), // 姜维：兵粮封锁，可用护甲识破并反制
+    StarOmen(u8),           // 左慈：星象幻阵，防守可反制
+    YinpingFlank(u8),       // 邓艾：阴平偷渡，可用连贯出牌截击
 }
 impl BossMove {
     pub fn label(&self) -> String {
@@ -149,6 +150,7 @@ impl BossMove {
             Self::WhiteClothes => "白衣渡江：回合末护甲至少8可识破伏兵并使吕蒙易伤；否则下回合军令-1".into(),
             Self::NorthernExpedition(n) => format!("北伐断粮：回合末护甲至少{}可守住粮道并使姜维易伤；否则下回合军令-1并混入军心涣散", 8 + i32::from(*n) * 2),
             Self::StarOmen(phase) => format!("星象幻阵：回合末护甲至少{}可识破幻象并使左慈易伤；否则左慈加甲且弃牌堆混入军心涣散", 9 + i32::from(*phase) * 2),
+            Self::YinpingFlank(phase) => format!("阴平偷渡：本回合打出至少{}张牌或回合末护甲达到{}可截击并对邓艾造成{}点无视护甲伤害、使其易伤；仅靠护甲封锁还能令邓艾下回合攻击虚弱；否则损失至多{}金且敌军加甲{}", 3 + u32::from(*phase), 10 + 2 * i32::from(*phase), 4 + 2 * i32::from(*phase), 10 + 5 * i32::from(*phase > 0), if *phase > 0 { "；二阶段首次失守还会召集援兵（下回合才行动）；存活援军在偶数回合预告协同护阵、为邓艾加甲，可先击杀；已有援军时护甲达10可牵制援军；未牵制的存活援军会额外掠金至多5（未截击仍会失金）" } else { "" }),
         }
     }
 }
@@ -381,6 +383,8 @@ pub enum Action {
     Enchant { index: usize, kind: String },
     Discard { index: usize },
     SetVariants { act1: u8, act2: u8, act3: u8 },
+    /// New-campaign five-act branch selection; packed in existing three-byte save field.
+    SetExpandedVariants { act1: u8, act2: u8, act3: u8, act4: u8, act5: u8 },
     SetDoctrine { id: String },
     SetModifier { id: String, enabled: bool },
     /// Explicit, replayable modding action. Only available in unranked custom battles.
@@ -394,16 +398,85 @@ impl Game {
     /// from committed campaign/battle state, so saves and replay need no new schema.
     /// Read-only convoy warning before committing to a route.
     pub fn route_objective_hint(&self, node: Node) -> Option<&'static str> {
-        if self.stage != Stage::Map || self.difficulty.is_none() || node != Node::Battle {
+        if self.stage != Stage::Map || self.difficulty.is_none() {
             return None;
+        }
+        // Act-IV's independent Jieting decision is still observable at the
+        // *alternative* fifth-act commander. This is a read-only route warning:
+        // simply inspecting the map never advances RNG or commits an effect.
+        if node == Node::Boss && self.floor == 39 && self.hero == Hero::ZhugeLiang
+            && self.act_variant(4) == 1
+        {
+            return match self.jieting_plan {
+                Some(JietingPlan::WaterSettled) => Some("邓艾·阴平：街亭守水责任延续；入阵我军护甲+10，邓艾虚弱2层（回合末衰减）；亲自击败山道援军可夺回4点护甲"),
+                Some(JietingPlan::HillSettled) => Some("邓艾·阴平：街亭据山暴露山道；邓艾武勇+2、护甲+10，我军武勇+1；亲自击败山道援军可反击8点"),
+                Some(JietingPlan::RetreatSettled) => Some("邓艾·阴平：街亭撤退保全先机；入阵军令+1，邓艾护甲+6；成功截击阴平偷渡额外反击2点；亲自击败山道援军并伤及邓艾可回收1点军令（至多5点）"),
+                _ => None,
+            };
+        }
+        // The other fifth-act commander must also honor Zhuge Liang's
+        // act-IV Jieting choice; it is not a Deng-Ai-only hidden fixture.
+        if node == Node::Boss && self.floor == 39 && self.hero == Hero::ZhugeLiang
+            && self.act_variant(4) == 0
+        {
+            return match self.jieting_plan {
+                Some(JietingPlan::WaterResolved | JietingPlan::WaterSettled) =>
+                    Some("姜维·北伐：街亭守水的补给旧部在关底加护甲8并使姜维虚弱2层；防守姜维断粮意图还能让其易伤"),
+                Some(JietingPlan::HillResolved | JietingPlan::HillSettled) =>
+                    Some("姜维·北伐：街亭据山导致姜维武勇+2、护甲+8，我军也获武勇+1；需预留反制牌突破封锁"),
+                Some(JietingPlan::RetreatResolved | JietingPlan::RetreatSettled) =>
+                    Some("姜维·北伐：街亭撤退保留机动，入阵额外军令+1、护甲+4，但姜维护甲+6；需把军令投入对抗断粮"),
+                _ => None,
+            };
+        }
+        // The act-II alternate commander is a coalition, not a solo
+        // armor sponge. A visible officer can shield Yuan Shao and restrict
+        // next-turn command, but can be eliminated by actual player attacks.
+        if node == Node::Boss && self.floor == 15 && self.act_variant(1) == 1 {
+            return Some(match self.wuchao_plan {
+                Some(WuchaoPlan::RaidPending) => "官渡关底：袁绍亲卫军官护阵；乌巢夜袭将削弱亲卫并损其体力，优先击败军官可断援、破统帅护阵及下回合军令封锁",
+                Some(WuchaoPlan::FortifyPending) => "官渡关底：袁绍亲卫军官护阵；乌巢守粮令我军进场获得10点护甲，击败亲卫可断援和军令封锁",
+                Some(WuchaoPlan::DeclinePending) => "官渡关底：袁绍亲卫军官护阵；未干预乌巢会强化敌方军官武勇与护甲，击败亲卫可断援和军令封锁",
+                _ => "官渡关底：袁绍携亲卫军官护阵并可压制下回合军令；先击败军官能削弱统帅并断绝第二阶段援军",
+            });
+        }
+        if node == Node::Boss && self.floor == 31
+            && matches!(self.hero, Hero::ZhugeLiang | Hero::SunShangxiang)
+        {
+            return match self.chibi_plan {
+                Some(ChibiPlan::FireBattleResolved | ChibiPlan::FireSettled) =>
+                    Some("赤壁火攻余波：第四幕关底敌统帅开场虚弱2层，可乘势突击；该效果不抵销此前火攻后勤债务"),
+                Some(ChibiPlan::FleetBattleResolved | ChibiPlan::FleetSettled) =>
+                    Some("赤壁稳守旧部：第四幕关底我军开场护甲+8、军令+1，护阵可以反制关底致命意图"),
+                Some(ChibiPlan::DeclineBattleResolved | ChibiPlan::DeclineSettled) =>
+                    Some("赤壁失机余波：第四幕关底敌统帅武勇+1、护甲+10；需先破阵或蓄力输出"),
+                _ => None,
+            };
+        }
+        if node != Node::Battle {
+            return None;
+        }
+        // The optional act-II Wuchao bargain is paid again in the act-III
+        // crossing. Forecast its risk before the route is committed.
+        if self.floor == 18 && self.hero == Hero::CaoCao {
+            match self.wuchao_plan {
+                Some(WuchaoPlan::RaidPending | WuchaoPlan::RaidResolved) =>
+                    return Some("水陆阵战：战船12耐久；乌巢夜袭余威使劫船前锋虚弱2层，可趁机护送或击退敌军。偶数回合逆流2/4/6点"),
+                Some(WuchaoPlan::FortifyPending | WuchaoPlan::FortifyResolved) =>
+                    return Some("水陆阵战：乌巢守粮军资为战船先提供4点掩护，船体12；偶数回合逆流2/4/6点，掩护可反制劫船"),
+                Some(WuchaoPlan::DeclinePending | WuchaoPlan::DeclineResolved) =>
+                    return Some("水陆阵战：乌巢失机导致后勤短缺，战船入阵先损2点耐久；偶数回合逆流2/4/6点，可通过掩护与击退敌军应对"),
+                _ => {}
+            }
         }
         // The map cursor is the last completed floor; a route enters floor + 1.
         // Keep forecasts aligned with authoritative combat objectives.
         match self.floor {
-            0 => Some("突围：下一层须在第4回合结束前击退全部围军，否则战败"),
-            1 => Some("粮道保卫：下一层护送粮车；存活敌军每回合劫粮，防御牌可护粮"),
-            2 => Some("伏击：下一层敌军前锋以8点护甲设伏；破甲后击退敌军可获16金反制赏金"),
-            3 => Some("攻城：下一层须在第5回合前以 assault 指令消耗2军令攻城，每次削减4点城门耐久；城门破即获胜"),
+            0 => Some("突围：下一层须在第4回合结束前击退围军；或同回合合法打出至少3张牌并保持12点护甲结阵脱围，未做到则战败"),
+            1 => Some("粮道保卫：下一层护粮，敌军每回合劫粮4点，新三档在偶数回合额外劫粮0/2/4点；防御牌或真实玩家攻击可掩护2点，亲自击败劫粮敌人回收2点粮车耐久；三回合后粮车至少余4点且当回合掩护至少4点可完成护送"),
+            2 => Some("伏击：下一层前锋护甲随三档难度分别为8/10/12点；亲自攻破前锋护甲可使其虚弱2层，破甲后赢得战斗另获16金反制赏金"),
+            3 => Some("攻城：下一层须在第5回合前以 assault 指令消耗2军令攻城；守军尚存时破门4点，先击退全部守军可每次破门6点；城门破即获胜"),
+            18 => Some("水陆阵战：下一层护送12点耐久的战船；敌军回合末劫船，偶数回合逆流随难度加压2/4/6点。出防御牌可掩护4点，主动攻击造成实际伤害可掩护2点；亲自击败敌人可抢修2点船身。歼敌胜利，或坚守至第4回合劫船结算后战船仍有至少6点耐久且本回合建立有效掩护，即可完成护航"),
             25..=30 if self.hero == Hero::ZhugeLiang && matches!(self.jieting_plan, Some(JietingPlan::WaterPending | JietingPlan::HillPending | JietingPlan::RetreatPending)) => {
                 if self.jieting_plan == Some(JietingPlan::HillPending) {
                     Some("街亭据山：下一场水源战开场先损失4点水源；敌军每回合劫水，防御牌可护水，水源耗尽立即战败")
@@ -417,17 +490,142 @@ impl Game {
         }
     }
 
+    /// In grain protection, enemy sabotage targets the convoy every even
+    /// turn. The displayed tier pressure and the committed raid share one
+    /// calculation, so the player can counter it without hidden rolls.
+    fn grain_raid_pressure(&self, turn: u32) -> u8 {
+        if self.difficulty.is_none() || self.floor != 2
+            || self.last_node != Some(Node::Battle) || !turn.is_multiple_of(2)
+        { return 0; }
+        match self.difficulty {
+            Some(Difficulty::Warlords) => 0,
+            Some(Difficulty::Conqueror) => 2,
+            Some(Difficulty::Destiny) => 4,
+            None => 0,
+        }
+    }
+
+    /// Extra river-current threat scales with the named new-campaign tier.
+    /// One read-only authority feeds both the forecast and EndTurn damage;
+    /// legacy 21-floor runs and other battles have no added tide hazard.
+    fn naval_tide_pressure(&self, turn: u32) -> u8 {
+        if self.floor != 19 || self.last_node != Some(Node::Battle)
+            || !turn.is_multiple_of(2)
+        { return 0; }
+        match self.difficulty {
+            Some(Difficulty::Warlords) => 2,
+            Some(Difficulty::Conqueror) => 4,
+            Some(Difficulty::Destiny) => 6,
+            None => 0,
+        }
+    }
+
     pub fn tactical_objective(&self) -> Option<String> {
+        if self.stage == Stage::Combat && self.difficulty.is_some()
+            && self.floor == 40 && self.last_node == Some(Node::Boss)
+            && self.hero == Hero::ZhugeLiang
+            && self.battle.as_ref().is_some_and(|b|
+                b.foes.first().is_some_and(|f| f.id == "jiangwei"))
+        {
+            let history = match self.jieting_plan {
+                Some(JietingPlan::WaterSettled) =>
+                    "街亭守水：入阵护甲+8且姜维虚弱2层",
+                Some(JietingPlan::HillSettled) =>
+                    "街亭据山：姜维武勇+2、护甲+8，我军武勇+1",
+                Some(JietingPlan::RetreatSettled) =>
+                    "街亭撤退：军令+1、护甲+4，姜维护甲+6",
+                _ => "未有街亭下游责任",
+            };
+            return Some(format!("北伐史诗关底：{history}；姜维的预告断粮需护甲8/10点反制，失败将损失下一回合军令并混入军心涣散。"));
+        }
+        if self.stage == Stage::Combat && self.difficulty.is_some()
+            && self.floor == 32 && self.last_node == Some(Node::Boss)
+            && matches!(self.hero, Hero::ZhugeLiang | Hero::SunShangxiang)
+        {
+            let effect = match self.chibi_plan {
+                Some(ChibiPlan::FireBattleResolved | ChibiPlan::FireSettled) =>
+                    "赤壁火攻：敌统帅入阵虚弱2层，抓住反击窗口",
+                Some(ChibiPlan::FleetBattleResolved | ChibiPlan::FleetSettled) =>
+                    "赤壁稳守：我军入阵护甲+8且多1点军令",
+                Some(ChibiPlan::DeclineBattleResolved | ChibiPlan::DeclineSettled) =>
+                    "赤壁失机：敌统帅入阵武勇+1并获得10点护甲，先破盾",
+                _ => "未携带赤壁军议后果",
+            };
+            return Some(format!("第四幕史诗关底：{effect}。阶段意图仍以敌方预告为准。"));
+        }
+        if self.stage == Stage::Combat && self.difficulty.is_some() && self.floor == 16
+            && self.last_node == Some(Node::Boss)
+            && self.battle.as_ref().is_some_and(|b|
+                b.foes.first().is_some_and(|f| f.id == "yuanshao"))
+        {
+            let officer_alive = self.battle.as_ref().expect("battle").foes.iter()
+                .any(|f| f.id == "officer" && f.hp > 0);
+            let tax = if self.difficulty == Some(Difficulty::Destiny)
+                && self.battle.as_ref().expect("battle").foes[0].phase > 0 { 2 } else { 1 };
+            return Some(format!(
+                "官渡盟军关底：{}；袁绍列阵时若亲卫存活，下回合军令减少{tax}（天命二阶段-2）；亲自击败亲卫可打断封粮、令袁绍易伤并击破至多6点护甲，已歼灭亲卫则第二阶段无法再次召援。当前亲卫{}。",
+                if self.hero == Hero::CaoCao { match self.wuchao_plan {
+                    Some(WuchaoPlan::RaidPending) => "乌巢夜袭已削弱亲卫",
+                    Some(WuchaoPlan::FortifyPending) => "乌巢守粮使我军先得10护甲",
+                    Some(WuchaoPlan::DeclinePending) => "放弃乌巢令亲卫更强",
+                    _ => "无乌巢军议支援",
+                }} else { "观察军令并集中火力截断盟军供给" },
+                if officer_alive { "存活" } else { "已败" }
+            ));
+        }
+        if self.stage == Stage::Combat && self.floor == 40
+            && self.hero == Hero::ZhugeLiang
+            && self.battle.as_ref().is_some_and(|b|
+                b.foes.first().is_some_and(|f| f.id == "dengai"))
+        {
+            let jieting = match self.jieting_plan {
+                Some(JietingPlan::WaterSettled) => "街亭守水军需兑现：入阵获10护甲、邓艾虚弱2层；亲自击败山道援军可夺回4点护甲",
+                Some(JietingPlan::HillSettled) => "街亭据山旧债兑现：邓艾武勇+2与护甲+10，我军武勇+1；亲自击败山道援军可反击8点",
+                Some(JietingPlan::RetreatSettled) => "街亭撤退先机兑现：额外军令+1、邓艾护甲+6；成功截击阴平偷渡额外反击2点；亲自击败山道援军并伤及邓艾可回收1点军令（至多5点）",
+                _ => "未携带街亭军议后果",
+            };
+            return Some(format!("阴平史诗关底：回合末出牌至少3/4张或护甲达10/12可截击；第二阶段护甲达12且未凑够4牌可截击并压制援军；若仅有10护甲，仍可牵制已有援军、削弱其当回合协同护阵并阻止追加掠金，但邓艾基础掠金仍生效；未牵制的存活援军会额外掠金至多5；存活援军在偶数回合会预告协同护阵，玩家可优先击杀；击败真实援军可截断山道并重创邓艾。{jieting}。"));
+        }
         if self.stage == Stage::Combat && let Some(hp) = self.battle.as_ref().and_then(|b| b.siege_gate_hp) {
             let turn = self.battle.as_ref().expect("battle").turn;
-            return Some(format!("攻城：城门耐久{hp}/12；每次 assault 消耗2军令、破门4点；第5回合结束前须破门，敌军仍会攻击；当前第{turn}回合。"));
+            let defenders = self.battle.as_ref().expect("battle").foes.iter().filter(|foe| foe.hp > 0).count();
+            let breach = if defenders == 0 { 6 } else { 4 };
+            return Some(format!("攻城：城门耐久{hp}/12；存活守军{defenders}名；每次 assault 消耗2军令、当前破门{breach}点（清除守军后提升至6点）；第5回合结束前须破门；当前第{turn}回合。"));
         }
         if self.stage == Stage::Combat
             && let Some(b) = self.battle.as_ref()
             && let (Some(hp), Some(cover)) = (b.convoy_hp, b.convoy_cover)
         {
             let living = b.foes.iter().filter(|foe| foe.hp > 0).count();
-            let raid = (living as u8).saturating_mul(4).saturating_sub(cover).min(hp);
+            let naval = self.difficulty.is_some() && self.floor == 19 && self.last_node == Some(Node::Battle);
+            let current = if naval { self.naval_tide_pressure(b.turn) }
+                else { self.grain_raid_pressure(b.turn) };
+            let raid = (living as u8).saturating_mul(4).saturating_add(current).saturating_sub(cover).min(hp);
+            if naval {
+                let warning = if hp > 0 && raid >= hp { "警告：回合末战船即将覆没！请攻击、守护或击退敌人。" } else { "" };
+                let class_hint = match self.hero {
+                    Hero::CaoCao => "曹操亲兵补给牌可为战船增加4点掩护；",
+                    Hero::SunShangxiang => "孙尚香实际消耗弃换次数可为战船增加2点掩护；",
+                    _ => "",
+                };
+                let wuchao = if self.hero == Hero::CaoCao {
+                    match self.wuchao_plan {
+                        Some(WuchaoPlan::RaidResolved) => "乌巢夜袭后续：劫船前锋虚弱2层；",
+                        Some(WuchaoPlan::FortifyResolved) => "乌巢守粮后续：入阵预留4点舰队掩护；",
+                        Some(WuchaoPlan::DeclineResolved) => "乌巢失机旧债：舰船入阵短缺2点耐久；",
+                        _ => "",
+                    }
+                } else { "" };
+                let chibi = match self.chibi_plan {
+                    Some(ChibiPlan::FleetBattleResolved) => "赤壁稳守水军：入阵额外4点舰队掩护；",
+                    Some(ChibiPlan::FireBattleResolved) => "赤壁火攻旧议：火攻灼伤敌前锋3层、己方战船先损2点；",
+                    Some(ChibiPlan::DeclineBattleResolved) => "赤壁不介入旧债：敌军前锋加甲4点；",
+                    _ => "",
+                };
+                return Some(format!(
+                    "水陆阵战：{wuchao}{chibi}{class_hint}战船耐久{hp}/12；存活敌军{living}名各劫船4点，偶数回合逆流按难度额外+2/+4/+6（本回合逆流+{current}）；防御牌提供4点掩护，攻击实际扣除敌军体力可提供2点掩护（本回合已护{cover}/8）；亲自击败敌军可抢修2点；本回合预计失船{raid}点。{warning}战船覆没即战败；击退敌军或在第4回合劫船结算后耐久至少6且本回合有掩护，即可护航成功。"
+                ));
+            }
             if (26..=31).contains(&self.floor) {
                 let lethal_warning = if hp > 0 && raid >= hp {
                     "警告：本回合水源将被夺！请击退敌人或打出防御牌。"
@@ -452,15 +650,20 @@ impl Game {
             } else {
                 ""
             };
+            let class_hint = match self.hero {
+                Hero::CaoCao => "曹操付费亲兵补给牌可增加2点护粮掩护；",
+                Hero::SunShangxiang => "孙尚香实际耗费弃换次数可增加2点护粮掩护；",
+                _ => "",
+            };
             return Some(format!(
-                "粮道保卫：粮车剩余{hp}/12体力；每名存活敌军在回合末劫粮4点，打出防御牌每张可护粮2点（本回合已护{cover}点，上限8点）；本回合预计劫粮{raid}点。{lethal_warning}粮车耗尽立即战败，击退所有敌人即可保住粮道。"
+                "粮道保卫：{class_hint}第{}回合，粮车剩余{hp}/12体力；存活敌军{living}名每名劫粮4点，偶数回合三档补给失序额外+0/+2/+4（本回合+{current}）。防御牌或实际攻击命中均可掩护2点（本回合已护{cover}点，上限8点），亲自击败敌军可收回2点耐久；本回合预计劫粮{raid}点。{lethal_warning}粮车耗尽立即战败；全歼敌军，或第三回合劫粮后粮车剩余至少4点且本回合掩护至少4点，即完成护送。", b.turn
             ));
         }
         if self.difficulty.is_some() && self.floor == 3
             && self.last_node == Some(Node::Battle) && self.stage == Stage::Combat
         {
             return self.battle.as_ref().map(|b| format!(
-                "伏击：敌军前锋设伏，开战获得8点护甲；当前前锋护甲{}点。先用攻击破甲，再击退敌军可获16金反制赏金。",
+                "伏击：前锋初始护甲随难度为8/10/12点；当前护甲{}点。亲自打破前锋护甲可使其虚弱2层，战斗获胜另得16金反制赏金。",
                 b.foes.first().map_or(0, |foe| foe.block)
             ));
         }
@@ -468,8 +671,8 @@ impl Game {
             && self.last_node == Some(Node::Battle) && self.stage == Stage::Combat
         {
             self.battle.as_ref().map(|b| format!(
-                "突围：须在第{BREAKOUT_TURN_LIMIT}回合结束前击退全部围军；当前第{}回合。超时即战败。",
-                b.turn
+                "突围：须在第{BREAKOUT_TURN_LIMIT}回合结束前击退围军，或本回合打出至少3张牌且护甲达到12便可结阵脱围；当前第{}回合，已出牌{}张，护甲{}。超时即战败。",
+                b.turn, b.played_this_turn, b.block
             ))
         } else {
             None
@@ -568,7 +771,15 @@ impl Game {
     fn act_variant(&self, act: u8) -> u64 {
         self.variants.map_or(
             self.seed.rotate_right(act as u32 * 11) & 1,
-            |v| u64::from(v[usize::from(act.min(2))]),
+            |v| {
+                if act < 2 {
+                    u64::from(v[usize::from(act)])
+                } else if v[2] & 8 == 0 {
+                    u64::from(v[2])
+                } else {
+                    u64::from((v[2] >> (act.min(4) - 2)) & 1)
+                }
+            },
         )
     }
     fn generate_foes(&mut self, node: Node) -> Vec<Foe> {
@@ -581,6 +792,7 @@ impl Game {
                 (2,0) => "simayi", (3,0) if self.difficulty.is_some() => "luxun",
                 (3,_) if self.difficulty.is_some() => "lumeng",
                 (4,0) if self.difficulty.is_some() => "jiangwei",
+                (4,_) if self.difficulty.is_some() => "dengai",
                 _ => "zuoci",
             }],
             Node::Elite => {
@@ -599,6 +811,11 @@ impl Game {
                     // old act-III pool. These use existing foes and mechanics;
                     // distinct late-act bosses and objectives remain separate work.
                     (3,_) => ["officer", "wolf", "crossbowman", "raider", "cuirass"],
+                    // The fifth act has its own enemy pressure and route identity.
+                    // Keep the existing five-entry draw and RNG calls unchanged;
+                    // only expanded campaigns reach act 4.
+                    (4,0) if self.difficulty.is_some() => ["tactician", "tomb_guard", "horse_archer", "raider", "officer"],
+                    (4,_) if self.difficulty.is_some() => ["shaman", "witch", "firelancer", "raider", "panther"],
                     _ => ["shaman", "witch", "panther", "firelancer", "tomb_guard"],
                 };
                 let first = band[self.random(band.len())];
@@ -608,6 +825,14 @@ impl Game {
                 } else { vec![first] }
             }
         };
+        // Only new campaigns' act-II Yuan Shao formation deploys with a
+        // visible officer from turn one. Existing 21-floor boss seeds retain
+        // their original single-enemy encounter and RNG sequence.
+        let ids = if self.difficulty.is_some() && node == Node::Boss
+            && act == 1 && branch == 1
+        {
+            vec!["yuanshao", "officer"]
+        } else { ids };
         ids.into_iter().map(|id| {
             let hp = enemy_hp(id);
             Foe {
@@ -628,6 +853,14 @@ impl Game {
             let turn = b.turn;
             let last_turn_cards = b.last_turn_cards;
             let living = b.foes.iter().filter(|foe|foe.hp > 0).count();
+            // Deng Ai's summoned mountain vanguard is a battlefield choice,
+            // not just a gold tax: on even turns it visibly prepares cover for
+            // its commander. The player can intercept by defeating the raider
+            // before its displayed intent executes. Other assassins and legacy
+            // campaigns retain their regular deterministic intent policy.
+            let yinping_supply_guard = difficulty.is_some() && self.floor == 40
+                && b.foes[i].id == "assassin"
+                && b.foes.iter().any(|foe| foe.id == "dengai" && foe.hp > 0);
             let foe = &mut b.foes[i];
             if foe.hp == 0 { continue; }
             // Round up so ascension 1 already changes enemy attacks.
@@ -661,6 +894,7 @@ impl Game {
                     "luxun" => Some(BossMove::FireCamp(2+foe.phase)),
                     "lumeng" => Some(BossMove::WhiteClothes),
                     "jiangwei" => Some(BossMove::NorthernExpedition(foe.phase)),
+                    "dengai" => Some(BossMove::YinpingFlank(foe.phase)),
                     _ => None,
                 }
             } else { None };
@@ -674,6 +908,8 @@ impl Game {
                 Intent::Hex(2, 1)
             } else if foe.phase > 0 && foe.id == "royal_guard" && living > 1 && turn.is_multiple_of(2) {
                 Intent::Assist(8 + act * 2)
+            } else if yinping_supply_guard && living > 1 && turn.is_multiple_of(2) {
+                Intent::Assist(6 + difficulty.map_or(0, Difficulty::support_bonus))
             } else if foe.phase > 0 && foe.id == "elite" && turn.is_multiple_of(3) {
                 Intent::Rally(3)
             } else if living > 1
@@ -740,7 +976,11 @@ impl Game {
         if self.difficulty.is_some() && self.floor == 3 && node == Node::Battle
             && let Some(front) = foes.first_mut()
         {
-            front.block = front.block.saturating_add(8);
+            // The displayed ambush shield scales mechanically by tier.
+            // Breaking it also weakens the vanguard's impending attack;
+            // old ascension/21-floor battles never receive this change.
+            let extra = 2 * self.difficulty.map_or(0, Difficulty::support_bonus);
+            front.block = front.block.saturating_add(8 + extra);
         }
         let mut draw = self.deck.clone();
         self.shuffle(&mut draw);
@@ -754,11 +994,11 @@ impl Game {
             played_this_turn: 0, last_turn_cards: 0, next_turn_energy_penalty: 0,
             wildfire: 0,
             convoy_hp: (self.difficulty.is_some() && node == Node::Battle
-                && (self.floor == 2 || ((26..=31).contains(&self.floor) && self.hero == Hero::ZhugeLiang
+                && (self.floor == 2 || self.floor == 19 || ((26..=31).contains(&self.floor) && self.hero == Hero::ZhugeLiang
                     && matches!(self.jieting_plan, Some(JietingPlan::WaterPending
                         | JietingPlan::HillPending | JietingPlan::RetreatPending))))).then_some(12),
             convoy_cover: (self.difficulty.is_some() && node == Node::Battle
-                && (self.floor == 2 || ((26..=31).contains(&self.floor) && self.hero == Hero::ZhugeLiang
+                && (self.floor == 2 || self.floor == 19 || ((26..=31).contains(&self.floor) && self.hero == Hero::ZhugeLiang
                     && matches!(self.jieting_plan, Some(JietingPlan::WaterPending
                         | JietingPlan::HillPending | JietingPlan::RetreatPending))))).then_some(0),
             troops_hp: if self.hero == Hero::CaoCao { 12 } else { 0 },
@@ -783,6 +1023,74 @@ impl Game {
             && let Some(front) = self.battle.as_mut().and_then(|b| b.foes.first_mut())
         {
             front.strength += 1;
+        }
+        // Cao Cao's optional act-II Wuchao council changes Yuan Shao's
+        // playable coalition immediately, without prematurely consuming the
+        // separate, one-shot act-III historical responsibility.
+        if self.difficulty.is_some() && self.hero == Hero::CaoCao
+            && self.floor == 16 && node == Node::Boss
+            && self.battle.as_ref().is_some_and(|b|
+                b.foes.first().is_some_and(|f| f.id == "yuanshao"))
+        {
+            let effect = {
+                let b = self.battle.as_mut().expect("Yuan Shao coalition");
+                match self.wuchao_plan {
+                    Some(WuchaoPlan::RaidPending) => {
+                        let officer = &mut b.foes[1];
+                        let lost = (officer.hp - 1).min(8);
+                        officer.hp -= lost;
+                        officer.weak = officer.weak.saturating_add(2);
+                        Some(("wuchao_coalition_raid", lost))
+                    }
+                    Some(WuchaoPlan::FortifyPending) => {
+                        b.block += 10;
+                        Some(("wuchao_coalition_fortified", 10))
+                    }
+                    Some(WuchaoPlan::DeclinePending) => {
+                        let officer = &mut b.foes[1];
+                        officer.strength += 2;
+                        officer.block += 8;
+                        Some(("wuchao_coalition_unchecked", 8))
+                    }
+                    _ => None,
+                }
+            };
+            if let Some((source, amount)) = effect {
+                self.combat_event(EventKind::PowerTriggered,
+                    source, amount, Some("guandu".into()));
+            }
+        }
+        // Red Cliffs' optional act-III choice follows the fleet into the
+        // independent act-IV commander. Its early act-IV payoff remains
+        // separate and once-only; the boss effect is applied on battle entry
+        // from existing settled plan identity, without introducing save fields.
+        if self.difficulty.is_some() && self.floor == 32 && node == Node::Boss
+            && matches!(self.hero, Hero::ZhugeLiang | Hero::SunShangxiang)
+        {
+            let effect = {
+                let b = self.battle.as_mut().expect("act IV commander");
+                match self.chibi_plan {
+                    Some(ChibiPlan::FireBattleResolved | ChibiPlan::FireSettled) => {
+                        b.foes[0].weak = b.foes[0].weak.saturating_add(2);
+                        Some(("chibi_fourth_act_fire", 2))
+                    }
+                    Some(ChibiPlan::FleetBattleResolved | ChibiPlan::FleetSettled) => {
+                        b.block += 8;
+                        b.energy += 1;
+                        Some(("chibi_fourth_act_fleet", 8))
+                    }
+                    Some(ChibiPlan::DeclineBattleResolved | ChibiPlan::DeclineSettled) => {
+                        b.foes[0].strength += 1;
+                        b.foes[0].block += 10;
+                        Some(("chibi_fourth_act_declined", 10))
+                    }
+                    _ => None,
+                }
+            };
+            if let Some((source, amount)) = effect {
+                self.combat_event(EventKind::PowerTriggered,
+                    source, amount, Some("act_four_boss".into()));
+            }
         }
         self.roll_intents();
         let extra_draw = usize::from(self.relics.iter().any(|r| r == "虎翼"));
@@ -842,6 +1150,83 @@ impl Game {
             }
             if self.hero == Hero::LuBu && self.lore_flags.iter().any(|f| f == "phoenix_pavilion") {
                 b.strength += 1;
+            }
+        }
+        // The standard fifth-act commander also reacts to the earlier
+        // Jieting decision. Distinct moves preserve the player's agency:
+        // supply defense disrupts the commander, hill pressure raises both
+        // offense and threat, and retreat trades extra resources for armor.
+        if self.difficulty.is_some() && self.hero == Hero::ZhugeLiang
+            && self.floor == 40 && node == Node::Boss
+            && self.battle.as_ref().is_some_and(|b|
+                b.foes.first().is_some_and(|f| f.id == "jiangwei"))
+        {
+            let effect = {
+                let b = self.battle.as_mut().expect("north expedition final");
+                match self.jieting_plan {
+                    Some(JietingPlan::WaterResolved | JietingPlan::WaterSettled) => {
+                        b.block += 8;
+                        b.foes[0].weak = b.foes[0].weak.saturating_add(2);
+                        Some(("jieting_jiangwei_wells", 8))
+                    }
+                    Some(JietingPlan::HillResolved | JietingPlan::HillSettled) => {
+                        b.foes[0].strength += 2;
+                        b.foes[0].block += 8;
+                        b.strength += 1;
+                        Some(("jieting_jiangwei_hills", 8))
+                    }
+                    Some(JietingPlan::RetreatResolved | JietingPlan::RetreatSettled) => {
+                        b.energy += 1;
+                        b.block += 4;
+                        b.foes[0].block += 6;
+                        Some(("jieting_jiangwei_retreat", 1))
+                    }
+                    _ => None,
+                }
+            };
+            if let Some((source, amount)) = effect {
+                self.combat_event(EventKind::PowerTriggered,
+                    source, amount, Some("north_expedition".into()));
+            }
+        }
+        // A real act-IV Jieting choice continues into the alternate fifth-act
+        // historical commander. Existing settled plan identity is the durable
+        // receipt: no extra save field, no repeated reward from reload, and no
+        // effect in other commanders or the legacy 21-floor campaign.
+        if self.difficulty.is_some() && self.hero == Hero::ZhugeLiang
+            && self.floor == 40 && node == Node::Boss
+            && self.battle.as_ref().is_some_and(|b|
+                b.foes.first().is_some_and(|f| f.id == "dengai"))
+        {
+            let effect = {
+                let b = self.battle.as_mut().expect("historical final battle");
+                match self.jieting_plan {
+                    Some(JietingPlan::WaterSettled) => {
+                        b.block += 10;
+                        // Two stacks survive this Yinping signature's
+                        // EndTurn tick, so the next genuine attack is weaker.
+                        b.foes[0].weak = b.foes[0].weak.saturating_add(2);
+                        Some(("jieting_yinping_wells", 10))
+                    }
+                    Some(JietingPlan::HillSettled) => {
+                        b.foes[0].strength += 2;
+                        b.foes[0].block += 10;
+                        b.strength += 1;
+                        Some(("jieting_yinping_hills", 10))
+                    }
+                    Some(JietingPlan::RetreatSettled) => {
+                        b.energy += 1;
+                        b.foes[0].block += 6;
+                        Some(("jieting_yinping_retreat", 1))
+                    }
+                    _ => None,
+                }
+            };
+            if let Some((source, amount)) = effect {
+                // Actual cross-act consequences are journaled once with the
+                // same authoritative battle entry as the changed resources.
+                self.combat_event(EventKind::PowerTriggered, source, amount,
+                    Some("yinping".into()));
             }
         }
         // Pay off the optional act-II Wuchao decision only when a later battle
@@ -922,6 +1307,98 @@ impl Game {
                 _ => None,
             };
             if let Some(plan) = resolved { self.chibi_plan = Some(plan); }
+        }
+        // The Red Cliffs player decision has a second observable stake in
+        // the third-act water-land crossing, even when another earlier battle
+        // already spent the immediate one-shot fleet tactic. The choice
+        // remains exactly once in the persistent ChibiPlan; no new history
+        // flags, save fields, or fictional archival claims are needed.
+        if self.difficulty.is_some() && self.floor == 19
+            && node == Node::Battle && self.hero == Hero::CaoCao
+        {
+            // Wuchao's act-II choice persists after its first act-III
+            // settlement. These are fixed, one-time entry consequences on
+            // the later fleet objective, not repeatable story rewards.
+            match self.wuchao_plan {
+                Some(WuchaoPlan::RaidResolved) => {
+                    if let Some(front) = self.battle.as_mut()
+                        .and_then(|b| b.foes.first_mut())
+                    {
+                        front.weak = front.weak.saturating_add(2);
+                    }
+                    self.combat_event(EventKind::PowerTriggered,
+                        "wuchao_naval_raid_disruption", 2, Some("foe:0".into()));
+                }
+                Some(WuchaoPlan::FortifyResolved) => {
+                    let gained = {
+                        let b = self.battle.as_mut().expect("fleet");
+                        let old = b.convoy_cover.unwrap_or(0);
+                        let next = old.saturating_add(4).min(8);
+                        b.convoy_cover = Some(next);
+                        next - old
+                    };
+                    if gained > 0 {
+                        self.combat_event(EventKind::PowerTriggered,
+                            "wuchao_naval_supply_screen", i32::from(gained),
+                            Some("fleet".into()));
+                    }
+                }
+                Some(WuchaoPlan::DeclineResolved) => {
+                    let lost = {
+                        let b = self.battle.as_mut().expect("fleet");
+                        let hull = b.convoy_hp.as_mut().expect("ship hull");
+                        let old = *hull;
+                        *hull = hull.saturating_sub(2);
+                        old - *hull
+                    };
+                    if lost > 0 {
+                        self.combat_event(EventKind::EnemyTechnique,
+                            "wuchao_naval_supply_shortage", i32::from(lost),
+                            Some("fleet".into()));
+                    }
+                }
+                _ => {}
+            }
+        }
+        if self.difficulty.is_some() && self.floor == 19 && node == Node::Battle {
+            match self.chibi_plan {
+                Some(ChibiPlan::FleetBattleResolved) => {
+                    let gained = {
+                        let b = self.battle.as_mut().expect("naval crossing");
+                        let old = b.convoy_cover.unwrap_or(0);
+                        b.convoy_cover = Some(old.saturating_add(4).min(8));
+                        b.convoy_cover.unwrap_or(0) - old
+                    };
+                    if gained > 0 {
+                        self.combat_event(EventKind::PowerTriggered,
+                            "chibi_naval_fleet_screen", i32::from(gained), Some("fleet".into()));
+                    }
+                }
+                Some(ChibiPlan::FireBattleResolved) => {
+                    // Burning an enemy skiff also risks the player's hull;
+                    // committed damage is carried by the existing convoy HP.
+                    let lost = {
+                        let b = self.battle.as_mut().expect("naval crossing");
+                        let hull = b.convoy_hp.as_mut().expect("ship hull");
+                        let old = *hull;
+                        *hull = hull.saturating_sub(2);
+                        old - *hull
+                    };
+                    if lost > 0 {
+                        self.combat_event(EventKind::EnemyTechnique,
+                            "chibi_naval_fire_spread", i32::from(lost), Some("fleet".into()));
+                    }
+                    self.apply_foe_status(0, "poison", 3);
+                }
+                Some(ChibiPlan::DeclineBattleResolved) => {
+                    if let Some(front) = self.battle.as_mut().and_then(|b| b.foes.first_mut()) {
+                        front.block = front.block.saturating_add(4);
+                    }
+                    self.combat_event(EventKind::EnemyTechnique,
+                        "chibi_naval_declined_cover", 4, Some("foe:0".into()));
+                }
+                _ => {}
+            }
         }
         if self.difficulty.is_some() {
             let resolved = match (self.floor, self.jieting_plan) {
@@ -1042,6 +1519,66 @@ impl Game {
                         Some(JietingPlan::WaterSettled) => "；街亭守水兑现：第五幕护甲+8",
                         Some(JietingPlan::HillSettled) => "；街亭断水债务：损失至多12金",
                         Some(JietingPlan::RetreatSettled) => "；街亭撤退兑现：恢复至多8体力",
+                        _ => "",
+                    });
+                }
+                if self.floor == 40 && self.hero == Hero::ZhugeLiang
+                    && self.battle.as_ref().is_some_and(|b|
+                        b.foes.first().is_some_and(|f| f.id == "jiangwei"))
+                {
+                    msg.push_str(match self.jieting_plan {
+                        Some(JietingPlan::WaterSettled) =>
+                            "；街亭守水北伐兑现：入阵护甲+8、姜维虚弱2层",
+                        Some(JietingPlan::HillSettled) =>
+                            "；街亭据山北伐旧债：姜维武勇+2、护甲+8，我军武勇+1",
+                        Some(JietingPlan::RetreatSettled) =>
+                            "；街亭撤退北伐先机：军令+1、护甲+4，姜维护甲+6",
+                        _ => "",
+                    });
+                }
+                if self.floor == 40 && self.hero == Hero::ZhugeLiang
+                    && self.battle.as_ref().is_some_and(|b|
+                        b.foes.first().is_some_and(|f| f.id == "dengai"))
+                {
+                    msg.push_str(match self.jieting_plan {
+                        Some(JietingPlan::WaterSettled) => "；街亭守水远期兑现：入阵护甲+10、邓艾虚弱2层",
+                        Some(JietingPlan::HillSettled) => "；街亭据山远期债务：邓艾武勇+2、护甲+10，我军武勇+1；击溃山道援军可额外反击8点",
+                        Some(JietingPlan::RetreatSettled) => "；街亭撤退远期先机：军令+1、邓艾护甲+6",
+                        _ => "",
+                    });
+                }
+                if self.difficulty.is_some() && self.floor == 32
+                    && matches!(self.hero, Hero::ZhugeLiang | Hero::SunShangxiang)
+                    && node == Node::Boss
+                {
+                    msg.push_str(match self.chibi_plan {
+                        Some(ChibiPlan::FireBattleResolved | ChibiPlan::FireSettled) =>
+                            "；赤壁火攻余波兑现：敌统帅虚弱2层",
+                        Some(ChibiPlan::FleetBattleResolved | ChibiPlan::FleetSettled) =>
+                            "；赤壁稳守余波兑现：入阵护甲+8、军令+1",
+                        Some(ChibiPlan::DeclineBattleResolved | ChibiPlan::DeclineSettled) =>
+                            "；赤壁失机余波兑现：敌统帅武勇+1、护甲+10",
+                        _ => "",
+                    });
+                }
+                if self.difficulty.is_some() && self.floor == 16
+                    && self.hero == Hero::CaoCao
+                    && node == Node::Boss
+                {
+                    msg.push_str(match self.wuchao_plan {
+                        Some(WuchaoPlan::RaidPending) => "；乌巢夜袭前线兑现：亲卫失去8点体力并虚弱2层",
+                        Some(WuchaoPlan::FortifyPending) => "；乌巢守粮前线兑现：我军护甲+10",
+                        Some(WuchaoPlan::DeclinePending) => "；乌巢放任前线代价：敌方亲卫武勇+2、护甲+8",
+                        _ => "",
+                    });
+                }
+                if self.difficulty.is_some() && self.floor == 19
+                    && self.hero == Hero::CaoCao
+                {
+                    msg.push_str(match self.wuchao_plan {
+                        Some(WuchaoPlan::RaidResolved) => "；乌巢夜袭余威：舰队敌前锋虚弱2层",
+                        Some(WuchaoPlan::FortifyResolved) => "；乌巢守粮军需：入阵战船掩护+4",
+                        Some(WuchaoPlan::DeclineResolved) => "；乌巢失机：入阵战船耐久-2",
                         _ => "",
                     });
                 }
@@ -1302,6 +1839,242 @@ impl Game {
         };
         let actual = self.deal_enemy_damage(idx, damage, "hero");
         self.suppress_jieting_water(idx, actual);
+        self.suppress_grain_raiders(idx, actual);
+        self.board_naval_raiders(idx, actual);
+        self.reclaim_siege_equipment(idx, actual);
+        self.sever_yuanshao_escort(idx, actual);
+        self.cut_yinping_supply(idx, actual);
+    }
+
+    /// Direct player attacks, including armor-piercing cards, can break the
+    /// vanguard. Non-card sources (poison, potions, thorns, allies) cannot.
+    fn cut_yinping_supply(&mut self, idx: usize, actual: i32) {
+        // A player who focuses and defeats Deng Ai's real summoned
+        // assassin severs the infiltration route and strikes the commander.
+        // This cannot be farmed: dead foes cannot take damage twice, and only
+        // the fifth-act alternate boss encounter offers this chain.
+        // Poison ticks, troop attacks and passive reflections do not count
+        // as the player's direct raid against the vanguard.
+        let commander = if actual > 0 && self.difficulty.is_some()
+            && self.floor == 40 && self.last_node == Some(Node::Boss)
+        {
+            self.battle.as_ref().and_then(|b| {
+                if b.foes[idx].id != "assassin" || b.foes[idx].hp > 0 {
+                    return None;
+                }
+                b.foes.iter().position(|foe| foe.id == "dengai" && foe.hp > 0)
+            })
+        } else { None };
+        // Recover stolen supplies when the player personally defeats the
+        // exposed escort, even if the commander has already fallen or the
+        // supply-cut counterstrike cannot damage him. This is a distinct
+        // player objective from counterattacking Deng Ai. A dead raider
+        // cannot be defeated again, so the payout remains one-shot.
+        let recoverable = if actual > 0 && self.difficulty.is_some()
+            && self.floor == 40 && self.last_node == Some(Node::Boss)
+        {
+            self.battle.as_ref().and_then(|battle| {
+                let raider = battle.foes.get(idx)?;
+                if raider.id != "assassin" || raider.hp > 0 || raider.vulnerable == 0
+                    || !battle.foes.iter().any(|foe| foe.id == "dengai")
+                { return None; }
+                // The 80-entry battle window is only a UI/debug trace.
+                // It can evict a real levy long before a patient player
+                // finally defeats the escort. New campaigns persist a full,
+                // encounter-scoped event archive: consult that authoritative
+                // record for the recoverable amount instead of silently
+                // denying the player's earned reward after a long fight.
+                // Legacy saves with no archive retain their bounded window;
+                // they cannot ordinarily contain the new Deng Ai encounter.
+                let levy = if let Some(history) = &self.event_history {
+                    history.iter().rev().find(|record|
+                        record.encounter == self.telemetry.totals.battles_started
+                            && record.floor == self.floor
+                            && record.event.kind == EventKind::EnemyTechnique
+                            && record.event.source == "yinping_raider_escort_levy"
+                    ).map(|record| record.event.amount)
+                } else {
+                    battle.events.iter().rev().find(|event|
+                        event.kind == EventKind::EnemyTechnique
+                            && event.source == "yinping_raider_escort_levy"
+                    ).map(|event| event.amount)
+                };
+                levy.map(|gold| gold.clamp(0, 5))
+            }).unwrap_or(0)
+        } else { 0 };
+        if recoverable > 0 {
+            self.gold = self.gold.saturating_add(recoverable);
+            self.combat_event(EventKind::PowerTriggered,
+                "yinping_escort_gold_recovered", recoverable,
+                Some("gold".into()));
+        }
+        if let Some(boss_idx) = commander {
+            // The Jieting high-ground decision exposes the pass but also
+            // teaches Zhuge Liang's troops its flank. The commander gained
+            // strength/armor on entry; a player who actively defeats the
+            // summoned guard now turns that earlier risk into a real 8-point
+            // supply-line reprisal (ordinary campaigns still deal 6).
+            let counter = if self.hero == Hero::ZhugeLiang
+                && self.jieting_plan == Some(JietingPlan::HillSettled)
+            { 8 } else { 6 };
+            let inflicted = self.deal_enemy_damage_unblockable(
+                boss_idx, counter, "yinping_supply_cut");
+            if inflicted > 0 {
+                self.combat_event(EventKind::PowerTriggered,
+                    "yinping_vanguard_broken", inflicted,
+                    Some(format!("foe:{boss_idx}")));
+                // Water-defense veterans reclaim their screen when the
+                // player personally defeats the flanking raider. The bonus
+                // is awarded only after a real commander hit and is capped
+                // by the single raider's death, never by passive poison.
+                if self.hero == Hero::ZhugeLiang
+                    && self.jieting_plan == Some(JietingPlan::WaterSettled)
+                {
+                    self.battle.as_mut().expect("active Deng Ai battle").block += 4;
+                    self.combat_event(EventKind::PowerTriggered,
+                        "jieting_yinping_water_screen", 4, Some("hero".into()));
+                }
+                // The troops saved at Jieting can immediately exploit a
+                // severed Yinping supply route. The player must personally
+                // kill a real raider and actually damage Deng Ai; passive
+                // deaths and a blocked counterattack award no command.
+                if self.hero == Hero::ZhugeLiang
+                    && self.jieting_plan == Some(JietingPlan::RetreatSettled)
+                {
+                    let gained = {
+                        let battle = self.battle.as_mut().expect("active Deng Ai battle");
+                        let before = battle.energy;
+                        battle.energy = battle.energy.saturating_add(1).min(5);
+                        battle.energy - before
+                    };
+                    if gained > 0 {
+                        self.combat_event(EventKind::PowerTriggered,
+                            "jieting_yinping_retreat_command", gained,
+                            Some("hero".into()));
+                    }
+                }
+            }
+        }
+    }
+
+    /// Direct player attacks that defeat the final siege defender
+    /// recover a command point for the next breach. Poison, potions,
+    /// troop damage and passive thorns do not earn the player's reward.
+    /// The final defender dies once, so the refund cannot be farmed.
+    fn reclaim_siege_equipment(&mut self, idx: usize, actual: i32) {
+        if actual <= 0 || self.difficulty.is_none() || self.floor != 4
+            || self.last_node != Some(Node::Battle)
+            || !self.battle.as_ref().is_some_and(|b|
+                b.siege_gate_hp.is_some() && b.foes.get(idx).is_some_and(|f| f.hp == 0)
+                    && b.foes.iter().all(|f| f.hp == 0))
+        { return; }
+        let restored = {
+            let b = self.battle.as_mut().expect("siege battle");
+            let before = b.energy;
+            // Never *reduce* an already larger energy pool to the rebate
+            // cap. Above five, the player gets no additional energy but
+            // keeps every point earned by earlier legal card effects.
+            if before < 5 { b.energy = b.energy.saturating_add(1); }
+            b.energy - before
+        };
+        if restored > 0 {
+            self.combat_event(EventKind::PowerTriggered, "siege_engine_reclaimed",
+                restored, Some("gate".into()));
+        }
+    }
+
+    /// A paid player attack against Yuan Shao's coalition officer can sever
+    /// the supply line, open the commander for follow-up damage and prevent
+    /// any new second-phase officer. Non-card sources can kill the officer
+    /// but never receive this active breach bonus.
+    fn sever_yuanshao_escort(&mut self, idx: usize, actual: i32) {
+        if actual <= 0 || self.difficulty.is_none() || self.floor != 16
+            || self.last_node != Some(Node::Boss)
+        { return; }
+        let commander = self.battle.as_ref().and_then(|b| {
+            if b.foes.get(idx).is_none_or(|f| f.id != "officer" || f.hp > 0) {
+                return None;
+            }
+            b.foes.iter().position(|f| f.id == "yuanshao" && f.hp > 0)
+        });
+        if let Some(boss_idx) = commander {
+            let broken = {
+                let b = self.battle.as_mut().expect("coalition");
+                let boss = &mut b.foes[boss_idx];
+                let removed = boss.block.min(6);
+                boss.block -= removed;
+                removed
+            };
+            self.apply_foe_status(boss_idx, "vulnerable", 3);
+            self.combat_event(EventKind::PowerTriggered,
+                "yuanshao_escort_severed", broken + 1,
+                Some(format!("foe:{boss_idx}")));
+        }
+    }
+
+    /// In the third-act water-land crossing, direct attacks may guard the
+    /// fleet as well as defeat the enemy: a hit pins down an enemy skiff,
+    /// and a direct kill frees a crew to repair the hull. Passive poison,
+    /// troop damage and thorns cannot earn these player-led countermeasures.
+    /// The same durable convoy fields are intentionally reused for fleet
+    /// durability/cover; old saves and unrelated stage rules are unaffected.
+    /// Only direct player attacks can pin down a grain raider and reclaim
+    /// provisions on its defeat. Automatic allies, poison and potions do not
+    /// receive a player-led escort reward.
+    fn suppress_grain_raiders(&mut self, idx: usize, actual: i32) {
+        if actual <= 0 || self.difficulty.is_none() || self.floor != 2
+            || self.last_node != Some(Node::Battle)
+            || !self.battle.as_ref().is_some_and(|b| b.convoy_hp.is_some())
+        { return; }
+        let (cover, recovered) = {
+            let b = self.battle.as_mut().expect("grain convoy");
+            let before = b.convoy_cover.unwrap_or(0);
+            let after = before.saturating_add(2).min(8);
+            b.convoy_cover = Some(after);
+            let recovered = if b.foes[idx].hp == 0 {
+                let cargo = b.convoy_hp.as_mut().expect("grain cargo");
+                let old = *cargo;
+                *cargo = cargo.saturating_add(2).min(12);
+                *cargo - old
+            } else { 0 };
+            (after - before, recovered)
+        };
+        if cover > 0 {
+            self.combat_event(EventKind::PowerTriggered, "grain_raider_suppressed",
+                i32::from(cover), Some("convoy".into()));
+        }
+        if recovered > 0 {
+            self.combat_event(EventKind::PowerTriggered, "grain_provisions_recaptured",
+                i32::from(recovered), Some("convoy".into()));
+        }
+    }
+
+    fn board_naval_raiders(&mut self, idx: usize, actual: i32) {
+        if actual <= 0 || self.difficulty.is_none() || self.floor != 19
+            || self.last_node != Some(Node::Battle)
+            || !self.battle.as_ref().is_some_and(|b| b.convoy_hp.is_some())
+        { return; }
+        let (cover, repaired) = {
+            let battle = self.battle.as_mut().expect("naval battle");
+            let old_cover = battle.convoy_cover.unwrap_or(0);
+            let new_cover = old_cover.saturating_add(2).min(8);
+            battle.convoy_cover = Some(new_cover);
+            let repaired = if battle.foes[idx].hp == 0 {
+                let hull = battle.convoy_hp.as_mut().expect("ship hull");
+                let previous = *hull;
+                *hull = hull.saturating_add(2).min(12);
+                *hull - previous
+            } else { 0 };
+            (new_cover - old_cover, repaired)
+        };
+        if cover > 0 {
+            self.combat_event(EventKind::PowerTriggered, "naval_boarding_cover",
+                i32::from(cover), Some("fleet".into()));
+        }
+        if repaired > 0 {
+            self.combat_event(EventKind::PowerTriggered, "naval_boarding_repair",
+                i32::from(repaired), Some("fleet".into()));
+        }
     }
 
     /// Only real player attack damage pins down Jieting water raiders.
@@ -1362,24 +2135,33 @@ impl Game {
             self.preflight_event(EventKind::DamageDealt,source,&format!("foe:{idx}"),damage)
                 .unwrap_or(0)
         } else { 0 };
-        let (actual, killed) = {
+        let (actual, killed, ambush_shattered) = {
             let b = self.battle.as_mut().expect("battle");
             let foe = &mut b.foes[idx];
             if foe.hp <= 0 { return 0; }
             let incoming = damage.max(0);
             let blocked = if ignores_block { 0 } else { incoming.min(foe.block) };
             foe.block -= blocked;
-            if idx == 0 && blocked > 0 && foe.block == 0
+            let first_ambush_break = idx == 0 && blocked > 0 && foe.block == 0
                 && self.difficulty.is_some() && self.floor == 3
                 && self.last_node == Some(Node::Battle)
-            {
-                b.ambush_armor_broken = true;
-            }
+                && !b.ambush_armor_broken;
+            if first_ambush_break { b.ambush_armor_broken = true; }
+            // The historic first shield break still qualifies for the old
+            // counter-bounty. The new enemy-weakening tactical advantage,
+            // however, belongs only to a paid player attack, never to
+            // troop, potion, or other automatic damage sources.
+            let ambush_shattered = first_ambush_break && source == "hero";
             let actual = foe.hp.min(incoming.saturating_sub(blocked));
             foe.hp -= actual;
-            (actual, actual > 0 && foe.hp == 0)
+            (actual, actual > 0 && foe.hp == 0, ambush_shattered && foe.hp > 0)
         };
         self.combat_event(EventKind::DamageDealt, source, actual, Some(format!("foe:{idx}")));
+        if ambush_shattered {
+            self.apply_foe_status(idx, "weak", 2);
+            self.combat_event(EventKind::PowerTriggered, "ambush_vanguard_reeling", 2,
+                Some(format!("foe:{idx}")));
+        }
         if killed {
             self.combat_event(EventKind::FoeDefeated, source, 1, Some(format!("foe:{idx}")));
         }
@@ -1399,11 +2181,17 @@ impl Game {
         let hp = b.siege_gate_hp.ok_or("当前并非攻城关卡")?;
         if b.energy < 2 { return Err("破门需要2点军令".into()); }
         b.energy -= 2;
-        let remaining = hp.saturating_sub(4);
+        // Players can rush the gate under fire or first eliminate the
+        // defenders to double down on the breach. This creates a real
+        // target-order choice without creating a second combat objective.
+        let breach = if b.foes.iter().all(|foe| foe.hp == 0) { 6 } else { 4 };
+        let remaining = hp.saturating_sub(breach);
         b.siege_gate_hp = Some(remaining);
-        self.combat_event(EventKind::DamageDealt, "siege_gate", i32::from(hp - remaining), Some("gate".into()));
+        let actual = hp - remaining;
+        self.combat_event(EventKind::DamageDealt, "siege_gate", i32::from(actual), Some("gate".into()));
         if remaining == 0 { Ok(format!("城门已破！{}", self.win_battle())) }
-        else { Ok(format!("攻城破门4点，城门剩余{remaining}/12耐久。")) }
+        else { Ok(format!("攻城破门{actual}点{}，城门剩余{remaining}/12耐久。",
+            if breach == 6 { "（守军溃散，攻城加速）" } else { "" })) }
     }
     fn defeated(&self) -> bool {
         self.battle.as_ref().is_some_and(|b| b.siege_gate_hp.is_none() && b.foes.iter().all(|f| f.hp <= 0))
@@ -1447,7 +2235,9 @@ impl Game {
             let bonus = i32::from(hp) * 2; // Never more than 24, once per victory.
             self.gold += bonus;
             format!("保住{}{hp}/12，额外获得{bonus}金，",
-                if (26..=31).contains(&self.floor) && self.hero == Hero::ZhugeLiang { "水源" } else { "粮车" })
+                if self.difficulty.is_some() && self.floor == 19 { "战船" }
+                else if (26..=31).contains(&self.floor) && self.hero == Hero::ZhugeLiang { "水源" }
+                else { "粮车" })
         } else {
             String::new()
         };
@@ -1544,8 +2334,10 @@ impl Game {
 
     fn play(&mut self, index: usize, target: usize, selection: Option<usize>) -> Result<String, String> {
         let b = self.battle.as_ref().ok_or("当前不在战斗中")?;
+        let block_before = b.block;
         let cover_before = b.convoy_cover.unwrap_or(0);
         let water_before = b.convoy_hp.unwrap_or(0);
+        let event_before = b.event_seq;
         let hand_idx = index.checked_sub(1).ok_or("手牌编号从1开始")?;
         let card = b.hand.get(hand_idx).ok_or("无效手牌编号")?.clone();
         let spec = card_spec(&card.id).ok_or("未知卡牌")?;
@@ -1684,6 +2476,13 @@ impl Game {
                 let idx = target_idx.expect("target");
                 let actual = self.deal_enemy_damage_unblockable(idx, n.saturating_add(bonus), "pierce");
                 self.suppress_jieting_water(idx, actual);
+                self.suppress_grain_raiders(idx, actual);
+                // Armor-piercing is still a direct paid player attack;
+                // don't deny its fleet suppression/repair counterplay.
+                self.board_naval_raiders(idx, actual);
+                self.reclaim_siege_equipment(idx, actual);
+                self.sever_yuanshao_escort(idx, actual);
+                self.cut_yinping_supply(idx, actual);
             }
             Effect::DrawEnergy(n, energy) => {
                 self.battle.as_mut().expect("battle").energy += energy;
@@ -1691,9 +2490,32 @@ impl Game {
             }
             Effect::Energy(n) => self.battle.as_mut().expect("battle").energy += n + i32::from(card.upgraded),
             Effect::Companion(amount) => {
-                let b = self.battle.as_mut().expect("battle");
-                b.troops_hp += amount + bonus;
-                b.troops_attack += (amount / 4).max(1);
+                let grain_command = self.difficulty.is_some() && self.floor == 2
+                    && self.last_node == Some(Node::Battle) && self.hero == Hero::CaoCao;
+                let naval_command = self.difficulty.is_some() && self.floor == 19
+                    && self.last_node == Some(Node::Battle) && self.hero == Hero::CaoCao;
+                let screen = {
+                    let b = self.battle.as_mut().expect("battle");
+                    b.troops_hp += amount + bonus;
+                    b.troops_attack += (amount / 4).max(1);
+                    // A paid Cao Cao logistics card can protect the actual
+                    // fleet even when a defensive guard was not drawn. The
+                    // passive troop attack itself never grants free cover.
+                    if naval_command || grain_command {
+                        if let Some(old) = b.convoy_cover {
+                            let next = old.saturating_add(if grain_command { 2 } else { 4 }).min(8);
+                            b.convoy_cover = Some(next);
+                            next - old
+                        } else { 0 }
+                    } else { 0 }
+                };
+                if screen > 0 {
+                    self.combat_event(EventKind::PowerTriggered,
+                        if grain_command { "cao_grain_troop_screen" }
+                        else { "cao_naval_troop_screen" },
+                        i32::from(screen),
+                        Some(if grain_command { "convoy" } else { "fleet" }.into()));
+                }
             }
             Effect::Tactics(amount) => {
                 self.battle.as_mut().expect("battle").discard_tokens += amount;
@@ -1744,10 +2566,13 @@ impl Game {
         // Defense cards protect cargo as well as the hero. Log the real gain,
         // not fictional protection when the cap has been reached.
         if matches!(spec.effect, Effect::Guard(_) | Effect::GuardEnergy(_) | Effect::XGuard(_))
-            && self.battle.as_ref().is_some_and(|b| b.convoy_cover.is_some())
+            && self.battle.as_ref().is_some_and(|b|
+                b.convoy_cover.is_some() && b.block > block_before)
         {
             // A Jieting guard counters one four-point water raid; ordinary
             // floor-two grain protection retains its original two-point rate.
+            let fleet_battle = self.difficulty.is_some() && self.floor == 19
+                && self.last_node == Some(Node::Battle);
             let water_battle = self.difficulty.is_some()
                 && self.hero == Hero::ZhugeLiang
                 && (26..=31).contains(&self.floor)
@@ -1755,13 +2580,33 @@ impl Game {
             let gained = {
                 let b = self.battle.as_mut().expect("battle");
                 let old = b.convoy_cover.unwrap_or(0);
-                let next = old.saturating_add(if water_battle { 4 } else { 2 }).min(8);
+                let next = old.saturating_add(if water_battle || fleet_battle { 4 } else { 2 }).min(8);
                 b.convoy_cover = Some(next);
                 next - old
             };
             if gained > 0 {
-                self.combat_event(EventKind::PowerTriggered, "convoy_cover",
-                    i32::from(gained), Some("convoy".into()));
+                self.combat_event(EventKind::PowerTriggered,
+                    if fleet_battle { "naval_guard_cover" } else { "convoy_cover" },
+                    i32::from(gained), Some(if fleet_battle { "fleet" } else { "convoy" }.into()));
+            }
+            // Red Cliffs fire burns our own fleet on entry, but paid
+            // defense may extinguish the burning rigging and recover one
+            // hull point per effective guard. Cover saturates at 8, so
+            // redundant guards do not mint unlimited ship repairs.
+            if fleet_battle && gained > 0
+                && self.chibi_plan == Some(ChibiPlan::FireBattleResolved)
+            {
+                let repaired = {
+                    let battle = self.battle.as_mut().expect("naval battle");
+                    let hull = battle.convoy_hp.as_mut().expect("naval hull");
+                    let old = *hull;
+                    *hull = hull.saturating_add(1).min(12);
+                    *hull - old
+                };
+                if repaired > 0 {
+                    self.combat_event(EventKind::PowerTriggered,
+                        "chibi_naval_fire_contained", i32::from(repaired), Some("fleet".into()));
+                }
             }
             // A retreating army can salvage abandoned water only while its
             // guards actually establish fresh cover. Capped cover cannot be
@@ -1806,6 +2651,38 @@ impl Game {
                 Hero::SunShangxiang if attack => b.combo += 1,
                 Hero::CaoCao if !attack => b.command += 1,
                 _ => {}
+            }
+        }
+        // A four-card Yinping interception must break the visible escort's
+        // armor when the fourth paid card resolves. Enemy armor is normally
+        // cleared at the START of EndTurn; delaying this break until the
+        // boss intent executes would always report zero and provide no
+        // player-facing tactical value. Keep the existing EndTurn exposure
+        // and counterattack, but commit the shield break at the actual
+        // Game::apply(Action::Play) boundary, before another card may target
+        // the now-unshielded raider. Existing save/event journals persist it.
+        let yinping_armor_target = if self.difficulty.is_some() && self.floor == 40 {
+            self.battle.as_ref().and_then(|b| {
+                let boss = b.foes.iter().find(|f| f.id == "dengai" && f.hp > 0)?;
+                if boss.phase == 0 || b.played_this_turn != 4
+                    || !matches!(boss.intent, Intent::Boss(BossMove::YinpingFlank(_))) {
+                    return None;
+                }
+                b.foes.iter().position(|f| f.id == "assassin" && f.hp > 0 && f.block > 0)
+            })
+        } else { None };
+        if let Some(raider_idx) = yinping_armor_target {
+            let broken = {
+                let b = self.battle.as_mut().expect("battle");
+                let foe = &mut b.foes[raider_idx];
+                let broken = foe.block.min(6);
+                foe.block -= broken;
+                broken
+            };
+            if broken > 0 {
+                self.combat_event(EventKind::PowerTriggered,
+                    "yinping_raider_armor_broken", broken,
+                    Some(format!("foe:{raider_idx}")));
             }
         }
         if self.hero == Hero::ZhugeLiang && self.battle.as_ref().expect("battle").scheme >= 3 {
@@ -1862,6 +2739,70 @@ impl Game {
                 .unwrap_or(0).saturating_sub(water_before)
         } else { 0 };
         let mut msg = format!("使用了【{}】。", card.name());
+        if self.difficulty.is_some() && self.floor == 19
+            && self.last_node == Some(Node::Battle)
+        {
+            let fleet_cover = self.battle.as_ref().and_then(|b| b.convoy_cover)
+                .unwrap_or(0).saturating_sub(cover_before);
+            let fleet_repair = self.battle.as_ref().and_then(|b| b.convoy_hp)
+                .unwrap_or(0).saturating_sub(water_before);
+            if fleet_cover > 0 {
+                msg.push_str(&format!("舰队掩护+{fleet_cover}。"));
+            }
+            if fleet_repair > 0 {
+                msg.push_str(&format!("抢修战船{fleet_repair}点（接舷驱敌或扑灭火势）。"));
+            }
+        }
+        if self.difficulty.is_some() && self.floor == 2
+            && self.last_node == Some(Node::Battle)
+        {
+            let gained = self.battle.as_ref().and_then(|b| b.convoy_cover)
+                .unwrap_or(0).saturating_sub(cover_before);
+            let recovered = self.battle.as_ref().and_then(|b| b.convoy_hp)
+                .unwrap_or(0).saturating_sub(water_before);
+            if gained > 0 { msg.push_str(&format!("护粮掩护+{gained}。")); }
+            if recovered > 0 { msg.push_str(&format!("夺回粮车补给{recovered}点。")); }
+        }
+        let escort_severed = self.battle.as_ref().is_some_and(|b| b.events.iter()
+            .any(|e| e.seq > event_before && e.source == "yuanshao_escort_severed"));
+        if escort_severed {
+            msg.push_str("截断袁绍盟军粮道：亲卫溃败，统帅失去护甲并易伤，第二阶段不能再征召亲卫。");
+        }
+        let siege_reclaimed = self.battle.as_ref().map_or(0, |b| b.events.iter()
+            .filter(|e| e.seq > event_before && e.source == "siege_engine_reclaimed")
+            .map(|e| e.amount).sum::<i32>());
+        if siege_reclaimed > 0 {
+            msg.push_str(&format!("击溃最后守军，收复攻城器械，军令+{siege_reclaimed}。"));
+        }
+        let ambush_weak = self.battle.as_ref().is_some_and(|b| b.events.iter()
+            .any(|e| e.seq > event_before && e.source == "ambush_vanguard_reeling"));
+        if ambush_weak {
+            msg.push_str("伏兵盾阵被突破，前锋虚弱2层。");
+        }
+        // The commander suffers a visible consequence when a real card
+        // defeats his summoned vanguard. Count only this action's combat
+        // events; restored actions produce the same bounded event stream.
+        let pass_cut = self.battle.as_ref().map_or(0, |b| b.events.iter()
+            .filter(|e| e.seq > event_before && e.source == "yinping_supply_cut"
+                && e.kind == EventKind::DamageDealt)
+            .map(|e| e.amount).sum::<i32>());
+        if pass_cut > 0 {
+            msg.push_str(&format!("夺回阴平山道，邓艾遭反击{pass_cut}点无视护甲伤害。"));
+        }
+        let water_screen = self.battle.as_ref().map_or(0, |b| b.events.iter()
+            .filter(|e| e.seq > event_before && e.source == "jieting_yinping_water_screen"
+                && e.kind == EventKind::PowerTriggered)
+            .map(|e| e.amount).sum::<i32>());
+        if water_screen > 0 {
+            msg.push_str(&format!("街亭守水旧部夺回掩护，护甲+{water_screen}。"));
+        }
+        let retreat_command = self.battle.as_ref().map_or(0, |b| b.events.iter()
+            .filter(|e| e.seq > event_before && e.source == "jieting_yinping_retreat_command"
+                && e.kind == EventKind::PowerTriggered)
+            .map(|e| e.amount).sum::<i32>());
+        if retreat_command > 0 {
+            msg.push_str(&format!("街亭撤退旧部截断山道，回收军令+{retreat_command}。"));
+        }
         if !attack && self.jieting_plan == Some(JietingPlan::RetreatResolved)
             && self.difficulty.is_some() && self.hero == Hero::ZhugeLiang
             && (26..=31).contains(&self.floor)
@@ -1897,7 +2838,7 @@ impl Game {
         let temporary = card.temporary;
         let card_id = card.id.clone();
         self.combat_event(EventKind::CardDiscarded, &card.id, 1, None);
-        let msg = if auto { format!("弃换【{}】：触发策应攻击", card.name()) }
+        let mut msg = if auto { format!("弃换【{}】：触发策应攻击", card.name()) }
                   else { format!("弃换【{}】", card.name()) };
         {
             let b = self.battle.as_mut().expect("battle");
@@ -1914,6 +2855,32 @@ impl Game {
                 c.sun_discard_block = c.sun_discard_block.saturating_add(2);
             });
             self.combat_event(EventKind::PowerTriggered,"sun_discard_guard",2,None);
+        }
+        // Sun Shangxiang's deliberate formation swap can screen a naval
+        // raid, but only after a real paid tactics card earned discard
+        // tokens and Action::Discard actually consumes one. Discard-triggered
+        // flat damage is still ineligible for damage-based boarding bonuses.
+        if self.hero == Hero::SunShangxiang && self.difficulty.is_some()
+            && matches!(self.floor, 2 | 19)
+            && self.last_node == Some(Node::Battle)
+        {
+            let grain = self.floor == 2;
+            let gained = {
+                let b = self.battle.as_mut().expect("naval battle");
+                if let Some(old) = b.convoy_cover {
+                    let next = old.saturating_add(2).min(8);
+                    b.convoy_cover = Some(next);
+                    next - old
+                } else { 0 }
+            };
+            if gained > 0 {
+                self.combat_event(EventKind::PowerTriggered,
+                    if grain { "sun_grain_redeployment" }
+                    else { "sun_naval_redeployment" }, i32::from(gained),
+                    Some(if grain { "convoy" } else { "fleet" }.into()));
+                msg.push_str(&format!("；换阵掩护{}+{gained}",
+                    if grain { "粮车" } else { "战船" }));
+            }
         }
         if temporary {
             self.combat_event(EventKind::CardExhausted,&card_id,1,None);
@@ -1990,19 +2957,30 @@ impl Game {
         damage
     }
     fn ally_support(&mut self, foe_idx: usize, armor: i32) -> String {
-        let (origin, recipients, shielding) = {
+        let (origin, recipients, shielding, disrupted) = {
             let b = self.battle.as_mut().expect("battle");
             let origin = b.foes[foe_idx].id.clone();
+            // A guarded or weakened Yinping vanguard cannot provide full
+            // escort cover. Weak can be applied earlier in the SAME EndTurn
+            // by Deng Ai's intercepted signature; resolve actual support
+            // only after observing that committed status, not at intent roll.
+            // Other assassins, support enemies and legacy saves are unchanged.
+            let disrupted = self.difficulty.is_some() && self.floor == 40
+                && origin == "assassin" && b.foes[foe_idx].weak > 0
+                && b.foes.iter().any(|foe| foe.id == "dengai" && foe.hp > 0);
+            let effective_armor = if disrupted { armor.saturating_mul(3) / 4 } else { armor };
             let partners = b.foes.iter().enumerate()
                 .filter(|(idx,foe)| *idx != foe_idx && foe.hp > 0)
                 .map(|(idx,_)| idx).collect::<Vec<_>>();
             let targets = if partners.is_empty() { vec![foe_idx] } else { partners };
-            for idx in &targets { b.foes[*idx].block += armor; }
+            for idx in &targets { b.foes[*idx].block += effective_armor; }
             let count = targets.len() as i32;
-            (origin,targets.len(),count*armor)
+            (origin,targets.len(),count*effective_armor,disrupted)
         };
         self.combat_event(EventKind::EnemyTechnique,&origin,shielding,Some("allies".into()));
-        format!("{}为{}名友军布阵，累计护甲+{}",enemy_name(&origin),recipients,shielding)
+        format!("{}为{}名友军布阵，累计护甲+{}{}",
+            enemy_name(&origin),recipients,shielding,
+            if disrupted { "；援军遭虚弱牵制，护阵减弱" } else { "" })
     }
 
     fn boss_signature(&mut self, idx: usize, technique: BossMove) -> String {
@@ -2046,7 +3024,10 @@ impl Game {
                 }
             }
             BossMove::GrandAlliance(armor) => {
-                let count = {
+                let coalition = self.difficulty.is_some() && self.floor == 16
+                    && id == "yuanshao";
+                let destiny = self.difficulty == Some(Difficulty::Destiny);
+                let (count, tax) = {
                     let b = self.battle.as_mut().expect("battle");
                     let mut count = 0;
                     for foe in &mut b.foes {
@@ -2056,10 +3037,28 @@ impl Game {
                             count +=1;
                         }
                     }
-                    count
+                    // The officer coordinates the supply interdiction.
+                    // Defeating him before this telegraphed signature means
+                    // the commander can still guard but cannot tax command.
+                    let tax = if coalition && b.foes.iter().any(|f|
+                        f.id == "officer" && f.hp > 0) {
+                        let penalty = if destiny && phase > 0 { 2 } else { 1 };
+                        b.next_turn_energy_penalty =
+                            b.next_turn_energy_penalty.max(penalty);
+                        penalty
+                    } else { 0 };
+                    (count,tax)
                 };
-                format!("四世三公列阵，{count}名敌军护甲+{armor}{}",
-                    if phase>0 {"，援军武勇+1"} else {""})
+                if tax > 0 {
+                    self.combat_event(EventKind::EnemyTechnique,
+                        "yuanshao_supply_interdiction", i32::from(tax),
+                        Some("hero".into()));
+                }
+                format!("四世三公列阵，{count}名敌军护甲+{armor}{}{}",
+                    if phase>0 {"，援军武勇+1"} else {""},
+                    if tax > 0 { format!("；亲卫封锁粮道，下回合军令-{tax}") }
+                    else if coalition { "；亲卫被歼，封粮中断".into() }
+                    else { String::new() })
             }
             BossMove::HiddenScheme(penalty) => {
                 let b = self.battle.as_mut().expect("battle");
@@ -2109,6 +3108,205 @@ impl Game {
                     format!("北伐断粮成功（需护甲{required}）：下回合军令-1，军心受扰")
                 }
             }
+            BossMove::YinpingFlank(phase) => {
+                // This defensive window is expressed entirely in actions:
+                // played_this_turn counts cards committed through Game::apply,
+                // so a resumed battle cannot invent or lose the counterplay.
+                let required = 3 + u32::from(phase);
+                let played = u32::from(self.battle.as_ref().expect("battle").played_this_turn);
+                // A defensive build can also seal the mountain pass. Unlike
+                // the former post-enemy-turn block reward, this check consumes
+                // actual armor earned by legal cards before the turn reset.
+                // Streeting's ten-point starting cover is a historical grant,
+                // not armor actively raised to intercept this raid. On the opening
+                // turn exclude it from the defense-only threshold; later turns use
+                // the full player-held block after the normal end-turn reset.
+                let free_water_cover = self.hero == Hero::ZhugeLiang
+                    && self.floor == 40
+                    && self.jieting_plan == Some(JietingPlan::WaterSettled)
+                    && self.battle.as_ref().is_some_and(|b| b.turn == 1);
+                let guarded = self.battle.as_ref().is_some_and(|b| {
+                    b.block >= 10 + 2 * i32::from(phase)
+                        + if free_water_cover { 10 } else { 0 }
+                });
+                if played >= required || guarded {
+                    self.apply_foe_status(idx, "vulnerable", 3);
+                    // A defense-first player takes a real alternate route:
+                    // sealing the pass without meeting the card-count threshold
+                    // disrupts Deng Ai's next attack. Two weak stacks are applied
+                    // before EndTurn decrements one, leaving one for the next
+                    // actual enemy action. Existing status/event/foe-board
+                    // journaling covers save, restore and replay.
+                    let defense_only = guarded && played < required;
+                    if defense_only {
+                        self.apply_foe_status(idx, "weak", 2);
+                    }
+                    // A solo boss has no other enemy intent after this raid:
+                    // end_turn clears hero block before the next player turn.
+                    // Settling real piercing damage here (rather than awarding
+                    // immediately-expiring cover) makes interception an actual
+                    // tactical consequence, recorded in the authoritative
+                    // combat event stream and replayed from legal card actions.
+                    // The Jieting retreat preserves a mobile reserve. The extra
+                    // opening command is useful even before the signature;
+                    // spending real cards or guarding the pass now also
+                    // turns that historical decision into a stronger counter.
+                    // No bonus is awarded on a failed interception.
+                    let retreat_reserve = self.hero == Hero::ZhugeLiang
+                        && self.jieting_plan == Some(JietingPlan::RetreatSettled)
+                        && self.floor == 40 && self.difficulty.is_some()
+                        && self.battle.as_ref().is_some_and(|b|
+                            b.foes[idx].id == "dengai");
+                    let counter = 4 + 2 * i32::from(phase)
+                        + if retreat_reserve { 2 } else { 0 };
+                    let inflicted = self.deal_enemy_damage_unblockable(
+                        idx, counter, "yinping_interception");
+                    // A successful phase-two defense can pin an existing
+                    // mountain raider as well as Deng Ai. This is a real
+                    // alternative to racing four cards: the player must
+                    // build the displayed armor threshold with legal actions.
+                    // The raider is already visible, so no hidden intent or
+                    // RNG is rewritten. Two weak stacks leave one after the
+                    // current EndTurn status decay, preserving a counterplay
+                    // window on its next actual attack.
+                    let pinned_raider = if defense_only && phase > 0 {
+                        self.battle.as_ref().and_then(|b| b.foes.iter()
+                            .position(|foe| foe.id == "assassin" && foe.hp > 0))
+                    } else { None };
+                    if let Some(raider_idx) = pinned_raider {
+                        self.apply_foe_status(raider_idx, "weak", 2);
+                        self.combat_event(EventKind::PowerTriggered,
+                            "yinping_raider_pinned", 1,
+                            Some(format!("foe:{raider_idx}")));
+                    }
+                    // The offensive alternative is not another free shield:
+                    // four actual player cards reveal the living escort's
+                    // position, exposing it to a follow-up direct strike.
+                    // The defense-only path instead weakens its next action.
+                    // Both use the same already-summoned foe and authoritative
+                    // status/event stream, so save/replay needs no new field.
+                    let exposed_raider = if phase > 0 && played >= required {
+                        self.battle.as_ref().and_then(|b| b.foes.iter()
+                            .position(|foe| foe.id == "assassin" && foe.hp > 0))
+                    } else { None };
+                    // The offensive interception also opens the escort's
+                    // actual shield line. Removing existing armor here makes
+                    // the four-card route useful against an already fortified
+                    // raider, without inventing an attack, a new resource, or
+                    // a persistent flag. This is committed only after legal
+                    // cards have satisfied the displayed raid threshold.
+                    let broken_raider_armor = if let Some(raider_idx) = exposed_raider {
+                        self.apply_foe_status(raider_idx, "vulnerable", 3);
+                        self.combat_event(EventKind::PowerTriggered,
+                            "yinping_raider_exposed", 1,
+                            Some(format!("foe:{raider_idx}")));
+                        let broken = {
+                            let battle = self.battle.as_mut().expect("battle");
+                            let foe = &mut battle.foes[raider_idx];
+                            let broken = foe.block.min(6);
+                            foe.block -= broken;
+                            broken
+                        };
+                        if broken > 0 {
+                            self.combat_event(EventKind::PowerTriggered,
+                                "yinping_raider_armor_broken", broken,
+                                Some(format!("foe:{raider_idx}")));
+                        }
+                        broken
+                    } else { 0 };
+                    format!("阴平偷渡被截击：本回合出牌{played}/{required}{}，反击造成{inflicted}点无视护甲伤害，邓艾阵线暴露并易伤{}{}{}",
+                        if guarded { "，护阵封锁山道" } else { "" },
+                        if defense_only { "；坚守扰乱偷渡军，下回合邓艾攻击虚弱" } else { "" },
+                        if pinned_raider.is_some() { "；山道援军也被压制，下次攻击虚弱" } else { "" },
+                        if exposed_raider.is_some() { format!("；连环出牌识破山道援军，援军易伤，击破现有护甲{broken_raider_armor}，可优先击破") } else { String::new() })
+                } else {
+                    // A failed interception is not an all-or-nothing defense.
+                    // On the resource-starved turn after an earlier raid, two
+                    // actual defense cards can still raise ten armor. If an
+                    // existing raider is visible, that shield screens its
+                    // forthcoming attack even though Deng Ai still steals gold.
+                    // Check BEFORE summoning; unseen reinforcements may not
+                    // receive a retroactive counterplay effect.
+                    let screened_raider = if phase > 0
+                        && self.battle.as_ref().is_some_and(|b| b.block >= 10)
+                    {
+                        self.battle.as_ref().and_then(|b| b.foes.iter()
+                            .position(|foe| foe.id == "assassin" && foe.hp > 0))
+                    } else { None };
+                    if let Some(raider_idx) = screened_raider {
+                        self.apply_foe_status(raider_idx, "weak", 2);
+                        self.combat_event(EventKind::PowerTriggered,
+                            "yinping_raider_screened", 1,
+                            Some(format!("foe:{raider_idx}")));
+                    }
+                    // A surviving vanguard can escort stolen supplies out
+                    // of the pass. This is an extra, bounded consequence of
+                    // leaving a visible target alive, not an unavoidable tax:
+                    // defeating the raider or raising ten armor stops the
+                    // escort even if Deng Ai's main interception still fails.
+                    let base_stolen = self.gold.min(10 + 5 * i32::from(phase > 0));
+                    let raider_escort = phase > 0 && screened_raider.is_none()
+                        && self.battle.as_ref().is_some_and(|b| b.foes.iter()
+                            .any(|foe| foe.id == "assassin" && foe.hp > 0));
+                    let escort_stolen = if raider_escort {
+                        (self.gold - base_stolen).min(5)
+                    } else { 0 };
+                    let stolen = base_stolen + escort_stolen;
+                    self.gold -= stolen;
+                    if escort_stolen > 0 {
+                        self.combat_event(EventKind::EnemyTechnique,
+                            "yinping_raider_escort_levy", escort_stolen,
+                            Some("gold".into()));
+                        // Carrying stolen supplies exposes the raider's flank:
+                        // the player can punish the failed defense next turn.
+                        // Apply before the normal turn-end status tick so the
+                        // surviving vulnerability remains replayable.
+                        if let Some(raider_idx) = self.battle.as_ref().and_then(|battle|
+                            battle.foes.iter().position(|foe|
+                                foe.id == "assassin" && foe.hp > 0))
+                        {
+                            self.apply_foe_status(raider_idx, "vulnerable", 2);
+                        }
+                    }
+                    let shield = 6 + 3 * i32::from(phase);
+                    // The phase-two failure can divert a mountain vanguard to
+                    // the battlefield, once per encounter. Defeated reinforcements
+                    // remain in the foe list, preventing unlimited respawns.
+                    // EndTurn captured enemy intents before this action, so a
+                    // summoned raider cannot attack until its intent is shown
+                    // to the player on the following turn.
+                    let raider_hp = enemy_hp("assassin")
+                        + i32::from(self.floor / self.campaign_rows()) * 2
+                        + self.difficulty.map_or(0, Difficulty::enemy_hp_bonus);
+                    let summoned = {
+                        let b = self.battle.as_mut().expect("battle");
+                        b.foes[idx].block = b.foes[idx].block.saturating_add(shield);
+                        if phase > 0 {
+                            b.next_turn_energy_penalty = b.next_turn_energy_penalty.max(1);
+                        }
+                        if phase > 0 && b.foes.len() < 4
+                            && !b.foes.iter().any(|foe| foe.id == "assassin")
+                        {
+                            let new_index = b.foes.len();
+                            b.foes.push(Foe {
+                                id: "assassin".into(), hp: raider_hp, max_hp: raider_hp,
+                                block: 0, strength: 0, poison: 0, vulnerable: 0, weak: 0,
+                                intent: Intent::Guard(4), phase: 0,
+                            });
+                            Some(new_index)
+                        } else { None }
+                    };
+                    if let Some(new_index) = summoned {
+                        self.combat_event(EventKind::FoeSummoned, "assassin", 1,
+                            Some(format!("foe:{new_index}")));
+                    }
+                    format!("阴平偷渡得手：本回合出牌{played}/{required}，失去{stolen}金，邓艾护甲+{shield}{}{}{}{}",
+                        if phase > 0 { "，下回合军令-1" } else { "" },
+                        if summoned.is_some() { "，山道援兵已出现（下回合才行动）" } else { "" },
+                        if screened_raider.is_some() { "，护阵牵制已有山道援军，攻击虚弱且阻止追加掠金" } else { "" },
+                        if escort_stolen > 0 { format!("，山道援军协同多掠金{escort_stolen}，负重暴露破绽（易伤）") } else { String::new() })
+                }
+            }
             BossMove::StarOmen(phase) => {
                 let required = 9 + i32::from(phase) * 2;
                 if self.battle.as_ref().is_some_and(|b| b.block >= required) {
@@ -2144,10 +3342,14 @@ impl Game {
             .iter().enumerate().filter(|(_,foe)|
                 foe.hp > 0 && foe.phase == 0 && foe.hp * 2 <= foe.max_hp
                 && matches!(foe.id.as_str(),"zhangjiao"|"sunjian"|"dongzhuo"|"yuanshao"|"simayi"|"zuoci"
-                    |"luxun"|"lumeng"|"jiangwei"|"elite"|"war_elephant"|"royal_guard"|"tiger_general"|"sacred_beast"))
+                    |"luxun"|"lumeng"|"jiangwei"|"dengai"|"elite"|"war_elephant"|"royal_guard"|"tiger_general"|"sacred_beast"))
             .map(|(i,foe)| (i,foe.id.clone())).collect();
         let mut messages = vec![];
         for (idx,id) in changes {
+            let yuan_support_cut = self.difficulty.is_some()
+                && self.floor == 16 && id == "yuanshao"
+                && !self.battle.as_ref().expect("battle").foes.iter()
+                    .any(|foe| foe.id == "officer" && foe.hp > 0);
             let b = self.battle.as_mut().expect("battle");
             let mut summoned: Option<(&'static str, usize)> = None;
             b.foes[idx].phase = 1;
@@ -2157,7 +3359,7 @@ impl Game {
                         "zhangjiao" => "yellow_turban",
                         "yuanshao" => "officer", _ => "shaman",
                     };
-                    if b.foes.len() < 4 {
+                    if b.foes.len() < 4 && !yuan_support_cut {
                         let hp = enemy_hp(ally);
                         let new_index = b.foes.len();
                         b.foes.push(Foe {
@@ -2174,6 +3376,7 @@ impl Game {
                     messages.push(format!("{}进入第二阶段{}",
                         enemy_name(&id),
                         if summoned.is_some() {"并呼叫援军（援军下回合开始行动）"}
+                        else if yuan_support_cut {"，亲卫被歼，粮道断绝无法再召援军"}
                         else {"，但战场编制已满，无法增援"}));
                 }
                 "lumeng" => {
@@ -2185,6 +3388,11 @@ impl Game {
                     b.foes[idx].strength += 2;
                     b.foes[idx].block += 10;
                     messages.push("姜维北伐进入第二阶段：武勇+2、护甲+10；守粮所需护甲升至10".into());
+                }
+                "dengai" => {
+                    b.foes[idx].strength += 2;
+                    b.foes[idx].block += 8;
+                    messages.push("邓艾阴平奇袭进入第二阶段：武勇+2、护甲+8；下次偷渡需打出4张牌或护甲12截击，否则首次失守将召援军".into());
                 }
                 "luxun" => {
                     b.foes[idx].strength += 2;
@@ -2294,6 +3502,22 @@ impl Game {
         if self.defeated() { return Ok(self.win_battle()); }
         self.troop_attack();
         if self.defeated() { return Ok(self.win_battle()); }
+        // A timed breakout need not force an attack-only deck: a player who
+        // pays for three cards and maintains a 12-point shield can retreat
+        // in formation before the enemy gets another strike. Both conditions
+        // come exclusively from legal Game::apply(Action::Play) actions and
+        // the authoritative player block snapshot at EndTurn. It is a full
+        // victory settlement, not free escape on an unplayed starting shield.
+        let formation_escape = self.difficulty.is_some() && self.floor == 1
+            && self.last_node == Some(Node::Battle)
+            && self.battle.as_ref().is_some_and(|b|
+                b.played_this_turn >= 3 && b.block >= 12);
+        if formation_escape {
+            self.combat_event(EventKind::PowerTriggered,
+                "breakout_formation_escape", 1, Some("hero".into()));
+            return Ok(format!("突围结阵成功：连贯出牌并以12点护甲护送全军脱围。{}",
+                self.win_battle()));
+        }
         // The fire first ignites during a telegraphed enemy action; damage
         // arrives next turn, after the player could use defense to extinguish it.
         let fire = self.battle.as_ref().expect("battle").wildfire;
@@ -2389,7 +3613,15 @@ impl Game {
                 (b.foes.iter().filter(|foe| foe.hp > 0).count() as u8,
                     b.convoy_cover.unwrap_or(0))
             };
-            let damage = enemy_count.saturating_mul(4).saturating_sub(cover);
+            let fleet_objective = self.difficulty.is_some() && self.floor == 19
+                && self.last_node == Some(Node::Battle);
+            let adverse_current = if fleet_objective {
+                self.naval_tide_pressure(self.battle.as_ref().expect("battle").turn)
+            } else {
+                self.grain_raid_pressure(self.battle.as_ref().expect("battle").turn)
+            };
+            let damage = enemy_count.saturating_mul(4)
+                .saturating_add(adverse_current).saturating_sub(cover);
             let actual = damage.min(hp);
             {
                 let b = self.battle.as_mut().expect("battle");
@@ -2399,12 +3631,18 @@ impl Game {
             let water_objective = self.difficulty.is_some() && (26..=31).contains(&self.floor)
                 && self.hero == Hero::ZhugeLiang;
             self.combat_event(EventKind::EnemyTechnique,
-                if water_objective { "water_raided" } else { "convoy_raided" },
-                i32::from(actual), Some(if water_objective { "water" } else { "convoy" }.into()));
-            messages.push(if (26..=31).contains(&self.floor) && self.hero == Hero::ZhugeLiang {
+                if water_objective { "water_raided" }
+                else if fleet_objective { "naval_hull_raided" }
+                else { "convoy_raided" },
+                i32::from(actual), Some(if water_objective { "water" }
+                    else if fleet_objective { "fleet" } else { "convoy" }.into()));
+            messages.push(if water_objective {
                 format!("水源遭劫{actual}点，剩余{}点", hp - actual)
+            } else if fleet_objective {
+                format!("水陆阵战：{}敌船突袭，战船失去{actual}点耐久，剩余{}点",
+                    if adverse_current > 0 { "逆流中" } else { "" }, hp - actual)
             } else {
-                format!("粮车遭劫{actual}体力，剩余{}体力", hp - actual)
+                format!("粮车遭劫{actual}体力（本回合补给失序额外+{adverse_current}），剩余{}体力", hp - actual)
             });
             if actual == hp {
                 self.record_metric(|c| c.battles_lost = c.battles_lost.saturating_add(1));
@@ -2413,9 +3651,39 @@ impl Game {
                 self.stage = Stage::Lost;
                 self.battle = None;
                 return Ok(format!("{}。{}，征途结束。", messages.join("；"),
-                    if (26..=31).contains(&self.floor) && self.hero == Hero::ZhugeLiang {
-                        "街亭水源保卫失败，水源耗尽"
-                    } else { "粮道保卫失败，粮车被毁" }));
+                    if water_objective { "街亭水源保卫失败，水源耗尽" }
+                    else if fleet_objective { "水陆阵战失败，战船覆没" }
+                    else { "粮道保卫失败，粮车被毁" }));
+            }
+            // A genuine escort victory needs three resolved raiding turns,
+            // intact cargo and cover earned in the final turn. It is never
+            // awarded before enemy attacks or for a sinking convoy.
+            let grain_objective = self.difficulty.is_some() && self.floor == 2
+                && self.last_node == Some(Node::Battle);
+            if grain_objective && cover >= 4
+                && self.battle.as_ref().is_some_and(|b|
+                    b.turn >= 3 && b.convoy_hp.is_some_and(|cargo| cargo >= 4))
+            {
+                self.combat_event(EventKind::PowerTriggered,
+                    "grain_convoy_escorted", 1, Some("convoy".into()));
+                messages.push("粮道护送完成：三回合保护辎重并抵达营寨".into());
+                return Ok(format!("{}。{}", messages.join("；"), self.win_battle()));
+            }
+            // A defense- or control-heavy deck can escort the fleet without
+            // exterminating every raider. The exit is earned only after four
+            // fully resolved enemy turns, the hull still has >=6 durability,
+            // and the player actually established fresh cover this turn.
+            // This cannot be claimed from a preloaded shield, short-circuit
+            // the enemy attack, or bypass a lethal hull raid. Use the normal
+            // battle seal and payout, retaining replay/save determinism.
+            if fleet_objective && cover > 0
+                && self.battle.as_ref().is_some_and(|b|
+                    b.turn >= 4 && b.convoy_hp.is_some_and(|hull| hull >= 6))
+            {
+                self.combat_event(EventKind::PowerTriggered,
+                    "naval_escort_delivered", 1, Some("fleet".into()));
+                messages.push("水陆护航：四回合交锋后舰队仍完整，成功突围渡江".into());
+                return Ok(format!("{}。{}", messages.join("；"), self.win_battle()));
             }
             // Only the paid Jieting water-defense plan can repair its wells.
             // A guard must have contributed cover to a real nonlethal raid;
@@ -3186,6 +4454,16 @@ impl Game {
                 };
                 self.doctrine_status()
             },
+            Action::SetExpandedVariants { act1, act2, act3, act4, act5 } => {
+                if self.difficulty.is_none() || self.floor != 0 || self.stage != Stage::Map {
+                    return Err("五幕变体只能在新制战役进入第一层前设置".into());
+                }
+                if [act1, act2, act3, act4, act5].iter().any(|n| *n > 1) {
+                    return Err("每幕仅允许变体0或1".into());
+                }
+                self.variants = Some([act1, act2, 8 | act3 | (act4 << 1) | (act5 << 2)]);
+                format!("五幕章节已选：{act1}/{act2}/{act3}/{act4}/{act5}")
+            },
             Action::SetVariants { act1, act2, act3 } => {
                 if self.floor != 0 || self.stage != Stage::Map {
                     return Err("只能在进入第一层前设置章节变体".into());
@@ -3940,6 +5218,34 @@ mod tests {
         let before = g.to_json().unwrap();
         assert!(g.apply(Action::UsePotionAt { slot: 1, target: 1 }).is_err());
         assert_eq!(g.to_json().unwrap(), before);
+    }
+
+    #[test]
+    fn expanded_variants_select_fourth_and_fifth_act_independently_and_resume() {
+        let mut game = Game::new_with_campaign_difficulty(
+            Hero::ZhugeLiang, 7, Difficulty::Warlords, "five-act-branches".into(),
+        );
+        game.apply(Action::SetExpandedVariants {
+            act1: 0, act2: 0, act3: 1, act4: 0, act5: 1,
+        }).unwrap();
+        assert_eq!(game.act_variant(2), 1);
+        assert_eq!(game.act_variant(3), 0);
+        assert_eq!(game.act_variant(4), 1);
+        let saved = game.to_json().unwrap();
+        let restored = Game::from_json(&saved).unwrap();
+        assert_eq!(restored.to_json().unwrap(), saved);
+        assert_eq!(restored.act_variant(4), 1);
+        assert!(game.apply(Action::SetExpandedVariants {
+            act1: 0, act2: 0, act3: 0, act4: 0, act5: 2,
+        }).is_err());
+        assert_eq!(game.to_json().unwrap(), saved);
+        let mut legacy = Game::new_with_campaign_difficulty(
+            Hero::ZhugeLiang, 7, Difficulty::Warlords, "legacy-branches".into(),
+        );
+        legacy.apply(Action::SetVariants { act1: 0, act2: 0, act3: 1 }).unwrap();
+        assert_eq!(legacy.act_variant(2), 1);
+        assert_eq!(legacy.act_variant(3), 1);
+        assert_eq!(legacy.act_variant(4), 1);
     }
 
     #[test]
@@ -5305,7 +6611,7 @@ mod p1_event_cursor_tests {
                 covered+=1;
             }
         }
-        assert_eq!(covered,33*5);
+        assert_eq!(covered,35*5);
     }
 
 }
@@ -5392,9 +6698,10 @@ mod p1_enemy_potion_matrix_regression {
     const HEROES: [Hero; 5] = [
         Hero::GuanYu, Hero::ZhugeLiang, Hero::SunShangxiang, Hero::CaoCao, Hero::LuBu,
     ];
-    const SECOND_PHASE: [&str; 12] = [
+    const SECOND_PHASE: [&str; 15] = [
         "elite", "war_elephant", "royal_guard", "tiger_general", "sacred_beast",
         "zhangjiao", "sunjian", "dongzhuo", "yuanshao", "simayi", "zuoci", "luxun",
+        "lumeng", "jiangwei", "dengai",
     ];
 
     fn versus(hero: Hero, foe_id: &str, ascension: u8, seed: u64) -> Game {
@@ -5421,7 +6728,7 @@ mod p1_enemy_potion_matrix_regression {
 
     #[test]
     fn every_enemy_and_boss_phase_resolves_three_real_turns_for_each_class_at_low_and_high_ascension() {
-        assert_eq!(content::ENEMY_IDS.len(),33,"update matrix when enemy roster changes");
+        assert_eq!(content::ENEMY_IDS.len(),35,"update matrix when enemy roster changes");
         let mut cases=0;
         let mut turns=0;
         for hero in HEROES {
@@ -5455,8 +6762,8 @@ mod p1_enemy_potion_matrix_regression {
                 }
             }
         }
-        assert_eq!(cases,450);
-        assert_eq!(turns,1350);
+        assert_eq!(cases,500);
+        assert_eq!(turns,1500);
     }
 
     #[test]
@@ -5488,7 +6795,7 @@ mod p1_enemy_potion_matrix_regression {
                 }
             }
         }
-        assert_eq!(cases,1650);
+        assert_eq!(cases,1750);
     }
 }
 
