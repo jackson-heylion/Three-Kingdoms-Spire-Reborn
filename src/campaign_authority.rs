@@ -128,7 +128,9 @@ pub enum CampaignEvent {
 pub fn transition(before: &CampaignState, after: &CampaignState, revision: u64)
     -> Result<CampaignEvent, String>
 {
-    if !before.valid() || !after.valid() || after.floor < before.floor {
+    if !before.valid() || !after.valid() || after.floor < before.floor
+        || after.identity != before.identity
+    {
         return Err("invalid campaign state transition".into());
     }
     Ok(CampaignEvent::Changed {
