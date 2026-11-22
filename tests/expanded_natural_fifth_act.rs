@@ -97,7 +97,11 @@ fn fight(game: &mut Game) -> Result<(), String> {
                         | Effect::HitPoison(_, _) => 2,
                         Effect::Guard(_) | Effect::GuardEnergy(_) | Effect::XGuard(_)
                             if protect_objective => 1,
-                        Effect::Guard(_) | Effect::GuardEnergy(_) | Effect::XGuard(_) => 3,
+                        // When the engine announces incoming damage, a legal guard
+                        // must be played before spending the last energy on attacks.
+                        // Otherwise this policy observes the warning but never
+                        // actually takes the defensive action it selected.
+                        Effect::Guard(_) | Effect::GuardEnergy(_) | Effect::XGuard(_) => 1,
                         _ => 4,
                     };
                     Some((priority, index, card))
