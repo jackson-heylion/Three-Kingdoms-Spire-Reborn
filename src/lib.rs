@@ -4276,6 +4276,12 @@ impl Game {
             (4,1) => 40, (8,1) => 20, (9,1) => 40, _ => 0,
         };
         if self.gold < cost { return Err(format!("需要{cost}金")); }
+        // Paid medicine must never silently turn into a net gold loss when
+        // the three potion slots are full. Free medicine may still convert
+        // into its advertised fallback reward.
+        if event == 3 && index == 1 && self.potions >= 3 {
+            return Err("药剂已满（3瓶），请先使用药剂或选择其他奇遇".into());
+        }
         self.gold -= cost;
         let msg = match (event,index) {
             (0,1) | (2,1) | (8,1) => {
@@ -5303,6 +5309,27 @@ mod tests {
         assert_eq!(g.route,next.iter().map(|(_,node)|*node).collect::<Vec<_>>());
         let json = g.to_json().unwrap();
         assert_eq!(Game::from_json(&json).unwrap().to_json().unwrap(),json);
+    }
+
+    #[test]
+    fn paid_story_medicine_rejects_full_inventory_without_charging() {
+        let mut game = Game::new(Hero::GuanYu, 20261123);
+        game.stage = Stage::Story;
+        game.lore_current = None;
+        game.event_id = 3;
+        game.gold = 50;
+        game.potion_bag = vec!["healing".into(), "shield".into(), "energy".into()];
+        game.potions = 3;
+        let before = game.to_json().unwrap();
+        assert!(game.apply(Action::Choose { index: 1 }).is_err());
+        assert_eq!(game.to_json().unwrap(), before);
+        // The alternative free medicine event retains its documented
+        // full-inventory conversion without charging the player.
+        game.event_id = 8;
+        let before_gold = game.gold;
+        game.apply(Action::Choose { index: 3 }).unwrap();
+        assert_eq!(game.gold, before_gold + 15);
+        assert_eq!(game.potions, 3);
     }
 
     #[test]
