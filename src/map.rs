@@ -158,7 +158,14 @@ impl ActMap {
             let mut next=[false;3];
             for (previous,found) in reachable.iter().enumerate() {
                 let bits=self.edges.get(row-1).map_or(0, |edges| edges[previous]);
-                if bits&!0b111!=0 || (bits!=0 && self.terrain_at(row-1,previous as u8)==Terrain::Closed)
+                // Validate every persisted edge, including unreachable lanes.
+                // Otherwise a corrupted branch can survive JSON restore until
+                // another action exposes it as a playable route.
+                if bits&!0b111!=0
+                    || (bits!=0 && self.terrain_at(row-1,previous as u8)==Terrain::Closed)
+                    || (row_count==EXPANDED_ROWS
+                        && self.terrain_at(row-1,previous as u8)!=Terrain::Closed
+                        && bits==0)
                 {return false;}
                 for to in 0usize..3 {
                     if bits&(1u8<<to)!=0 && (previous.abs_diff(to)>1 ||
@@ -342,6 +349,23 @@ mod tests {
         map.edges[0][0]=0;
         assert!(!map.is_valid());
     }
+    #[test]
+    fn unreachable_lanes_cannot_hide_corrupt_expanded_edges() {
+        let mut map=ActMap::generate_expanded(|n| n/2, 3);
+        assert!(map.is_valid());
+        // The middle lane is never reachable after the first transition.
+        // Even then its serialized edge must not point beyond the map.
+        map.edges[0]=[0b001, 0b001, 0b100];
+        map.edges[1][1]=0b1000;
+        assert!(!map.is_valid(), "unreachable lane must not hide invalid edge bits");
+        map.edges[1][1]=0b001;
+        map.terrain[1][1]=Terrain::Closed;
+        assert!(!map.is_valid(), "closed source cannot carry a persisted edge");
+        map.terrain[1][1]=Terrain::Road;
+        map.edges[1][1]=0;
+        assert!(!map.is_valid(), "expanded open lane cannot silently lose its onward route");
+    }
+
     #[test]
     fn route_scores_react_to_health_and_special_terrain() {
         let mut map=ActMap::generate(|n|n/2,0);
