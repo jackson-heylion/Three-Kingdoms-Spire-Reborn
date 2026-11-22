@@ -153,3 +153,23 @@ fn identity_cannot_change_mid_campaign_and_legacy_saves_stay_playable() {
     loaded.apply(Action::EndTurn).unwrap();
     assert_eq!(Game::from_json(&loaded.to_json().unwrap()).unwrap().revision, 2);
 }
+
+#[test]
+fn authoritative_transition_rejects_identity_swap_before_commit() {
+    let game = Game::new_with_identity(
+        Hero::GuanYu, 20261123, 0, RunMode::Custom, "identity-guard".into());
+    let before = CampaignState::current(&game);
+    let mut after = before.clone();
+    after.identity.as_mut().unwrap().run_id.push_str("-forged");
+    assert!(campaign_authority::transition(&before, &after, 1)
+        .unwrap_err().contains("invalid campaign state transition"));
+
+    let unchanged = campaign_authority::transition(&before, &before, 1).unwrap();
+    assert!(matches!(unchanged, CampaignEvent::Changed { revision: 1, state: None }));
+
+    // Pre-upgrade journals without an identity must not be rejected merely
+    // because the current Game snapshot carries an identity.
+    let mut legacy = before.clone();
+    legacy.identity = None;
+    assert!(campaign_authority::transition(&legacy, &before, 1).is_ok());
+}
