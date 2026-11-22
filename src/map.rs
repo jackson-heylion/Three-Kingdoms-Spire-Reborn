@@ -161,7 +161,11 @@ impl ActMap {
                 // Validate every persisted edge, including unreachable lanes.
                 // Otherwise a corrupted branch can survive JSON restore until
                 // another action exposes it as a playable route.
-                if bits&!0b111!=0 || (bits!=0 && self.terrain_at(row-1,previous as u8)==Terrain::Closed)
+                if bits&!0b111!=0
+                    || (bits!=0 && self.terrain_at(row-1,previous as u8)==Terrain::Closed)
+                    || (row_count==EXPANDED_ROWS
+                        && self.terrain_at(row-1,previous as u8)!=Terrain::Closed
+                        && bits==0)
                 {return false;}
                 for to in 0usize..3 {
                     if bits&(1u8<<to)!=0 && (previous.abs_diff(to)>1 ||
@@ -357,6 +361,9 @@ mod tests {
         map.edges[1][1]=0b001;
         map.terrain[1][1]=Terrain::Closed;
         assert!(!map.is_valid(), "closed source cannot carry a persisted edge");
+        map.terrain[1][1]=Terrain::Road;
+        map.edges[1][1]=0;
+        assert!(!map.is_valid(), "expanded open lane cannot silently lose its onward route");
     }
 
     #[test]
