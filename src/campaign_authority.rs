@@ -187,6 +187,52 @@ pub fn project(events: &[CampaignEvent]) -> Result<(CampaignState, u64), String>
     projector.state()
 }
 
+
+/**
+ * Stable, replay-derived historical decisions. Only committed changes to the
+ * three tactical plans count; narrative displays, revisits and unchanged
+ * revisions never create a new interaction. This is a conservative lower
+ * bound, not the SPEC's complete 12–18 interaction metric.
+ */
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HistoricalDecision {
+    pub id: String,
+    pub revision: u64,
+    pub floor: u8,
+    pub kind: String,
+}
+
+pub fn historical_decisions(events: &[CampaignEvent]) -> Result<Vec<HistoricalDecision>, String> {
+    let mut projector = CampaignProjector::default();
+    let mut decisions = Vec::new();
+    for event in events {
+        let previous = projector.state.as_ref().cloned();
+        projector.push(event)?;
+        let Some(before) = previous else { continue };
+        let Some(after) = projector.state.as_ref() else { continue };
+        let revision = projector.revision;
+        if before.identity.as_ref().is_none_or(|identity| identity.difficulty.is_none()) {
+            continue;
+        }
+        let changes = [
+            ("wuchao", before.wuchao_plan != after.wuchao_plan && after.wuchao_plan.is_some()),
+            ("chibi", before.chibi_plan != after.chibi_plan && after.chibi_plan.is_some()),
+            ("jieting", before.jieting_plan != after.jieting_plan && after.jieting_plan.is_some()),
+        ];
+        for (kind, changed) in changes {
+            if changed {
+                decisions.push(HistoricalDecision {
+                    id: format!("{}:{}:{}", after.identity.as_ref().map_or("", |id| id.run_id.as_str()), kind, revision),
+                    revision,
+                    floor: after.floor,
+                    kind: kind.to_owned(),
+                });
+            }
+        }
+    }
+    Ok(decisions)
+}
+
 impl Game {
     pub fn audit_campaign_authority(&self) -> Result<usize, String> {
         let history = self.campaign_history.as_ref()
