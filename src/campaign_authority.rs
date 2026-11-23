@@ -3,6 +3,7 @@
 //! This covers map, route, narrative and inventory, but not full Game sourcing.
 use crate::{Game, Stage, Node, Card, WuchaoPlan, ChibiPlan, JietingPlan, RunMode, MAX_FLOOR, EXPANDED_MAX_FLOOR, map, archetypes, challenges, difficulty::Difficulty, content::Hero};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 /// Immutable rules identity anchored at revision zero, independently of the
 /// mutable Game snapshot. An absent identity means a pre-upgrade journal and
@@ -205,6 +206,7 @@ pub struct HistoricalDecision {
 pub fn historical_decisions(events: &[CampaignEvent]) -> Result<Vec<HistoricalDecision>, String> {
     let mut projector = CampaignProjector::default();
     let mut decisions = Vec::new();
+    let mut recorded = HashSet::new();
     for event in events {
         let previous = projector.state.as_ref().cloned();
         projector.push(event)?;
@@ -214,13 +216,16 @@ pub fn historical_decisions(events: &[CampaignEvent]) -> Result<Vec<HistoricalDe
         if before.identity.as_ref().is_none_or(|identity| identity.difficulty.is_none()) {
             continue;
         }
+        // A council placeholder is not a committed tactical choice. Count
+        // the first resolved choice once per historical chain, not repeated
+        // transitions, revisits or a later change to the same plan.
         let changes = [
-            ("wuchao", before.wuchao_plan != after.wuchao_plan && after.wuchao_plan.is_some()),
-            ("chibi", before.chibi_plan != after.chibi_plan && after.chibi_plan.is_some()),
-            ("jieting", before.jieting_plan != after.jieting_plan && after.jieting_plan.is_some()),
+            ("wuchao", before.wuchao_plan != after.wuchao_plan && after.wuchao_plan.is_some_and(|plan| plan != WuchaoPlan::Council)),
+            ("chibi", before.chibi_plan != after.chibi_plan && after.chibi_plan.is_some_and(|plan| plan != ChibiPlan::Council)),
+            ("jieting", before.jieting_plan != after.jieting_plan && after.jieting_plan.is_some_and(|plan| plan != JietingPlan::Council)),
         ];
         for (kind, changed) in changes {
-            if changed {
+            if changed && recorded.insert(kind) {
                 decisions.push(HistoricalDecision {
                     id: format!("{}:{}:{}", after.identity.as_ref().map_or("", |id| id.run_id.as_str()), kind, revision),
                     revision,
