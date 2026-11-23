@@ -196,5 +196,8 @@ fn legacy_identity_free_journal_remains_projectable_after_multiple_real_actions(
     let reloaded = Game::from_json(&restored.to_json().unwrap()).unwrap();
     assert_eq!(campaign_authority::project(reloaded.campaign_history.as_ref().unwrap()).unwrap().0, state);
     assert!(reloaded.audit_composite_authority().is_err());
-    assert!(reloaded.verify_action_replay().is_ok());
+    // This fixture strips identity from a modern journal after the actions ran.
+    // It must remain playable/projectable, but must not pass certified replay:
+    // the original action trace still records the unmodified modern journal.
+    assert!(reloaded.verify_action_replay().is_err());
 }
