@@ -190,8 +190,8 @@ pub fn project(events: &[CampaignEvent]) -> Result<(CampaignState, u64), String>
 
 
 /**
- * Stable, replay-derived historical decisions. Only committed changes to the
- * three tactical plans count; narrative displays, revisits and unchanged
+ * Stable, replay-derived historical decisions. Only committed pending tactical choices in the
+ * three historical chains count; narrative displays, revisits and unchanged
  * revisions never create a new interaction. This is a conservative lower
  * bound, not the SPEC's complete 12–18 interaction metric.
  */
@@ -217,12 +217,15 @@ pub fn historical_decisions(events: &[CampaignEvent]) -> Result<Vec<HistoricalDe
             continue;
         }
         // A council placeholder is not a committed tactical choice. Count
-        // the first resolved choice once per historical chain, not repeated
+        // the first committed pending choice once per historical chain, not repeated
         // transitions, revisits or a later change to the same plan.
         let changes = [
-            ("wuchao", before.wuchao_plan != after.wuchao_plan && after.wuchao_plan.is_some_and(|plan| plan != WuchaoPlan::Council)),
-            ("chibi", before.chibi_plan != after.chibi_plan && after.chibi_plan.is_some_and(|plan| plan != ChibiPlan::Council)),
-            ("jieting", before.jieting_plan != after.jieting_plan && after.jieting_plan.is_some_and(|plan| plan != JietingPlan::Council)),
+            ("wuchao", matches!(after.wuchao_plan, Some(WuchaoPlan::RaidPending | WuchaoPlan::FortifyPending | WuchaoPlan::DeclinePending))
+                && before.wuchao_plan != after.wuchao_plan),
+            ("chibi", matches!(after.chibi_plan, Some(ChibiPlan::FirePending | ChibiPlan::FleetPending | ChibiPlan::DeclinePending))
+                && before.chibi_plan != after.chibi_plan),
+            ("jieting", matches!(after.jieting_plan, Some(JietingPlan::WaterPending | JietingPlan::HillPending | JietingPlan::RetreatPending))
+                && before.jieting_plan != after.jieting_plan),
         ];
         for (kind, changed) in changes {
             if changed && recorded.insert(kind) {
