@@ -265,3 +265,31 @@ fn historical_decisions_ignore_council_placeholder_until_player_commits() {
     assert_eq!(decisions.len(), 1);
     assert_eq!(decisions[0].revision, 2);
 }
+
+#[test]
+fn historical_decisions_do_not_misclassify_settlement_only_journal_changes() {
+    use three_kingdoms_spire_reborn::{WuchaoPlan, ChibiPlan, JietingPlan, difficulty::Difficulty};
+    let game = Game::new(Hero::ZhugeLiang, 20261124);
+    let mut initial = CampaignState::current(&game);
+    initial.identity.as_mut().unwrap().difficulty = Some(Difficulty::Warlords);
+    initial.floor = 25;
+    let mut settled = initial.clone();
+    settled.wuchao_plan = Some(WuchaoPlan::RaidResolved);
+    settled.chibi_plan = Some(ChibiPlan::FireSettled);
+    settled.jieting_plan = Some(JietingPlan::WaterSettled);
+    let events = vec![
+        CampaignEvent::Started { state: {
+            let mut start = initial.clone();
+            start.floor = 0;
+            start
+        } },
+        campaign_authority::transition(&{
+            let mut start = initial.clone();
+            start.floor = 0;
+            start
+        }, &initial, 1).unwrap(),
+        campaign_authority::transition(&initial, &settled, 2).unwrap(),
+    ];
+    assert!(campaign_authority::historical_decisions(&events).unwrap().is_empty(),
+        "a settlement without a committed pending choice cannot count as player interaction");
+}
