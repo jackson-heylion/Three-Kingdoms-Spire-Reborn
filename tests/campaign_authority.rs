@@ -201,3 +201,21 @@ fn legacy_identity_free_journal_remains_projectable_after_multiple_real_actions(
     // the original action trace still records the unmodified modern journal.
     assert!(reloaded.verify_action_replay().is_err());
 }
+
+
+#[test]
+fn historical_decision_ledger_is_conservative_and_replay_stable() {
+    let mut legacy = Game::new(Hero::GuanYu, 20261124);
+    legacy.apply(Action::Choose { index: 1 }).unwrap();
+    let journal = legacy.campaign_history.as_ref().unwrap();
+    assert!(campaign_authority::historical_decisions(journal).unwrap().is_empty());
+    let saved = legacy.to_json().unwrap();
+    let restored = Game::from_json(&saved).unwrap();
+    assert_eq!(
+        campaign_authority::historical_decisions(journal).unwrap(),
+        campaign_authority::historical_decisions(restored.campaign_history.as_ref().unwrap()).unwrap()
+    );
+    let mut forged = journal.clone();
+    forged.push(CampaignEvent::Changed { revision: 1, state: None });
+    assert!(campaign_authority::historical_decisions(&forged).is_err());
+}
