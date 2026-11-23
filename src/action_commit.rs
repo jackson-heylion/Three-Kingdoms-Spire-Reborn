@@ -94,11 +94,17 @@ impl Game {
         } else {
             None
         };
-        let campaign_event = if self.campaign_history.is_some() {
-            Some(campaign_authority::transition(
-                &campaign_authority::CampaignState::current(self),
-                &campaign_authority::CampaignState::current(&draft), draft.revision,
-            )?)
+        let campaign_event = if let Some(history) = self.campaign_history.as_ref() {
+            let mut before = campaign_authority::CampaignState::current(self);
+            let mut after = campaign_authority::CampaignState::current(&draft);
+            // Pre-identity V2 journals remain uncertified after resuming.
+            // Never introduce an identity mid-stream: the projector correctly
+            // rejects that transition, even when the live Game has an identity.
+            if matches!(history.first(), Some(campaign_authority::CampaignEvent::Started { state }) if state.identity.is_none()) {
+                before.identity = None;
+                after.identity = None;
+            }
+            Some(campaign_authority::transition(&before, &after, draft.revision)?)
         } else { None };
         let telemetry_event = if let Some(history) = self.telemetry_history.as_ref() {
             // Preserve the absence of revision cursors in older V2 journals:

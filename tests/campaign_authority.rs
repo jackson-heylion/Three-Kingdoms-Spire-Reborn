@@ -173,3 +173,31 @@ fn authoritative_transition_rejects_identity_swap_before_commit() {
     legacy.identity = None;
     assert!(campaign_authority::transition(&legacy, &before, 1).is_ok());
 }
+
+#[test]
+fn legacy_identity_free_journal_remains_projectable_after_multiple_real_actions() {
+    let mut game = Game::new_with_identity(
+        Hero::GuanYu, 20261123, 0, RunMode::Standard, "legacy-resume".into());
+    game.apply(Action::Choose { index: 1 }).unwrap();
+    for event in game.campaign_history.as_mut().unwrap() {
+        match event {
+            CampaignEvent::Started { state } => state.identity = None,
+            CampaignEvent::Changed { state: Some(state), .. } => state.identity = None,
+            _ => {}
+        }
+    }
+    let mut restored = Game::from_json(&game.to_json().unwrap()).unwrap();
+    assert!(restored.audit_composite_authority().is_err());
+    restored.apply(Action::EndTurn).unwrap();
+    let (state, revision) =
+        campaign_authority::project(restored.campaign_history.as_ref().unwrap()).unwrap();
+    assert_eq!(revision, restored.revision);
+    assert!(state.identity.is_none(), "legacy journal must not gain certified identity");
+    let reloaded = Game::from_json(&restored.to_json().unwrap()).unwrap();
+    assert_eq!(campaign_authority::project(reloaded.campaign_history.as_ref().unwrap()).unwrap().0, state);
+    assert!(reloaded.audit_composite_authority().is_err());
+    // This fixture strips identity from a modern journal after the actions ran.
+    // It must remain playable/projectable, but must not pass certified replay:
+    // the original action trace still records the unmodified modern journal.
+    assert!(reloaded.verify_action_replay().is_err());
+}
