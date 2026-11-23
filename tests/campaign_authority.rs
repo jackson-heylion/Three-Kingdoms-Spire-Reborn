@@ -219,3 +219,49 @@ fn historical_decision_ledger_is_conservative_and_replay_stable() {
     forged.push(CampaignEvent::Changed { revision: 1, state: None });
     assert!(campaign_authority::historical_decisions(&forged).is_err());
 }
+
+#[test]
+fn historical_decisions_count_first_tactical_choice_not_later_resolution() {
+    use three_kingdoms_spire_reborn::{WuchaoPlan, difficulty::Difficulty};
+    let game = Game::new(Hero::GuanYu, 20261124);
+    let mut initial = CampaignState::current(&game);
+    initial.identity.as_mut().unwrap().difficulty = Some(Difficulty::Warlords);
+    let mut pending = initial.clone();
+    pending.wuchao_plan = Some(WuchaoPlan::RaidPending);
+    let mut resolved = pending.clone();
+    resolved.wuchao_plan = Some(WuchaoPlan::RaidResolved);
+    let mut alternate = resolved.clone();
+    alternate.wuchao_plan = Some(WuchaoPlan::FortifyResolved);
+    let events = vec![
+        CampaignEvent::Started { state: initial.clone() },
+        campaign_authority::transition(&initial, &pending, 1).unwrap(),
+        campaign_authority::transition(&pending, &resolved, 2).unwrap(),
+        campaign_authority::transition(&resolved, &alternate, 3).unwrap(),
+    ];
+    let decisions = campaign_authority::historical_decisions(&events).unwrap();
+    assert_eq!(decisions.len(), 1);
+    assert_eq!(decisions[0].revision, 1);
+    assert_eq!(decisions[0].kind, "wuchao");
+    assert_eq!(decisions[0].id, format!("{}:wuchao:1", game.run_id));
+}
+
+#[test]
+fn historical_decisions_ignore_council_placeholder_until_player_commits() {
+    use three_kingdoms_spire_reborn::{WuchaoPlan, difficulty::Difficulty};
+    let game = Game::new(Hero::GuanYu, 20261124);
+    let mut initial = CampaignState::current(&game);
+    initial.identity.as_mut().unwrap().difficulty = Some(Difficulty::Warlords);
+    let mut council = initial.clone();
+    council.stage = Stage::Story;
+    council.wuchao_plan = Some(WuchaoPlan::Council);
+    let mut committed = council.clone();
+    committed.wuchao_plan = Some(WuchaoPlan::RaidPending);
+    let events = vec![
+        CampaignEvent::Started { state: initial.clone() },
+        campaign_authority::transition(&initial, &council, 1).unwrap(),
+        campaign_authority::transition(&council, &committed, 2).unwrap(),
+    ];
+    let decisions = campaign_authority::historical_decisions(&events).unwrap();
+    assert_eq!(decisions.len(), 1);
+    assert_eq!(decisions[0].revision, 2);
+}
