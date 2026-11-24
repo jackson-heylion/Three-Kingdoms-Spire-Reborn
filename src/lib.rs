@@ -531,6 +531,14 @@ impl Game {
             };
         }
         if node != Node::Battle {
+            if self.has_expanded_history_rules() && self.hero == Hero::ZhugeLiang
+                && (25..=30).contains(&self.floor)
+                && matches!(node, Node::Camp | Node::Market | Node::Story)
+                && matches!(self.jieting_plan, Some(JietingPlan::WaterPending
+                    | JietingPlan::HillPending | JietingPlan::RetreatPending))
+            {
+                return Some("暂缓街亭水源战：本路线不消耗军议计划，下一场实际战斗（最迟第四幕关底）仍须应对水源风险");
+            }
             return None;
         }
         // The optional act-II Wuchao bargain is paid again in the act-III

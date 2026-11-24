@@ -121,7 +121,63 @@ impl Game {
                     | crate::JietingPlan::HillPending
                     | crate::JietingPlan::RetreatPending))
         {
-            self.route.fill(crate::Node::Battle);
+            if !self.has_expanded_history_rules() {
+                // Old expanded saves originally forced every reachable lane
+                // to Battle. Keep that exact route for deterministic replay.
+                self.route.fill(crate::Node::Battle);
+            } else if !self.route.iter().any(|node|
+                matches!(node, crate::Node::Battle | crate::Node::Elite))
+                && let Some(first) = self.route.first_mut()
+            {
+                // Guarantee an immediate water-defense option without
+                // deleting unrelated reachable camps, markets, or stories.
+                // The player may choose another lane and defer the plan.
+                *first = crate::Node::Battle;
+            }
         }
+    }
+}
+
+
+#[cfg(test)]
+mod jieting_route_diversity_regression {
+    use super::*;
+    use crate::{Difficulty, JietingPlan, Node};
+
+    #[test]
+    fn pending_water_plan_preserves_reachable_rest_and_elite_choices_in_new_rules() {
+        // Controlled map overlay fixture: validates the route transformation,
+        // not a claim of a seed-based natural campaign route.
+        let mut old = Game::new_with_campaign_rules_revision(
+            Hero::ZhugeLiang, 7, Difficulty::Warlords, "old-route".into(), 0,
+        );
+        let mut current = Game::new_with_campaign_difficulty(
+            Hero::ZhugeLiang, 7, Difficulty::Warlords, "new-route".into(),
+        );
+        let mut layout = map::ActMap::generate_expanded(|_| 0, 3);
+        layout.rows[1] = [Node::Battle, Node::Camp, Node::Elite];
+        for game in [&mut old, &mut current] {
+            game.floor = 25;
+            game.stage = Stage::Map;
+            game.act_map = Some(layout.clone());
+            game.map_lane = None;
+            game.jieting_plan = Some(JietingPlan::WaterPending);
+            let rng = game.rng_state;
+            game.refresh_route();
+            assert_eq!(game.rng_state, rng);
+            assert_eq!(game.route_lanes, vec![0, 1, 2]);
+        }
+        assert_eq!(old.route, vec![Node::Battle; 3]);
+        assert_eq!(current.route, vec![Node::Battle, Node::Camp, Node::Elite]);
+        assert!(current.route_objective_hint(Node::Camp).unwrap().contains("暂缓"));
+        assert!(current.route_objective_hint(Node::Elite).unwrap().contains("水源"));
+
+        // A noncombat choice does not consume the pending historical plan.
+        current.apply(crate::Action::Choose { index: 2 }).unwrap();
+        assert_eq!(current.stage, Stage::Camp);
+        assert_eq!(current.jieting_plan, Some(JietingPlan::WaterPending));
+        current.apply(crate::Action::Choose { index: 1 }).unwrap();
+        assert_eq!(current.jieting_plan, Some(JietingPlan::WaterPending));
+        assert!(current.route.iter().any(|node| matches!(node, Node::Battle | Node::Elite)));
     }
 }
