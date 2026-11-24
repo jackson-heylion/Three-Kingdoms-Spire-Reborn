@@ -468,6 +468,16 @@ impl Game {
                 _ => None,
             };
         }
+        // If ordinary encounters were bypassed after the council, the
+        // mandatory boss is the final water objective of act IV.
+        if node == Node::Boss && self.floor == 31 && self.hero == Hero::ZhugeLiang {
+            match self.jieting_plan {
+                Some(JietingPlan::WaterPending) => return Some("第四幕关底兼街亭水源战：守水预留4点掩护，水源12；每名存活敌军劫水4点，水源耗尽即战败"),
+                Some(JietingPlan::HillPending) => return Some("第四幕关底兼街亭水源战：据山先失4点水源；主动攻击可以掩护水源，亲自击败敌军可夺回水源"),
+                Some(JietingPlan::RetreatPending) => return Some("第四幕关底兼街亭水源战：撤退预留2点掩护，水源12；有效防御可以抢救水源"),
+                _ => {}
+            }
+        }
         if node == Node::Boss && self.floor == 31
             && matches!(self.hero, Hero::ZhugeLiang | Hero::SunShangxiang)
         {
@@ -643,6 +653,20 @@ impl Game {
                     "赤壁失机：敌统帅入阵武勇+1并获得10点护甲，先破盾",
                 _ => "未携带赤壁军议后果",
             };
+            // A late council can make this boss a water-defense encounter.
+            if let Some(b) = self.battle.as_ref()
+                && let (Some(water), Some(cover)) = (b.convoy_hp, b.convoy_cover)
+            {
+                let living = b.foes.iter().filter(|f| f.hp > 0).count() as u8;
+                let raid = living.saturating_mul(4).saturating_sub(cover).min(water);
+                let tactic = match self.jieting_plan {
+                    Some(JietingPlan::WaterResolved) => "守水：非致命劫水后可抢修2点",
+                    Some(JietingPlan::HillResolved) => "据山：主动攻击掩护2点、击败敌军夺回4点",
+                    Some(JietingPlan::RetreatResolved) => "撤退：有效防御抢救2点水源",
+                    _ => "防御牌掩护4点",
+                };
+                return Some(format!("第四幕史诗关底：{effect}。街亭水源{water}/12，掩护{cover}/8，本回合预计失水{raid}点；{tactic}。水源耗尽即战败；敌方关底意图仍生效。"));
+            }
             return Some(format!("第四幕史诗关底：{effect}。阶段意图仍以敌方预告为准。"));
         }
         if self.stage == Stage::Combat && self.difficulty.is_some() && self.floor == 16
@@ -731,7 +755,7 @@ impl Game {
                     "水陆阵战：{wuchao}{chibi}{class_hint}{arrows}战船耐久{hp}/12；存活敌军{living}名各劫船4点，偶数回合逆流按难度额外+2/+4/+6（本回合逆流+{current}、夜袭牵制-{disruption}）；防御牌提供4点掩护，攻击实际扣除敌军体力可提供2点掩护（本回合已护{cover}/8）；亲自击败敌军可抢修2点；本回合预计失船{raid}点。{warning}战船覆没即战败；击退敌军或在第4回合劫船结算后耐久至少6且本回合有掩护，即可护航成功。"
                 ));
             }
-            if (26..=31).contains(&self.floor) {
+            if (26..=32).contains(&self.floor) {
                 let lethal_warning = if hp > 0 && raid >= hp {
                     "警告：本回合水源将被夺！请击退敌人或打出防御牌。"
                 } else {
@@ -1100,13 +1124,15 @@ impl Game {
             wildfire: 0,
             convoy_hp: (self.difficulty.is_some()
                 && ((node == Node::Battle && (self.floor == 2 || self.floor == 19))
-                    || (matches!(node, Node::Battle | Node::Elite) && (26..=31).contains(&self.floor)
+                    || ((matches!(node, Node::Battle | Node::Elite) && (26..=31).contains(&self.floor)
+                        || node == Node::Boss && self.floor == 32)
                         && self.hero == Hero::ZhugeLiang
                         && matches!(self.jieting_plan, Some(JietingPlan::WaterPending
                             | JietingPlan::HillPending | JietingPlan::RetreatPending))))).then_some(12),
             convoy_cover: (self.difficulty.is_some()
                 && ((node == Node::Battle && (self.floor == 2 || self.floor == 19))
-                    || (matches!(node, Node::Battle | Node::Elite) && (26..=31).contains(&self.floor)
+                    || ((matches!(node, Node::Battle | Node::Elite) && (26..=31).contains(&self.floor)
+                        || node == Node::Boss && self.floor == 32)
                         && self.hero == Hero::ZhugeLiang
                         && matches!(self.jieting_plan, Some(JietingPlan::WaterPending
                             | JietingPlan::HillPending | JietingPlan::RetreatPending))))).then_some(0),
@@ -1573,7 +1599,7 @@ impl Game {
                         b.block += 14;
                         // Guarding the wells also protects the actual water objective,
                         // not just the hero's health. The cover is consumed by raids.
-                        if (26..=31).contains(&self.floor) && b.convoy_hp.is_some() {
+                        if (26..=32).contains(&self.floor) && b.convoy_hp.is_some() {
                             b.convoy_cover = Some(4);
                         }
                         if let Some(front) = b.foes.first_mut() { front.weak = front.weak.saturating_add(1); }
@@ -1587,7 +1613,7 @@ impl Game {
                         // Holding the heights protects soldiers but leaves the
                         // wells exposed. The water loss is settled once, on entry,
                         // through the authoritative battle action.
-                        if (26..=31).contains(&self.floor)
+                        if (26..=32).contains(&self.floor)
                             && let Some(hp) = b.convoy_hp.as_mut()
                         {
                             let before = *hp;
@@ -1610,7 +1636,7 @@ impl Game {
                         // the enemy raid. Unlike guarding the wells (+4 cover),
                         // retreat preserves only +2 and gives the foe +8 armor.
                         // The ordinary end-turn objective still decides victory.
-                        if (26..=31).contains(&self.floor) && b.convoy_hp.is_some() {
+                        if (26..=32).contains(&self.floor) && b.convoy_hp.is_some() {
                             b.convoy_cover = Some(2);
                         }
                     }
@@ -2287,7 +2313,7 @@ impl Game {
         // water encounter, never in ordinary combat or legacy campaigns.
         if actual > 0 && self.difficulty.is_some()
             && self.hero == Hero::ZhugeLiang
-            && (26..=31).contains(&self.floor)
+            && (26..=32).contains(&self.floor)
             && self.jieting_plan == Some(JietingPlan::HillResolved)
             && self.battle.as_ref().is_some_and(|b|
                 b.convoy_hp.is_some() && b.convoy_cover.is_some())
@@ -2438,7 +2464,7 @@ impl Game {
             self.gold += bonus;
             format!("保住{}{hp}/12，额外获得{bonus}金，",
                 if self.difficulty.is_some() && self.floor == 19 { "战船" }
-                else if (26..=31).contains(&self.floor) && self.hero == Hero::ZhugeLiang { "水源" }
+                else if (26..=32).contains(&self.floor) && self.hero == Hero::ZhugeLiang { "水源" }
                 else { "粮车" })
         } else {
             String::new()
@@ -2777,7 +2803,7 @@ impl Game {
                 && self.last_node == Some(Node::Battle);
             let water_battle = self.difficulty.is_some()
                 && self.hero == Hero::ZhugeLiang
-                && (26..=31).contains(&self.floor)
+                && (26..=32).contains(&self.floor)
                 && self.battle.as_ref().is_some_and(|b| b.convoy_hp.is_some());
             let gained = {
                 let b = self.battle.as_mut().expect("battle");
@@ -2926,7 +2952,7 @@ impl Game {
             && self.jieting_plan == Some(JietingPlan::HillResolved)
             && self.difficulty.is_some()
             && self.hero == Hero::ZhugeLiang
-            && (26..=31).contains(&self.floor)
+            && (26..=32).contains(&self.floor)
         {
             self.battle.as_ref().and_then(|b| b.convoy_cover)
                 .unwrap_or(0).saturating_sub(cover_before)
@@ -2935,7 +2961,7 @@ impl Game {
             && self.jieting_plan == Some(JietingPlan::HillResolved)
             && self.difficulty.is_some()
             && self.hero == Hero::ZhugeLiang
-            && (26..=31).contains(&self.floor)
+            && (26..=32).contains(&self.floor)
         {
             self.battle.as_ref().and_then(|b| b.convoy_hp)
                 .unwrap_or(0).saturating_sub(water_before)
@@ -3007,7 +3033,7 @@ impl Game {
         }
         if !attack && self.jieting_plan == Some(JietingPlan::RetreatResolved)
             && self.difficulty.is_some() && self.hero == Hero::ZhugeLiang
-            && (26..=31).contains(&self.floor)
+            && (26..=32).contains(&self.floor)
         {
             let salvaged = self.battle.as_ref().and_then(|b| b.convoy_hp)
                 .unwrap_or(0).saturating_sub(water_before);
@@ -3957,7 +3983,7 @@ impl Game {
                 b.convoy_hp = Some(hp - actual);
                 b.convoy_cover = Some(0);
             }
-            let water_objective = self.difficulty.is_some() && (26..=31).contains(&self.floor)
+            let water_objective = self.difficulty.is_some() && (26..=32).contains(&self.floor)
                 && self.hero == Hero::ZhugeLiang;
             self.combat_event(EventKind::EnemyTechnique,
                 if water_objective { "water_raided" }
@@ -8020,5 +8046,40 @@ mod expanded_active_rule_regression {
         assert!(game.event_history.as_ref().unwrap().iter().any(|record|
             record.event.source == "jieting_late_water_settlement"));
         assert!(!game.boss_signature(0, BossMove::YinpingFlank(0)).contains("阴平偷渡被截击"));
+    }
+}
+
+
+#[cfg(test)]
+mod late_jieting_boss_water_regression {
+    use super::*;
+
+    #[test]
+    fn pending_jieting_water_objective_survives_until_either_act_four_boss() {
+        // Controlled checkpoint: prior council is staged.
+        for variant in [0, 1] {
+            for (plan, water, cover) in [
+                (JietingPlan::WaterPending, 12, 4),
+                (JietingPlan::HillPending, 8, 0),
+                (JietingPlan::RetreatPending, 12, 2),
+            ] {
+                let mut game = Game::new_with_campaign_difficulty(
+                    Hero::ZhugeLiang, 7, Difficulty::Warlords, "late-jieting-boss".into(),
+                );
+                game.apply(Action::SetExpandedVariants {
+                    act1: 0, act2: 0, act3: 0, act4: variant, act5: 0,
+                }).unwrap();
+                game.floor = 31;
+                game.jieting_plan = Some(plan);
+                assert!(game.route_objective_hint(Node::Boss).unwrap().contains("水源"));
+                game.floor = 32;
+                game.last_node = Some(Node::Boss);
+                game.start_battle(Node::Boss);
+                let b = game.battle.as_ref().unwrap();
+                assert_eq!(b.convoy_hp, Some(water));
+                assert_eq!(b.convoy_cover, Some(cover));
+                assert!(game.tactical_objective().unwrap().contains("街亭水源"));
+            }
+        }
     }
 }
