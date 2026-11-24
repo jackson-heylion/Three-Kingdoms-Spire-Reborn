@@ -1452,6 +1452,13 @@ impl Game {
                 }
                 (33..=40, Some(JietingPlan::WaterResolved)) => {
                     if let Some(b) = self.battle.as_mut() { b.block += 8; }
+                    if self.floor == 40 && node == Node::Boss
+                        && self.battle.as_ref().is_some_and(|b|
+                            b.foes.first().is_some_and(|f| f.id == "dengai"))
+                    {
+                        self.combat_event(EventKind::PowerTriggered,
+                            "jieting_late_water_settlement", 8, Some("hero".into()));
+                    }
                     Some(JietingPlan::WaterSettled)
                 }
                 (33..=40, Some(JietingPlan::HillResolved)) => {
@@ -3124,13 +3131,17 @@ impl Game {
                 // not armor actively raised to intercept this raid. On the opening
                 // turn exclude it from the defense-only threshold; later turns use
                 // the full player-held block after the normal end-turn reset.
-                let free_water_cover = self.hero == Hero::ZhugeLiang
-                    && self.floor == 40
-                    && self.jieting_plan == Some(JietingPlan::WaterSettled)
-                    && self.battle.as_ref().is_some_and(|b| b.turn == 1);
                 let guarded = self.battle.as_ref().is_some_and(|b| {
-                    b.block >= 10 + 2 * i32::from(phase)
-                        + if free_water_cover { 10 } else { 0 }
+                    let free_water_cover = if self.hero == Hero::ZhugeLiang
+                        && self.floor == 40
+                        && self.jieting_plan == Some(JietingPlan::WaterSettled)
+                        && b.turn == 1
+                    {
+                        b.events.iter().filter(|event| matches!(event.source.as_str(),
+                            "jieting_yinping_wells" | "jieting_late_water_settlement"))
+                            .map(|event| event.amount).sum::<i32>()
+                    } else { 0 };
+                    b.block >= 10 + 2 * i32::from(phase) + free_water_cover
                 });
                 if played >= required || guarded {
                     self.apply_foe_status(idx, "vulnerable", 3);
@@ -7305,6 +7316,10 @@ mod historical_entry_boundary_regression {
                 JietingPlan::WaterResolved => {
                     assert_eq!(battle.block, 22); // 4 starting banner + 8 settlement + 10 Yinping.
                     assert_eq!(battle.foes[0].weak, 2);
+                    assert!(battle.events.iter().any(|e|
+                        e.source == "jieting_late_water_settlement" && e.amount == 8));
+                    assert!(!game.boss_signature(0, BossMove::YinpingFlank(0))
+                        .contains("阴平偷渡被截击"));
                 }
                 JietingPlan::HillResolved => {
                     assert_eq!(battle.foes[0].strength, 2);
