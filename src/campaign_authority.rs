@@ -310,6 +310,53 @@ pub struct HistoricalInteraction {
     pub deck_changed: bool,
     pub battlefield_receipts: usize,
     pub cross_act_receipts: usize,
+    /// Actual changes to a legal next-floor route, not merely a plan flag.
+    #[serde(default)]
+    pub map_receipts: usize,
+    #[serde(default)]
+    pub first_map_effect_floor: Option<u8>,
+}
+
+/// Compare the committed map options with the original seeded topology.
+/// A pending plan or a map preview alone is not an effect. Count only a
+/// real change in a reachable lane's node, preserving the original graph.
+fn jieting_route_changed(state: &CampaignState) -> bool {
+    let next = state.floor.saturating_add(1);
+    if state.stage != Stage::Map || !(26..=31).contains(&next)
+        || !state.identity.as_ref().is_some_and(|identity|
+            identity.difficulty.is_some() && identity.hero == Hero::ZhugeLiang)
+        || !matches!(state.jieting_plan, Some(JietingPlan::WaterPending
+            | JietingPlan::HillPending | JietingPlan::RetreatPending))
+    { return false; }
+    let Some(map) = state.act_map.as_ref() else { return false; };
+    if map.act != (next - 1) / 8 { return false; }
+    let seeded = map.routes(usize::from((next - 1) % 8), state.map_lane);
+    if seeded.len() != state.route.len() || seeded.len() != state.route_lanes.len()
+        || !seeded.iter().zip(&state.route_lanes).all(|((lane, _), actual)| lane == actual)
+    { return false; }
+    seeded.iter().zip(&state.route).any(|((_, original), actual)|
+        original != actual && *actual == Node::Battle)
+}
+
+// A council can alter more than one subsequent route. Each floor is counted
+// once, and all floors remain attached to the original decision rather than
+// creating additional independent history interactions.
+fn jieting_map_effect_floors(
+    history: &[CampaignEvent], decision_revision: u64,
+) -> Result<Vec<u8>, String> {
+    let mut projector = CampaignProjector::default();
+    let mut floors = Vec::new();
+    for event in history {
+        projector.push(event)?;
+        if projector.revision < decision_revision { continue; }
+        if let Some(state) = projector.state.as_ref()
+            && jieting_route_changed(state)
+        {
+            let next = state.floor + 1;
+            if !floors.contains(&next) { floors.push(next); }
+        }
+    }
+    Ok(floors)
 }
 
 fn historical_effect_site(source: &str) -> Option<(&'static str, &'static str)> {
@@ -413,6 +460,9 @@ impl Game {
         let cards = self.card_zone_history.as_ref().ok_or("missing permanent card journal")?;
         let actions = self.action_history.as_ref().ok_or("missing action journal")?;
         let decisions = historical_decisions(history)?;
+        let jieting_maps = if let Some(decision) = decisions.iter().find(|d| d.kind == "jieting") {
+            jieting_map_effect_floors(history, decision.revision)?
+        } else { Vec::new() };
         let mut projection = CampaignProjector::default();
         let mut seen = HashSet::new();
         let mut interactions = Vec::new();
@@ -457,14 +507,18 @@ impl Game {
                     (total + 1, cross + usize::from(later_act))
                 });
             let deck_changed = permanent.is_some();
+            let map_floors = if decision.is_some_and(|d| d.kind == "jieting") {
+                jieting_maps.as_slice()
+            } else { &[] };
             if *hp_delta == 0 && *max_hp_delta == 0 && *gold_delta == 0
-                && !deck_changed && battlefield_receipts == 0
+                && !deck_changed && battlefield_receipts == 0 && map_floors.is_empty()
             { continue; }
             if !seen.insert(key.clone()) { continue; }
             interactions.push(HistoricalInteraction {
                 key, revision, floor: before.floor, choice: *index,
                 hp_delta: *hp_delta, max_hp_delta: *max_hp_delta, gold_delta: *gold_delta,
                 deck_changed, battlefield_receipts, cross_act_receipts,
+                map_receipts: map_floors.len(), first_map_effect_floor: map_floors.first().copied(),
             });
         }
         Ok(interactions)
@@ -487,16 +541,21 @@ impl Game {
             r.hp_delta != 0 || r.max_hp_delta != 0 || r.gold_delta != 0 || r.deck_changed).count();
         let battle = interactions.iter().filter(|r| r.battlefield_receipts > 0).count();
         let cross_act = interactions.iter().filter(|r| r.cross_act_receipts > 0).count();
+        let map = interactions.iter().filter(|r| r.map_receipts > 0).count();
         let mut lines = vec![format!(
             "战史档案（动作重放已核对）：已记录{}项战术选择，{}项选择有实际战场后果，共{}个去重后的战场兑现点。",
             decisions.len(), effective, receipts.len()
         ), "仅统计已覆盖的历史选择及战术；不等于完整12–18次有效触动指标。小说章回为文学背景，战术数值与反制属于游戏原创推演。".into()];
-        lines.push(format!("有效历史触动保守下界：{}次；即时资源/牌组变化{}次、战场兑现{}次、跨幕兑现{}次（类别重叠，不相加）。", interactions.len(), immediate, battle, cross_act));
+        lines.push(format!("有效历史触动保守下界：{}次；即时资源/牌组变化{}次、地图变化{}次、战场兑现{}次、跨幕兑现{}次（类别重叠，不相加）。", interactions.len(), immediate, map, battle, cross_act));
         for interaction in &interactions {
             lines.push(format!("  {} 第{}层／动作{}／选择{}；体力{:+}、上限{:+}、金币{:+}、牌组变化{}；战场兑现{}处",
                 interaction.key, interaction.floor, interaction.revision, interaction.choice,
                 interaction.hp_delta, interaction.max_hp_delta, interaction.gold_delta,
                 if interaction.deck_changed { "有" } else { "无" }, interaction.battlefield_receipts));
+            if let Some(floor) = interaction.first_map_effect_floor {
+                lines.push(format!("    街亭水源责任实际改变{}层的可选路线，首次第{floor}层；同一军议不重复计数。",
+                    interaction.map_receipts));
+            }
         }
         for decision in &decisions {
             let (chapter, title) = match decision.kind.as_str() {
@@ -668,5 +727,46 @@ mod historical_interaction_boundary_regression {
         );
         game.resource_history = None;
         assert!(game.historical_interactions().is_err());
+    }
+}
+
+
+#[cfg(test)]
+mod historical_map_effect_regression {
+    use super::*;
+
+    #[test]
+    fn actual_jieting_overlay_counts_changed_reachable_lane_not_pending_flag() {
+        // Projector fixture only; public archive additionally verifies the
+        // complete action replay before using these receipts.
+        let game = Game::new_with_campaign_difficulty(
+            Hero::ZhugeLiang, 7, Difficulty::Warlords, "map-receipt".into(),
+        );
+        let start = CampaignState::current(&game);
+        let mut scene = start.clone();
+        scene.floor = 25;
+        scene.stage = Stage::Story;
+        scene.jieting_plan = Some(JietingPlan::Council);
+        let mut map_state = scene.clone();
+        map_state.stage = Stage::Map;
+        map_state.jieting_plan = Some(JietingPlan::RetreatPending);
+        let mut layout = map::ActMap::generate_expanded(|_| 0, 3);
+        layout.rows[1] = [Node::Story, Node::Camp, Node::Market];
+        map_state.route_lanes = vec![0, 1, 2];
+        map_state.route = vec![Node::Story, Node::Camp, Node::Market];
+        map_state.map_lane = None;
+        map_state.act_map = Some(layout);
+        assert!(!jieting_route_changed(&map_state), "pending plan alone is not an effect");
+        map_state.route[0] = Node::Battle;
+        assert!(jieting_route_changed(&map_state));
+        let journal = vec![
+            CampaignEvent::Started { state: start.clone() },
+            transition(&start, &scene, 1).unwrap(),
+            transition(&scene, &map_state, 2).unwrap(),
+            transition(&map_state, &map_state, 3).unwrap(),
+        ];
+        assert_eq!(jieting_map_effect_floors(&journal, 2).unwrap(), vec![26]);
+        map_state.route_lanes.swap(0, 1);
+        assert!(!jieting_route_changed(&map_state), "unrelated lane permutation is not evidence");
     }
 }
