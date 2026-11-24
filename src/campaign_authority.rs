@@ -295,6 +295,23 @@ pub struct HistoricalEffectReceipt {
     pub amount: i32,
 }
 
+/// A conservative countable player interaction: one committed scene/council
+/// choice, with actual immediate changes or at least one verified downstream
+/// battlefield effect. The categories overlap and never inflate the count.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HistoricalInteraction {
+    pub key: String,
+    pub revision: u64,
+    pub floor: u8,
+    pub choice: usize,
+    pub hp_delta: i64,
+    pub max_hp_delta: i64,
+    pub gold_delta: i64,
+    pub deck_changed: bool,
+    pub battlefield_receipts: usize,
+    pub cross_act_receipts: usize,
+}
+
 fn historical_effect_site(source: &str) -> Option<(&'static str, &'static str)> {
     match source {
         "wuchao_act_three_raid" | "wuchao_act_three_fortify" | "wuchao_act_three_decline" =>
@@ -378,6 +395,81 @@ impl Game {
         Ok(receipts)
     }
 
+    /// A lower bound on meaningful history interactions, not a claim that
+    /// all map/battle anchors are covered. The full replay performed by
+    /// historical_effect_receipts verifies all the journals used below.
+    pub fn historical_interactions(&self) -> Result<Vec<HistoricalInteraction>, String> {
+        if self.difficulty.is_none() { return Ok(Vec::new()); }
+        let receipts = self.historical_effect_receipts()?;
+        self.interactions_from_verified_receipts(&receipts)
+    }
+
+    fn interactions_from_verified_receipts(
+        &self, receipts: &[HistoricalEffectReceipt],
+    ) -> Result<Vec<HistoricalInteraction>, String> {
+        use crate::{Action, resource_events::ResourceEvent, card_zone_events::CardZoneEvent};
+        let history = self.campaign_history.as_ref().ok_or("missing campaign journal")?;
+        let resources = self.resource_history.as_ref().ok_or("missing resource journal")?;
+        let cards = self.card_zone_history.as_ref().ok_or("missing permanent card journal")?;
+        let actions = self.action_history.as_ref().ok_or("missing action journal")?;
+        let decisions = historical_decisions(history)?;
+        let mut projection = CampaignProjector::default();
+        let mut seen = HashSet::new();
+        let mut interactions = Vec::new();
+        for event in history {
+            let previous = projection.state.as_ref().cloned();
+            projection.push(event)?;
+            let Some(before) = previous else { continue };
+            let Some(after) = projection.state.as_ref() else { continue };
+            if before.stage != Stage::Story { continue; }
+            let revision = projection.revision;
+            let offset = usize::try_from(revision).map_err(|_| "revision outside platform")?;
+            let Some(Action::Choose { index }) = offset.checked_sub(1)
+                .and_then(|i| actions.get(i)) else { continue };
+            let decision = decisions.iter().find(|d| d.revision == revision);
+            // Council subchoices own the action, even when opening the
+            // council did not clear a literary scene from the live snapshot.
+            let council = decision.filter(|d| matches!(d.kind.as_str(), "wuchao" | "chibi" | "jieting"));
+            let key = if let Some(d) = council {
+                format!("council:{}", d.kind)
+            } else if let Some(beat) = before.lore_current.as_deref().and_then(crate::lore::beat) {
+                if !matches!(*index, 1 | 2 | 4)
+                    || before.lore_seen.iter().any(|id| id == beat.id)
+                    || !after.lore_seen.iter().any(|id| id == beat.id)
+                { continue; }
+                format!("scene:{}", beat.id)
+            } else { continue; };
+            let Some(ResourceEvent::Changed {
+                revision: resource_revision, hp_delta, max_hp_delta, gold_delta,
+            }) = resources.get(offset) else { return Err("missing interaction resource boundary".into()); };
+            let Some(CardZoneEvent::Changed {
+                revision: card_revision, permanent, ..
+            }) = cards.get(offset) else { return Err("missing interaction card boundary".into()); };
+            if *resource_revision != revision || *card_revision != revision {
+                return Err("interaction journal revision mismatch".into());
+            }
+            let related = receipts.iter().filter(|r|
+                decision.is_some_and(|d| r.decision_id == d.id));
+            let (battlefield_receipts, cross_act_receipts) =
+                related.fold((0, 0), |(total, cross), r| {
+                    let later_act = r.floor.saturating_sub(1) / self.campaign_rows()
+                        > before.floor.saturating_sub(1) / self.campaign_rows();
+                    (total + 1, cross + usize::from(later_act))
+                });
+            let deck_changed = permanent.is_some();
+            if *hp_delta == 0 && *max_hp_delta == 0 && *gold_delta == 0
+                && !deck_changed && battlefield_receipts == 0
+            { continue; }
+            if !seen.insert(key.clone()) { continue; }
+            interactions.push(HistoricalInteraction {
+                key, revision, floor: before.floor, choice: *index,
+                hp_delta: *hp_delta, max_hp_delta: *max_hp_delta, gold_delta: *gold_delta,
+                deck_changed, battlefield_receipts, cross_act_receipts,
+            });
+        }
+        Ok(interactions)
+    }
+
     /// Player-facing archive, derived from the same replay-verified receipts
     /// rather than a second game truth. It is a conservative covered subset,
     /// not a full SPEC density measurement or a historical factual claim.
@@ -390,10 +482,22 @@ impl Game {
         let decisions = historical_decisions(history)?;
         let effective = receipts.iter().map(|r| r.decision_id.as_str())
             .collect::<HashSet<_>>().len();
+        let interactions = self.interactions_from_verified_receipts(&receipts)?;
+        let immediate = interactions.iter().filter(|r|
+            r.hp_delta != 0 || r.max_hp_delta != 0 || r.gold_delta != 0 || r.deck_changed).count();
+        let battle = interactions.iter().filter(|r| r.battlefield_receipts > 0).count();
+        let cross_act = interactions.iter().filter(|r| r.cross_act_receipts > 0).count();
         let mut lines = vec![format!(
             "战史档案（动作重放已核对）：已记录{}项战术选择，{}项选择有实际战场后果，共{}个去重后的战场兑现点。",
             decisions.len(), effective, receipts.len()
-        ), "仅统计已覆盖的历史战术；不等于完整12–18次有效触动指标。小说章回为文学背景，战术数值与反制属于游戏原创推演。".into()];
+        ), "仅统计已覆盖的历史选择及战术；不等于完整12–18次有效触动指标。小说章回为文学背景，战术数值与反制属于游戏原创推演。".into()];
+        lines.push(format!("有效历史触动保守下界：{}次；即时资源/牌组变化{}次、战场兑现{}次、跨幕兑现{}次（类别重叠，不相加）。", interactions.len(), immediate, battle, cross_act));
+        for interaction in &interactions {
+            lines.push(format!("  {} 第{}层／动作{}／选择{}；体力{:+}、上限{:+}、金币{:+}、牌组变化{}；战场兑现{}处",
+                interaction.key, interaction.floor, interaction.revision, interaction.choice,
+                interaction.hp_delta, interaction.max_hp_delta, interaction.gold_delta,
+                if interaction.deck_changed { "有" } else { "无" }, interaction.battlefield_receipts));
+        }
         for decision in &decisions {
             let (chapter, title) = match decision.kind.as_str() {
                 "wuchao" => (30, "官渡乌巢"),
@@ -533,5 +637,36 @@ mod rules_epoch_anchor_regression {
         let mut restored = Game::from_json(&game.to_json().unwrap()).unwrap();
         restored.apply(crate::Action::Choose { index: 1 }).unwrap();
         assert!(restored.campaign_history.is_none());
+    }
+}
+
+
+#[cfg(test)]
+mod historical_interaction_boundary_regression {
+    use super::*;
+
+    #[test]
+    fn ordinary_battle_and_read_only_archive_do_not_count_as_history() {
+        let mut game = Game::new_with_campaign_difficulty(
+            Hero::CaoCao, 7, Difficulty::Warlords, "interaction-empty".into(),
+        );
+        game.apply(crate::Action::Choose { index: 1 }).unwrap();
+        let raw = game.to_json().unwrap();
+        assert!(game.historical_interactions().unwrap().is_empty());
+        let report = game.historical_archive_report().unwrap();
+        assert!(report.contains("有效历史触动保守下界：0次"));
+        assert_eq!(game.to_json().unwrap(), raw);
+        let restored = Game::from_json(&raw).unwrap();
+        assert_eq!(restored.historical_interactions().unwrap(),
+            game.historical_interactions().unwrap());
+    }
+
+    #[test]
+    fn missing_immediate_resource_evidence_cannot_be_reported_as_zero() {
+        let mut game = Game::new_with_campaign_difficulty(
+            Hero::CaoCao, 7, Difficulty::Warlords, "interaction-missing".into(),
+        );
+        game.resource_history = None;
+        assert!(game.historical_interactions().is_err());
     }
 }
