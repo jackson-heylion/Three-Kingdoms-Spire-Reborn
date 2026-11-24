@@ -37,12 +37,18 @@ pub(super) fn choices(app:&App,target:usize)->Vec<(String,String)> {
         ];
     };
     match game.stage {
-        Stage::Map=>game.route.iter().enumerate()
-            .map(|(idx,node)|{
-                let label=format!("路线{} {}（道{}）",idx+1,node.name(),
-                    game.route_lanes.get(idx).copied().unwrap_or(idx as u8)+1);
-                (label,format!("choose {}",idx+1))
-            }).collect(),
+        Stage::Map=>{
+            let mut options=game.route.iter().enumerate()
+                .map(|(idx,node)|{
+                    let label=format!("路线{} {}（道{}）",idx+1,node.name(),
+                        game.route_lanes.get(idx).copied().unwrap_or(idx as u8)+1);
+                    (label,format!("choose {}",idx+1))
+                }).collect::<Vec<_>>();
+            if game.difficulty.is_some() {
+                options.push(("查看战史档案（动作重放核验）".into(), "history-audit".into()));
+            }
+            options
+        },
         Stage::Combat=>{
             let mut options=game.battle.as_ref().map_or(vec![],|b|
                 b.hand.iter().enumerate()
@@ -132,10 +138,16 @@ pub(super) fn choices(app:&App,target:usize)->Vec<(String,String)> {
         Stage::Ancient=>game.boon_choices.iter().enumerate()
             .map(|(idx,id)|(format!("先贤赐福：{}",three_kingdoms_spire_reborn::items::boon_name(id)),
                 format!("choose {}",idx+1))).collect(),
-        Stage::Won|Stage::Lost=>vec![
-            ("用关羽开启新征程".into(),"new guanyu".into()),
-            ("打开战功簿".into(),"chronicle".into()),
-        ],
+        Stage::Won|Stage::Lost=>{
+            let mut options=vec![
+                ("用关羽开启新征程".into(),"new guanyu".into()),
+                ("打开战功簿".into(),"chronicle".into()),
+            ];
+            if game.difficulty.is_some() {
+                options.push(("查看战史档案（动作重放核验）".into(), "history-audit".into()));
+            }
+            options
+        },
     }
 }
 /// Only keyboard menu selections open the picker. Explicit ':' commands keep their

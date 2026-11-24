@@ -223,10 +223,15 @@ fn historical_decision_ledger_is_conservative_and_replay_stable() {
 #[test]
 fn historical_decisions_count_first_tactical_choice_not_later_resolution() {
     use three_kingdoms_spire_reborn::{WuchaoPlan, difficulty::Difficulty};
-    let game = Game::new(Hero::GuanYu, 20261124);
+    let game = Game::new(Hero::CaoCao, 20261124);
     let mut initial = CampaignState::current(&game);
     initial.identity.as_mut().unwrap().difficulty = Some(Difficulty::Warlords);
-    let mut pending = initial.clone();
+    let mut council = initial.clone();
+    council.floor = 10;
+    council.stage = Stage::Story;
+    council.wuchao_plan = Some(WuchaoPlan::Council);
+    let mut pending = council.clone();
+    pending.stage = Stage::Map;
     pending.wuchao_plan = Some(WuchaoPlan::RaidPending);
     let mut resolved = pending.clone();
     resolved.wuchao_plan = Some(WuchaoPlan::RaidResolved);
@@ -234,27 +239,35 @@ fn historical_decisions_count_first_tactical_choice_not_later_resolution() {
     alternate.wuchao_plan = Some(WuchaoPlan::FortifyResolved);
     let events = vec![
         CampaignEvent::Started { state: initial.clone() },
-        campaign_authority::transition(&initial, &pending, 1).unwrap(),
-        campaign_authority::transition(&pending, &resolved, 2).unwrap(),
-        campaign_authority::transition(&resolved, &alternate, 3).unwrap(),
+        campaign_authority::transition(&initial, &council, 1).unwrap(),
+        campaign_authority::transition(&council, &pending, 2).unwrap(),
+        campaign_authority::transition(&pending, &resolved, 3).unwrap(),
+        campaign_authority::transition(&resolved, &alternate, 4).unwrap(),
     ];
     let decisions = campaign_authority::historical_decisions(&events).unwrap();
     assert_eq!(decisions.len(), 1);
-    assert_eq!(decisions[0].revision, 1);
+    assert_eq!(decisions[0].revision, 2);
     assert_eq!(decisions[0].kind, "wuchao");
-    assert_eq!(decisions[0].id, format!("{}:wuchao:1", game.run_id));
+    assert_eq!(decisions[0].id, format!("{}:wuchao:2", game.run_id));
+    let no_council = vec![
+        CampaignEvent::Started { state: initial.clone() },
+        campaign_authority::transition(&initial, &pending, 1).unwrap(),
+    ];
+    assert!(campaign_authority::historical_decisions(&no_council).unwrap().is_empty());
 }
 
 #[test]
 fn historical_decisions_ignore_council_placeholder_until_player_commits() {
     use three_kingdoms_spire_reborn::{WuchaoPlan, difficulty::Difficulty};
-    let game = Game::new(Hero::GuanYu, 20261124);
+    let game = Game::new(Hero::CaoCao, 20261124);
     let mut initial = CampaignState::current(&game);
     initial.identity.as_mut().unwrap().difficulty = Some(Difficulty::Warlords);
     let mut council = initial.clone();
+    council.floor = 10;
     council.stage = Stage::Story;
     council.wuchao_plan = Some(WuchaoPlan::Council);
     let mut committed = council.clone();
+    committed.stage = Stage::Map;
     committed.wuchao_plan = Some(WuchaoPlan::RaidPending);
     let events = vec![
         CampaignEvent::Started { state: initial.clone() },

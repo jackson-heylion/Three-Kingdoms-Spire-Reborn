@@ -229,19 +229,23 @@ pub fn historical_decisions(events: &[CampaignEvent]) -> Result<Vec<HistoricalDe
         let Some(before) = previous else { continue };
         let Some(after) = projector.state.as_ref() else { continue };
         let revision = projector.revision;
-        if before.identity.as_ref().is_none_or(|identity| identity.difficulty.is_none()) {
-            continue;
-        }
-        // A council placeholder is not a committed tactical choice. Count
-        // the first committed pending choice once per historical chain, not repeated
-        // transitions, revisits or a later change to the same plan.
+        let Some(identity) = before.identity.as_ref().filter(|id| id.difficulty.is_some())
+            else { continue };
+        // A valid council decision is a Story -> Map commitment at the
+        // same floor, by the correct hero and in the legal chapter window.
+        // A direct None -> Pending or edited resolved plan is not evidence.
+        let council_commit = before.stage == Stage::Story && after.stage == Stage::Map
+            && before.floor == after.floor;
         let changes = [
-            ("wuchao", matches!(after.wuchao_plan, Some(WuchaoPlan::RaidPending | WuchaoPlan::FortifyPending | WuchaoPlan::DeclinePending))
-                && before.wuchao_plan != after.wuchao_plan),
-            ("chibi", matches!(after.chibi_plan, Some(ChibiPlan::FirePending | ChibiPlan::FleetPending | ChibiPlan::DeclinePending))
-                && before.chibi_plan != after.chibi_plan),
-            ("jieting", matches!(after.jieting_plan, Some(JietingPlan::WaterPending | JietingPlan::HillPending | JietingPlan::RetreatPending))
-                && before.jieting_plan != after.jieting_plan),
+            ("wuchao", council_commit && identity.hero == Hero::CaoCao
+                && (9..=16).contains(&before.floor) && before.wuchao_plan == Some(WuchaoPlan::Council)
+                && matches!(after.wuchao_plan, Some(WuchaoPlan::RaidPending | WuchaoPlan::FortifyPending | WuchaoPlan::DeclinePending))),
+            ("chibi", council_commit && matches!(identity.hero, Hero::ZhugeLiang | Hero::SunShangxiang)
+                && (17..=24).contains(&before.floor) && before.chibi_plan == Some(ChibiPlan::Council)
+                && matches!(after.chibi_plan, Some(ChibiPlan::FirePending | ChibiPlan::FleetPending | ChibiPlan::DeclinePending))),
+            ("jieting", council_commit && identity.hero == Hero::ZhugeLiang
+                && (25..=30).contains(&before.floor) && before.jieting_plan == Some(JietingPlan::Council)
+                && matches!(after.jieting_plan, Some(JietingPlan::WaterPending | JietingPlan::HillPending | JietingPlan::RetreatPending))),
         ];
         for (kind, changed) in changes {
             if changed && recorded.insert(kind) {
@@ -372,6 +376,46 @@ impl Game {
             }
         }
         Ok(receipts)
+    }
+
+    /// Player-facing archive, derived from the same replay-verified receipts
+    /// rather than a second game truth. It is a conservative covered subset,
+    /// not a full SPEC density measurement or a historical factual claim.
+    pub fn historical_archive_report(&self) -> Result<String, String> {
+        if self.difficulty.is_none() {
+            return Ok("旧制战役保留原演义纪事；新制战史档案不适用。".into());
+        }
+        let receipts = self.historical_effect_receipts()?;
+        let history = self.campaign_history.as_ref().ok_or("缺少战役决策档案")?;
+        let decisions = historical_decisions(history)?;
+        let effective = receipts.iter().map(|r| r.decision_id.as_str())
+            .collect::<HashSet<_>>().len();
+        let mut lines = vec![format!(
+            "战史档案（动作重放已核对）：已记录{}项战术选择，{}项选择有实际战场后果，共{}个去重后的战场兑现点。",
+            decisions.len(), effective, receipts.len()
+        ), "仅统计已覆盖的历史战术；不等于完整12–18次有效触动指标。小说章回为文学背景，战术数值与反制属于游戏原创推演。".into()];
+        for decision in &decisions {
+            let (chapter, title) = match decision.kind.as_str() {
+                "wuchao" => (30, "官渡乌巢"),
+                "chibi" => (49, "赤壁东风"),
+                "jieting" => (95, "街亭军议"),
+                flag => crate::lore::BEATS.iter().find(|b| b.flag == flag)
+                    .map_or((0, "历史战术"), |b| (b.chapter, b.title)),
+            };
+            lines.push(format!("【{title}】第{}层／动作{}；文学背景：毛评演义第{chapter:03}回 {}",
+                decision.floor, decision.revision,
+                if chapter == 0 { String::new() } else { crate::lore::provenance_url(chapter).to_string() }));
+            let mut affected = false;
+            for receipt in receipts.iter().filter(|r| r.decision_id == decision.id) {
+                affected = true;
+                lines.push(format!("  游戏推演兑现：第{}层／动作{}／战斗{}事件{}；{}（{}）",
+                    receipt.floor, receipt.revision, receipt.encounter, receipt.event_seq,
+                    receipt.source, receipt.amount));
+            }
+            if !affected { lines.push("  尚无已核验的实际战场兑现。".into()); }
+        }
+        if decisions.is_empty() { lines.push("尚无已覆盖的历史战术选择。".into()); }
+        Ok(lines.join("\n"))
     }
 
     pub fn audit_campaign_authority(&self) -> Result<usize, String> {
