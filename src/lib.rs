@@ -458,7 +458,7 @@ impl Game {
                 Some(ChibiPlan::FireBattleResolved | ChibiPlan::FireSettled) =>
                     Some("赤壁火攻余波：第四幕关底敌统帅开场虚弱2层；若遇陆逊焚营，实际出牌并保持12点护甲可少引燃1层火势；仍承担此前后勤债务"),
                 Some(ChibiPlan::FleetBattleResolved | ChibiPlan::FleetSettled) =>
-                    Some("赤壁稳守旧部：第四幕关底我军开场护甲+8、军令+1，护阵可以反制关底致命意图"),
+                    Some("赤壁稳守旧部：第四幕关底我军开场护甲+8、军令+1；吕蒙白衣渡江前实际出牌且保持12护甲，额外反击4点无视护甲伤害"),
                 Some(ChibiPlan::DeclineBattleResolved | ChibiPlan::DeclineSettled) =>
                     Some("赤壁失机余波：第四幕关底敌统帅武勇+1、护甲+10；需先破阵或蓄力输出"),
                 _ => None,
@@ -472,11 +472,22 @@ impl Game {
         if self.floor == 18 && self.hero == Hero::CaoCao {
             match self.wuchao_plan {
                 Some(WuchaoPlan::RaidPending | WuchaoPlan::RaidResolved) =>
-                    return Some("水陆阵战：战船12耐久；乌巢夜袭余威使劫船前锋虚弱2层，可趁机护送或击退敌军。偶数回合逆流2/4/6点"),
+                    return Some("水陆阵战：战船12耐久；乌巢夜袭余威使劫船前锋虚弱2层，前锋存活且虚弱期间每回合少劫船2点。偶数回合逆流2/4/6点"),
                 Some(WuchaoPlan::FortifyPending | WuchaoPlan::FortifyResolved) =>
                     return Some("水陆阵战：乌巢守粮军资为战船先提供4点掩护，船体12；偶数回合逆流2/4/6点，掩护可反制劫船"),
                 Some(WuchaoPlan::DeclinePending | WuchaoPlan::DeclineResolved) =>
                     return Some("水陆阵战：乌巢失机导致后勤短缺，战船入阵先损2点耐久；偶数回合逆流2/4/6点，可通过掩护与击退敌军应对"),
+                _ => {}
+            }
+        }
+        if self.floor == 18 && matches!(self.hero, Hero::ZhugeLiang | Hero::SunShangxiang) {
+            match self.chibi_plan {
+                Some(ChibiPlan::FirePending | ChibiPlan::FireBattleResolved) =>
+                    return Some("水陆阵战：赤壁火攻灼伤敌前锋，己船耐久先损2点且至少1层火势；防御牌可扑灭火势并在有效掩护时抢修船体。偶数回合逆流2/4/6点"),
+                Some(ChibiPlan::FleetPending | ChibiPlan::FleetBattleResolved) =>
+                    return Some("水陆阵战：赤壁稳守为战船预留4点掩护；守住12耐久的船体并抵御偶数回合逆流2/4/6点"),
+                Some(ChibiPlan::DeclinePending | ChibiPlan::DeclineBattleResolved) =>
+                    return Some("水陆阵战：赤壁失机使敌前锋开场加甲4点；护航或歼敌，警惕偶数回合逆流2/4/6点"),
                 _ => {}
             }
         }
@@ -531,6 +542,16 @@ impl Game {
         }
     }
 
+    /// The paid Wuchao raid disrupts the actual cargo raid while the
+    /// vanguard remains alive and weak. The HUD and settlement share this.
+    fn wuchao_naval_raid_reduction(&self, battle: &Battle) -> u8 {
+        if self.difficulty.is_some() && self.floor == 19
+            && self.last_node == Some(Node::Battle) && self.hero == Hero::CaoCao
+            && self.wuchao_plan == Some(WuchaoPlan::RaidResolved)
+            && battle.foes.first().is_some_and(|foe| foe.hp > 0 && foe.weak > 0)
+        { 2 } else { 0 }
+    }
+
     pub fn tactical_objective(&self) -> Option<String> {
         if self.stage == Stage::Combat && self.difficulty.is_some()
             && self.floor == 40 && self.last_node == Some(Node::Boss)
@@ -557,7 +578,7 @@ impl Game {
                 Some(ChibiPlan::FireBattleResolved | ChibiPlan::FireSettled) =>
                     "赤壁火攻：敌统帅入阵虚弱2层；陆逊焚营前实际出牌并保持12点护甲可少引燃1层火势",
                 Some(ChibiPlan::FleetBattleResolved | ChibiPlan::FleetSettled) =>
-                    "赤壁稳守：我军入阵护甲+8且多1点军令",
+                    "赤壁稳守：我军入阵护甲+8且多1点军令；吕蒙潜袭前实际出牌且保持12护甲可额外反击4点",
                 Some(ChibiPlan::DeclineBattleResolved | ChibiPlan::DeclineSettled) =>
                     "赤壁失机：敌统帅入阵武勇+1并获得10点护甲，先破盾",
                 _ => "未携带赤壁军议后果",
@@ -619,7 +640,9 @@ impl Game {
             let naval = self.difficulty.is_some() && self.floor == 19 && self.last_node == Some(Node::Battle);
             let current = if naval { self.naval_tide_pressure(b.turn) }
                 else { self.grain_raid_pressure(b.turn) };
-            let raid = (living as u8).saturating_mul(4).saturating_add(current).saturating_sub(cover).min(hp);
+            let disruption = self.wuchao_naval_raid_reduction(b);
+            let raid = (living as u8).saturating_mul(4).saturating_add(current)
+                .saturating_sub(disruption).saturating_sub(cover).min(hp);
             if naval {
                 let warning = if hp > 0 && raid >= hp { "警告：回合末战船即将覆没！请攻击、守护或击退敌人。" } else { "" };
                 let class_hint = match self.hero {
@@ -629,7 +652,7 @@ impl Game {
                 };
                 let wuchao = if self.hero == Hero::CaoCao {
                     match self.wuchao_plan {
-                        Some(WuchaoPlan::RaidResolved) => "乌巢夜袭后续：劫船前锋虚弱2层；",
+                        Some(WuchaoPlan::RaidResolved) => "乌巢夜袭后续：存活的虚弱前锋少劫船2点；",
                         Some(WuchaoPlan::FortifyResolved) => "乌巢守粮后续：入阵预留4点舰队掩护；",
                         Some(WuchaoPlan::DeclineResolved) => "乌巢失机旧债：舰船入阵短缺2点耐久；",
                         _ => "",
@@ -637,12 +660,12 @@ impl Game {
                 } else { "" };
                 let chibi = match self.chibi_plan {
                     Some(ChibiPlan::FleetBattleResolved) => "赤壁稳守水军：入阵额外4点舰队掩护；",
-                    Some(ChibiPlan::FireBattleResolved) => "赤壁火攻旧议：火攻灼伤敌前锋3层、己方战船先损2点；",
+                    Some(ChibiPlan::FireBattleResolved) => "赤壁火攻旧议：火攻灼伤敌前锋3层、己方战船先损2点且起火；",
                     Some(ChibiPlan::DeclineBattleResolved) => "赤壁不介入旧债：敌军前锋加甲4点；",
                     _ => "",
                 };
                 return Some(format!(
-                    "水陆阵战：{wuchao}{chibi}{class_hint}战船耐久{hp}/12；存活敌军{living}名各劫船4点，偶数回合逆流按难度额外+2/+4/+6（本回合逆流+{current}）；防御牌提供4点掩护，攻击实际扣除敌军体力可提供2点掩护（本回合已护{cover}/8）；亲自击败敌军可抢修2点；本回合预计失船{raid}点。{warning}战船覆没即战败；击退敌军或在第4回合劫船结算后耐久至少6且本回合有掩护，即可护航成功。"
+                    "水陆阵战：{wuchao}{chibi}{class_hint}战船耐久{hp}/12；存活敌军{living}名各劫船4点，偶数回合逆流按难度额外+2/+4/+6（本回合逆流+{current}、夜袭牵制-{disruption}）；防御牌提供4点掩护，攻击实际扣除敌军体力可提供2点掩护（本回合已护{cover}/8）；亲自击败敌军可抢修2点；本回合预计失船{raid}点。{warning}战船覆没即战败；击退敌军或在第4回合劫船结算后耐久至少6且本回合有掩护，即可护航成功。"
                 ));
             }
             if (26..=31).contains(&self.floor) {
@@ -1431,6 +1454,10 @@ impl Game {
                     // committed damage is carried by the existing convoy HP.
                     let lost = {
                         let b = self.battle.as_mut().expect("naval crossing");
+                        // The fire spreads on this crossing even if the
+                        // first act-III battle already consumed the tactic.
+                        // A same-floor initial fire is not stacked twice.
+                        b.wildfire = b.wildfire.max(1);
                         let hull = b.convoy_hp.as_mut().expect("ship hull");
                         let old = *hull;
                         *hull = hull.saturating_sub(2);
@@ -3183,7 +3210,18 @@ impl Game {
                     // One stack expires at the current turn boundary. The two
                     // remaining stacks give the player a genuine attack window.
                     self.apply_foe_status(idx, "vulnerable", 3);
-                    "白衣渡江被识破：吕蒙露出破绽，易伤持续到后续回合".into()
+                    let reserve = self.difficulty.is_some() && self.floor == 32 && id == "lumeng"
+                        && matches!(self.hero, Hero::ZhugeLiang | Hero::SunShangxiang)
+                        && self.chibi_plan == Some(ChibiPlan::FleetSettled)
+                        && self.battle.as_ref().is_some_and(|b| b.played_this_turn > 0 && b.block >= 12);
+                    let counter = if reserve {
+                        self.deal_enemy_damage_unblockable(idx, 4, "chibi_lumeng_counterattack")
+                    } else { 0 };
+                    if counter > 0 {
+                        format!("白衣渡江被识破：吕蒙露出破绽，易伤持续到后续回合；赤壁水军反击{counter}点无视护甲伤害")
+                    } else {
+                        "白衣渡江被识破：吕蒙露出破绽，易伤持续到后续回合".into()
+                    }
                 } else {
                     let b = self.battle.as_mut().expect("battle");
                     b.next_turn_energy_penalty = b.next_turn_energy_penalty.max(1);
@@ -3725,9 +3763,18 @@ impl Game {
             } else {
                 self.grain_raid_pressure(self.battle.as_ref().expect("battle").turn)
             };
+            let disruption = self.wuchao_naval_raid_reduction(self.battle.as_ref().expect("battle"));
+            let without_disruption = enemy_count.saturating_mul(4)
+                .saturating_add(adverse_current).saturating_sub(cover).min(hp);
             let damage = enemy_count.saturating_mul(4)
-                .saturating_add(adverse_current).saturating_sub(cover);
+                .saturating_add(adverse_current).saturating_sub(disruption).saturating_sub(cover);
             let actual = damage.min(hp);
+            let saved = without_disruption - actual;
+            if saved > 0 {
+                self.combat_event(EventKind::PowerTriggered,
+                    "wuchao_naval_raid_countered", i32::from(saved), Some("fleet".into()));
+                messages.push(format!("乌巢夜袭牵制劫船前锋，保住{saved}点船体"));
+            }
             {
                 let b = self.battle.as_mut().expect("battle");
                 b.convoy_hp = Some(hp - actual);
@@ -7494,5 +7541,71 @@ mod alternate_historical_boss_regression {
         assert_eq!(game.battle.as_ref().unwrap().wildfire, 3);
         assert!(game.battle.as_ref().unwrap().events.iter().any(|e|
             e.source == "chibi_luxun_firebreak" && e.amount == 1));
+    }
+}
+
+
+#[cfg(test)]
+mod historical_naval_and_lumeng_regression {
+    use super::*;
+
+    // Controlled entry checkpoints for individual tactical mechanics.
+    #[test]
+    fn wuchao_raid_reduces_live_vanguard_cargo_pressure_only_while_weak() {
+        let mut game = Game::new_with_campaign_difficulty(
+            Hero::CaoCao, 7, Difficulty::Warlords, "wuchao-naval-pressure".into(),
+        );
+        game.floor = 19;
+        game.last_node = Some(Node::Battle);
+        game.wuchao_plan = Some(WuchaoPlan::RaidResolved);
+        game.start_battle(Node::Battle);
+        assert_eq!(game.wuchao_naval_raid_reduction(game.battle.as_ref().unwrap()), 2);
+        assert!(game.tactical_objective().unwrap().contains("夜袭牵制-2"));
+        game.battle.as_mut().unwrap().foes[0].weak = 0;
+        assert_eq!(game.wuchao_naval_raid_reduction(game.battle.as_ref().unwrap()), 0);
+        game.battle.as_mut().unwrap().foes[0].weak = 2;
+        game.battle.as_mut().unwrap().foes[0].hp = 0;
+        assert_eq!(game.wuchao_naval_raid_reduction(game.battle.as_ref().unwrap()), 0);
+    }
+
+    #[test]
+    fn earlier_chibi_fire_choice_ignites_the_later_crossing_without_double_ignition() {
+        for plan in [ChibiPlan::FirePending, ChibiPlan::FireBattleResolved] {
+            let mut game = Game::new_with_campaign_difficulty(
+                Hero::ZhugeLiang, 7, Difficulty::Warlords, "chibi-crossing-fire".into(),
+            );
+            game.floor = 18;
+            game.chibi_plan = Some(plan);
+            assert!(game.route_objective_hint(Node::Battle).unwrap().contains("火势"));
+            game.floor = 19;
+            game.last_node = Some(Node::Battle);
+            game.start_battle(Node::Battle);
+            let b = game.battle.as_ref().unwrap();
+            assert_eq!(b.wildfire, 1);
+            assert_eq!(b.convoy_hp, Some(10));
+            assert_eq!(b.foes[0].poison, 3);
+            assert_eq!(game.chibi_plan, Some(ChibiPlan::FireBattleResolved));
+        }
+    }
+
+    #[test]
+    fn chibi_fleet_counterattack_needs_committed_cards_not_just_opening_armor() {
+        let mut game = Game::new_with_campaign_difficulty(
+            Hero::SunShangxiang, 7, Difficulty::Warlords, "chibi-lumeng".into(),
+        );
+        game.apply(Action::SetExpandedVariants { act1: 0, act2: 0, act3: 0, act4: 1, act5: 0 }).unwrap();
+        game.floor = 32;
+        game.chibi_plan = Some(ChibiPlan::FleetBattleResolved);
+        game.start_battle(Node::Boss);
+        assert_eq!(game.chibi_plan, Some(ChibiPlan::FleetSettled));
+        let hp = game.battle.as_ref().unwrap().foes[0].hp;
+        assert_eq!(game.battle.as_ref().unwrap().foes[0].id, "lumeng");
+        game.boss_signature(0, BossMove::WhiteClothes);
+        assert_eq!(game.battle.as_ref().unwrap().foes[0].hp, hp);
+        game.battle.as_mut().unwrap().played_this_turn = 1;
+        game.boss_signature(0, BossMove::WhiteClothes);
+        assert_eq!(game.battle.as_ref().unwrap().foes[0].hp, hp - 4);
+        assert!(game.battle.as_ref().unwrap().events.iter().any(|e|
+            e.source == "chibi_lumeng_counterattack" && e.amount == 4));
     }
 }
