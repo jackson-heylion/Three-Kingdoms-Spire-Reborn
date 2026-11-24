@@ -316,13 +316,11 @@ pub(super) fn run(app:&mut App)->Result<(),String> {
                 b'k' => report_offset = report_offset.saturating_sub(1),
                 b'f' | b' ' => report_offset = report_offset.saturating_add(page).min(last),
                 b'b' => report_offset = report_offset.saturating_sub(page),
-                27 => {
-                    if read_byte().map_err(|e| e.to_string())? == b'[' {
-                        match read_byte().map_err(|e| e.to_string())? {
-                            b'A' => report_offset = report_offset.saturating_sub(1),
-                            b'B' => report_offset = report_offset.saturating_add(1).min(last),
-                            _ => {}
-                        }
+                27 if read_byte().map_err(|e| e.to_string())? == b'[' => {
+                    match read_byte().map_err(|e| e.to_string())? {
+                        b'A' => report_offset = report_offset.saturating_sub(1),
+                        b'B' => report_offset = report_offset.saturating_add(1).min(last),
+                        _ => {}
                     }
                 }
                 _ => {}
