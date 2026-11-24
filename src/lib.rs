@@ -7293,6 +7293,9 @@ mod historical_entry_boundary_regression {
             game.jieting_plan = Some(plan);
             assert!(game.route_objective_hint(Node::Boss).is_some());
             game.floor = 40;
+            let gold_before = game.gold;
+            game.hp -= 10;
+            let hp_before = game.hp;
             game.start_battle(Node::Boss);
             assert_eq!(game.jieting_plan, Some(settled));
             let battle = game.battle.as_ref().unwrap();
@@ -7300,17 +7303,19 @@ mod historical_entry_boundary_regression {
             assert_eq!(battle.events.iter().filter(|e| e.source == source).count(), 1);
             match plan {
                 JietingPlan::WaterResolved => {
-                    assert_eq!(battle.block, 18);
+                    assert_eq!(battle.block, 22); // 4 starting banner + 8 settlement + 10 Yinping.
                     assert_eq!(battle.foes[0].weak, 2);
                 }
                 JietingPlan::HillResolved => {
                     assert_eq!(battle.foes[0].strength, 2);
                     assert_eq!(battle.foes[0].block, 10);
                     assert_eq!(battle.strength, 1);
+                    assert_eq!(game.gold, gold_before - 12);
                 }
                 JietingPlan::RetreatResolved => {
                     assert_eq!(battle.energy, 4);
                     assert_eq!(battle.foes[0].block, 6);
+                    assert_eq!(game.hp, hp_before + 8);
                 }
                 _ => unreachable!(),
             }
