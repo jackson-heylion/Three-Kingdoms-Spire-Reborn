@@ -108,6 +108,16 @@ def main() -> None:
             )
             played = current_snapshot()
             assert played["hero"] == "zhuge_liang"
+            # Read the complete map in the scrollable report, then return.
+            # The report must never commit a gameplay action or quit the game.
+            os.write(master, b":map\r")
+            await_condition(lambda: "档案与详情".encode() in output, "read-only map viewer")
+            assert current_snapshot() == played
+            frames = output.count(b"\x1b[2J\x1b[H")
+            os.write(master, b"q")
+            await_condition(lambda: output.count(b"\x1b[2J\x1b[H") > frames,
+                "return from map viewer to campaign")
+            assert current_snapshot() == played
             # Exercise the raw-mode colon command input, then checked quit.
             os.write(master, b":help\r")
             await_condition(

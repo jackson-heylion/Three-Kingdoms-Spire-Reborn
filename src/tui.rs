@@ -67,6 +67,7 @@ pub(super) fn choices(app:&App,target:usize)->Vec<(String,String)> {
                     (label,format!("choose {}",idx+1))
                 }).collect::<Vec<_>>();
             if game.difficulty.is_some() {
+                options.push(("查看本幕完整地图".into(), "map".into()));
                 options.push(("查看战史档案（动作重放核验）".into(), "history-audit".into()));
             }
             options
@@ -296,8 +297,38 @@ pub(super) fn run(app:&mut App)->Result<(),String> {
     let mut target=1usize;
     let mut selecting_card: Option<usize> = None;
     let mut selecting_campaign: Option<String> = None;
+    let mut report: Option<String> = None;
+    let mut report_offset = 0usize;
     let mut details = false;
     loop {
+        if let Some(content) = report.as_deref() {
+            let (rows, columns) = terminal_size();
+            let lines = hud::report_lines(content, columns);
+            let page = hud::report_page_size(rows);
+            let last = lines.len().saturating_sub(page);
+            report_offset = report_offset.min(last);
+            print!("\x1b[2J\x1b[H{}{}\x1b[0m", app.theme.style(),
+                hud::render_report(app, columns, rows, &lines, report_offset));
+            io::stdout().flush().map_err(|e| e.to_string())?;
+            match read_byte().map_err(|e| e.to_string())? {
+                b'q' | b'\r' | b'\n' => { report = None; report_offset = 0; }
+                b'j' => report_offset = report_offset.saturating_add(1).min(last),
+                b'k' => report_offset = report_offset.saturating_sub(1),
+                b'f' | b' ' => report_offset = report_offset.saturating_add(page).min(last),
+                b'b' => report_offset = report_offset.saturating_sub(page),
+                27 => {
+                    if read_byte().map_err(|e| e.to_string())? == b'[' {
+                        match read_byte().map_err(|e| e.to_string())? {
+                            b'A' => report_offset = report_offset.saturating_sub(1),
+                            b'B' => report_offset = report_offset.saturating_add(1).min(last),
+                            _ => {}
+                        }
+                    }
+                }
+                _ => {}
+            }
+            continue;
+        }
         target = live_target(app.game.as_ref(), target);
         let options = if let Some(hero) = selecting_campaign.as_deref() {
             campaign_tier_choices(hero)
@@ -369,6 +400,14 @@ pub(super) fn run(app:&mut App)->Result<(),String> {
                 continue;
             }
             if !app.command(&command) {return Ok(());}
+            // A verified archive or full map can span many screens. Keep its
+            // already-computed output, rather than replaying on each scroll.
+            if matches!(command.as_str(), "history-audit" | "map")
+                && !app.message.starts_with("错误：")
+            {
+                report = Some(std::mem::take(&mut app.message));
+                report_offset = 0;
+            }
             selecting_card = None;
             selecting_campaign = None;
             // Menu choices depend on the committed stage; avoid retaining stale selection.

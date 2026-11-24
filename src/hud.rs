@@ -70,6 +70,50 @@ fn heading(out: &mut Vec<String>, app: &App, title: &str, columns: usize) {
     line(out, app, &line_text, columns, Tone::Muted);
 }
 
+/// Wrap Unicode text without dropping the rest of a long archive line.
+pub(super) fn report_lines(text: &str, columns: usize) -> Vec<String> {
+    let columns = columns.clamp(28, 120);
+    let mut result = Vec::new();
+    for raw in text.lines() {
+        let mut line = String::new();
+        let mut cells = 0;
+        for ch in raw.chars().filter(|ch| !ch.is_control()) {
+            let width = UnicodeWidthChar::width(ch).unwrap_or(0);
+            if cells + width > columns {
+                result.push(std::mem::take(&mut line));
+                cells = 0;
+            }
+            line.push(ch);
+            cells += width;
+        }
+        result.push(line);
+    }
+    if result.is_empty() { result.push("暂无档案内容".into()); }
+    result
+}
+
+pub(super) fn report_page_size(rows: usize) -> usize {
+    rows.max(16) - 3
+}
+
+pub(super) fn render_report(app: &App, columns: usize, rows: usize,
+    lines: &[String], offset: usize) -> String
+{
+    let columns = columns.clamp(28, 120);
+    let page = report_page_size(rows);
+    let start = offset.min(lines.len().saturating_sub(page));
+    let end = start.saturating_add(page).min(lines.len());
+    let mut out = Vec::new();
+    heading(&mut out, app, "档案与详情（只读）", columns);
+    for content in &lines[start..end] {
+        line(&mut out, app, content, columns, Tone::Normal);
+    }
+    line(&mut out, app, &format!("{}–{} / {} 行",
+        start + usize::from(!lines.is_empty()), end, lines.len()), columns, Tone::Muted);
+    line(&mut out, app, "↑↓ / jk 滚动  fb 翻页  q/Enter 返回", columns, Tone::Accent);
+    format!("{}\n", out.join("\n"))
+}
+
 fn menu_label(label: &str, combat: bool, details: bool) -> &str {
     if combat && !details { label.split_once(" · ").map_or(label, |(name, _)| name) }
     else { label }
@@ -450,5 +494,31 @@ mod expanded_objective_hud_regression {
         let screen = render(&app, 100, 30, 1, &menu, 0);
         assert!(screen.contains("关卡目标") && screen.contains("突围"));
         assert_eq!(app.game.as_ref().unwrap().to_json().unwrap(), before);
+    }
+}
+
+
+#[cfg(test)]
+mod report_view_tests {
+    use super::*;
+    use crate::{Profile, Theme};
+
+    #[test]
+    fn long_cjk_archive_wraps_without_losing_text_and_scrolls_to_end() {
+        let text = "街亭守水责任跨幕兑现，保留真实战场后果。".repeat(45);
+        let lines = report_lines(&text, 28);
+        assert_eq!(lines.concat(), text);
+        assert!(lines.iter().all(|line| width(line) <= 28));
+        let app = App { game: None, profile: Profile::new(), theme: Theme::Dark,
+            dir: std::path::PathBuf::new(), use_ansi: false, message: String::new() };
+        let first = render_report(&app, 28, 16, &lines, 0);
+        let last = render_report(&app, 28, 16, &lines, usize::MAX);
+        assert!(first.contains("档案与详情"));
+        assert_ne!(first, last);
+        assert!(last.contains(lines.last().unwrap()));
+        for screen in [first, last] {
+            assert!(screen.lines().count() <= 16);
+            assert!(screen.lines().all(|line| width(line) <= 28));
+        }
     }
 }
