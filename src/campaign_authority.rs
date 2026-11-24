@@ -288,6 +288,16 @@ pub struct HistoricalEffectReceipt {
 
 fn historical_effect_site(source: &str) -> Option<(&'static str, &'static str)> {
     match source {
+        "wuchao_act_three_raid" | "wuchao_act_three_fortify" | "wuchao_act_three_decline" =>
+            Some(("wuchao", "third_act_settlement")),
+        "chibi_act_three_fire" | "chibi_act_three_fleet" | "chibi_act_three_decline" =>
+            Some(("chibi", "third_act_settlement")),
+        "chibi_act_four_debt" | "chibi_act_four_supply" | "chibi_act_four_setback" =>
+            Some(("chibi", "fourth_act_settlement")),
+        "jieting_act_four_water" | "jieting_act_four_hill" | "jieting_act_four_retreat" =>
+            Some(("jieting", "fourth_act_settlement")),
+        "jieting_act_five_water" | "jieting_act_five_debt" | "jieting_act_five_recovery" =>
+            Some(("jieting", "fifth_act_settlement")),
         "wuchao_coalition_raid" | "wuchao_coalition_fortified" | "wuchao_coalition_unchecked" =>
             Some(("wuchao", "guandu")),
         "wuchao_tyrant_raid" | "wuchao_tyrant_fortified" | "wuchao_tyrant_unchecked"
