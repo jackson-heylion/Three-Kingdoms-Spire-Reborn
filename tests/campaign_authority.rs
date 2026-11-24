@@ -293,3 +293,22 @@ fn historical_decisions_do_not_misclassify_settlement_only_journal_changes() {
     assert!(campaign_authority::historical_decisions(&events).unwrap().is_empty(),
         "a settlement without a committed pending choice cannot count as player interaction");
 }
+
+
+#[test]
+fn historical_effect_receipts_do_not_count_normal_combat_or_forged_archive_entries() {
+    use three_kingdoms_spire_reborn::difficulty::Difficulty;
+    let mut game = Game::new_with_campaign_difficulty(
+        Hero::CaoCao, 20261124, Difficulty::Warlords, "receipt-boundary".into(),
+    );
+    game.apply(Action::Choose { index: 1 }).unwrap();
+    assert!(game.historical_effect_receipts().unwrap().is_empty());
+    let restored = Game::from_json(&game.to_json().unwrap()).unwrap();
+    assert_eq!(game.historical_effect_receipts().unwrap(),
+        restored.historical_effect_receipts().unwrap());
+    let mut forged = restored;
+    let record = forged.event_history.as_mut().unwrap().first_mut().unwrap();
+    record.event.source = "wuchao_tyrant_raid".into();
+    record.event.amount = 8;
+    assert!(forged.historical_effect_receipts().is_err());
+}
