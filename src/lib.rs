@@ -908,9 +908,30 @@ impl Game {
         let selection=self.doctrine.map_or("自动识别".to_owned(),|d|d.label().to_owned());
         let effective=self.effective_doctrine().map_or("尚未形成".to_owned(),
             |d|format!("{}（{}）",d.label(),d.id()));
-        format!("战法偏好：{selection}；当前流派：{effective}。可选：{}（{}）、{}（{}）、auto；仅在地图或营寨可切换。",
+        let guidance = if self.has_expanded_history_rules() {
+            " 手动选择流派后，新奖励或军市至多替换一个选项，优先提供尚未拥有的流派牌；已有奖励不会重抽。"
+        } else { "" };
+        format!("战法偏好：{selection}；当前流派：{effective}。可选：{}（{}）、{}（{}）、auto；仅在地图或营寨可切换。{guidance}",
             options[0].label(),options[0].id(),options[1].label(),options[1].id())
     }
+    // Explicitly choosing a doctrine is a meaningful commitment, not a
+    // promise to reroll an existing reward. At most one freshly generated
+    // offer is replaced, and an already owned member cannot satisfy a
+    // request for a missing component. Inferred preferences retain 70%.
+    fn guide_expanded_rewards(&mut self, choices: &mut [Card]) {
+        let Some(focus) = self.effective_doctrine() else { return };
+        let missing = |id: &str| focus.contains(id)
+            && !self.deck.iter().any(|card| card.id == id);
+        if choices.iter().any(|card| missing(&card.id)) { return; }
+        let candidates = focus.members().iter().copied()
+            .filter(|id| missing(id)).collect::<Vec<_>>();
+        if candidates.is_empty() || choices.is_empty() { return; }
+        if self.doctrine.is_none() && self.random(100) >= 70 { return; }
+        let pick = candidates[self.random(candidates.len())];
+        let slot = self.random(choices.len());
+        choices[slot] = Card::new(pick);
+    }
+
     fn pick_reward_cards(&mut self) -> Vec<Card> {
         let own = hero_pool(self.hero);
         let mut choices: Vec<Card> = vec![];
@@ -925,6 +946,10 @@ impl Game {
             };
             let card = Card::new(id);
             if !choices.iter().any(|c| c.id == card.id) { choices.push(card); }
+        }
+        if self.has_expanded_history_rules() {
+            self.guide_expanded_rewards(&mut choices);
+            return choices;
         }
         // Draft guidance is optional: at most ONE of three randomly generated
         // rewards is exchanged, with a 70% roll. Two slots remain untouched.
@@ -2515,6 +2540,23 @@ impl Game {
             self.gold += 50;
         }
     }
+    /// Combined passive healing per victory (神医、百草、济世仁心).
+    /// The long campaign keeps the early recovery budget, then reduces
+    /// stacked healing by act. Active cards, potions, camp and boss HP growth
+    /// are independent. Baseline rules have no combined limit.
+    pub fn victory_recovery_cap(&self) -> Option<i32> {
+        if !self.has_expanded_history_rules() { return None; }
+        let act = usize::from((self.floor.saturating_sub(1) / self.campaign_rows()).min(4));
+        Some([16, 14, 12, 10, 8][act])
+    }
+
+    fn passive_victory_recovery(&self) -> i32 {
+        let total = 6 * i32::from(self.relics.iter().any(|r| r == "神医"))
+            + 2 * i32::from(self.relics.iter().any(|r| r == "百草"))
+            + 8 * i32::from(self.boons.iter().any(|id| id == "renewal"));
+        total.min(self.victory_recovery_cap().unwrap_or(i32::MAX))
+    }
+
     fn win_battle(&mut self) -> String {
         // Emit a final boundary while the battle journal still exists.
         // Legacy archives without this marker remain readable, but cannot be
@@ -2549,15 +2591,8 @@ impl Game {
             "伏击反制成功，额外获得16金，"
         } else { "" };
         if self.relics.iter().any(|r| r == "铜雀") { self.gold += 12; }
-        if self.relics.iter().any(|r| r == "神医") {
-            self.hp = (self.hp + 6).min(self.max_hp);
-        }
-        if self.relics.iter().any(|r| r == "百草") {
-            self.hp = (self.hp + 2).min(self.max_hp);
-        }
-        if self.boons.iter().any(|id| id == "renewal") {
-            self.hp = (self.hp + 8).min(self.max_hp);
-        }
+        let recovery = self.passive_victory_recovery();
+        self.hp = self.hp.saturating_add(recovery).min(self.max_hp);
         if node == Node::Elite || node == Node::Boss {
             self.grant_relic();
             if node == Node::Boss {
@@ -2650,6 +2685,12 @@ impl Game {
             (spec.cost - 1).max(0)
         } else { spec.cost };
         if b.energy < cost { return Err("军令不足".into()); }
+        if self.has_expanded_history_rules()
+            && let Effect::BloodPrice(loss, _) = spec.effect
+            && self.hp <= loss
+        {
+            return Err(format!("血价需要支付{loss}点体力并存活，当前体力不足"));
+        }
         let requires_target = matches!(
             spec.effect, Effect::Hit(_) | Effect::HitDraw(_, _) | Effect::HitTwice(_)
                 | Effect::Poison(_) | Effect::HitWeak(_, _) | Effect::HitVulnerable(_, _)
@@ -4234,8 +4275,14 @@ impl Game {
         Ok(result)
     }
     fn choose_boons(&mut self) -> Vec<String> {
+        let new_rules = self.has_expanded_history_rules();
         let mut pool: Vec<&str> = items::BOONS.iter().map(|(id,_)| *id)
-            .filter(|id| !self.boons.iter().any(|owned| owned == id)).collect();
+            .filter(|id| !self.boons.iter().any(|owned| owned == id))
+            .filter(|id| !new_rules || match *id {
+                "herb_garden" => self.potion_bag.len() < 3,
+                "arsenal" => self.deck.iter().any(|card| Self::upgrade_eligible(card, true)),
+                _ => true,
+            }).collect();
         let mut picks = vec![];
         while !pool.is_empty() && picks.len() < 3 {
             let idx = self.random(pool.len());
@@ -4769,8 +4816,13 @@ impl Game {
                 "获得火攻古卷，但沾染军心涣散。"
             }
             (0,3) => {
-                self.hp = (self.hp - 8).max(0); self.gold += 65;
-                "损失8体力，获得65金。"
+                self.hp = (self.hp - 8).max(0);
+                if new_rules && self.hp == 0 {
+                    "劫军资耗尽体力，未能取得金币。"
+                } else {
+                    self.gold += 65;
+                    "损失8体力，获得65金。"
+                }
             }
             (1,1) | (5,1) | (11,1) => {
                 self.hp = (self.hp - if event == 1 { 6 } else { 10 }).max(0);
@@ -4786,8 +4838,13 @@ impl Game {
                 self.hp = (self.hp + 15).min(self.max_hp); "恢复15体力。"
             }
             (2,2) | (8,2) => {
-                self.hp = (self.hp - 7).max(0); self.gold += 40;
-                "失去7体力，得到40金。"
+                self.hp = (self.hp - 7).max(0);
+                if new_rules && self.hp == 0 {
+                    "交易耗尽体力，未能取得金币。"
+                } else {
+                    self.gold += 40;
+                    "失去7体力，得到40金。"
+                }
             }
             (4,2) | (7,2) => {
                 self.deck.push(Card::new("quest_tulu"));
@@ -4821,7 +4878,15 @@ impl Game {
                 } else { self.gold += cost; "没有可升级卡牌，退回所付费用。" }
             }
             (5,2) => { self.gold += 60; self.deck.push(Card::new("cursed")); "拾得60金，但附上诅咒。" }
-            (6,2) => { self.max_hp += 4; self.hp = (self.hp - 8).max(0); "最大体力加4，失去8体力。" }
+            (6,2) => {
+                self.hp = (self.hp - 8).max(0);
+                if new_rules && self.hp == 0 {
+                    "守寨操练耗尽体力，未能增长体力上限。"
+                } else {
+                    self.max_hp += 4;
+                    "最大体力加4，失去8体力。"
+                }
+            }
             (10,2) => { self.max_hp += 3; self.hp += 3; "最大体力增加3。" }
             _ => "避开纷争，继续行军。",
         };
@@ -4840,6 +4905,9 @@ impl Game {
         if self.stage != Stage::Combat { return Err("只能战斗时使用药剂".into()); }
         let idx = slot.checked_sub(1).ok_or("药剂编号从1开始")?;
         let id = self.potion_bag.get(idx).ok_or("无效药剂编号")?.clone();
+        if self.has_expanded_history_rules() && id == "blood" && self.hp <= 4 {
+            return Err("血战酒需要支付4点体力并存活，当前体力不足".into());
+        }
         let foe_index = if matches!(id.as_str(), "fire" | "poison") {
             Some(self.target_index(target)?)
         } else { None };
@@ -8409,6 +8477,123 @@ mod expanded_economy_boundary_regression {
             g.apply(Action::Choose { index: 1 }).unwrap();
             assert_eq!(g.potion_bag.len(), expected);
             assert_eq!(usize::from(g.potions), expected);
+        }
+    }
+}
+
+
+#[cfg(test)]
+mod expanded_long_economy_regression {
+    use super::*;
+    use crate::archetypes::Doctrine;
+
+    fn campaign(hero: Hero) -> Game {
+        Game::new_with_campaign_difficulty(
+            hero, 7, Difficulty::Warlords, "long-economy".into(),
+        )
+    }
+
+    #[test]
+    fn all_ten_explicit_doctrines_offer_a_missing_member_without_granting_cards() {
+        for focus in Doctrine::ALL {
+            let mut game = campaign(focus.hero());
+            game.apply(Action::SetDoctrine { id: focus.id().into() }).unwrap();
+            let owned = focus.members()[0];
+            game.deck.push(Card::new(owned));
+            let deck = game.deck.clone();
+            let before = vec![Card::new(owned), Card::new("strike"), Card::new("defend")];
+            let mut offers = before.clone();
+            game.guide_expanded_rewards(&mut offers);
+            assert_eq!(offers.len(), 3);
+            assert_eq!(offers.iter().zip(&before).filter(|(a,b)| a.id != b.id).count(), 1);
+            assert!(offers.iter().any(|card|
+                focus.contains(&card.id) && !deck.iter().any(|d| d.id == card.id)));
+            assert_eq!(game.deck, deck);
+            // When a missing member is already offered, guidance must not
+            // consume RNG or replace a second slot.
+            let rng = game.rng_state;
+            let guided = offers.clone();
+            game.guide_expanded_rewards(&mut offers);
+            assert_eq!(offers, guided);
+            assert_eq!(game.rng_state, rng);
+        }
+    }
+
+    #[test]
+    fn five_act_passive_recovery_budget_saturates_without_changing_legacy_rules() {
+        let mut game = campaign(Hero::GuanYu);
+        game.relics.extend(["神医".into(), "百草".into()]);
+        game.boons.push("renewal".into());
+        for (floor, expected) in [(8,16),(16,14),(24,12),(32,10),(40,8)] {
+            game.floor = floor;
+            assert_eq!(game.victory_recovery_cap(), Some(expected));
+            assert_eq!(game.passive_victory_recovery(), expected);
+        }
+        let mut old = Game::new_with_campaign_rules_revision(
+            Hero::GuanYu, 7, Difficulty::Warlords, "baseline-economy".into(), 0,
+        );
+        old.relics = game.relics.clone();
+        old.boons = game.boons.clone();
+        old.floor = 40;
+        assert_eq!(old.victory_recovery_cap(), None);
+        assert_eq!(old.passive_victory_recovery(), 16);
+        // Test actual victory settlement on a controlled encounter.
+        game.floor = 35;
+        game.last_node = Some(Node::Battle);
+        game.start_battle(Node::Battle);
+        game.hp = game.max_hp - 20;
+        let hp = game.hp;
+        game.win_battle();
+        assert_eq!(game.hp, hp + 8);
+    }
+
+    #[test]
+    fn saturated_boon_offers_exclude_unusable_upgrades_and_potion_refills() {
+        let mut game = campaign(Hero::CaoCao);
+        game.potion_bag = vec!["healing".into(); 3];
+        game.potions = 3;
+        for card in &mut game.deck { card.upgraded = true; }
+        for _ in 0..12 {
+            let offers = game.choose_boons();
+            assert_eq!(offers.len(), 3);
+            assert!(!offers.iter().any(|id| id == "arsenal" || id == "herb_garden"));
+            assert_eq!(offers.iter().collect::<std::collections::HashSet<_>>().len(), 3);
+        }
+    }
+
+    #[test]
+    fn blood_costs_cannot_be_underpaid_by_a_low_hp_hero() {
+        let mut game = campaign(Hero::LuBu);
+        game.apply(Action::Choose { index: 1 }).unwrap();
+        game.hp = 4;
+        game.battle.as_mut().unwrap().hand = vec![Card::new("xuezhai")];
+        game.potion_bag = vec!["blood".into()];
+        game.potions = 1;
+        let before = game.to_json().unwrap();
+        assert!(game.apply(Action::Play { index: 1, target: 1 }).is_err());
+        assert_eq!(game.to_json().unwrap(), before);
+        assert!(game.apply(Action::UsePotionAt { slot: 1, target: 1 }).is_err());
+        assert_eq!(game.to_json().unwrap(), before);
+        game.hp = 5;
+        game.apply(Action::UsePotionAt { slot: 1, target: 1 }).unwrap();
+        assert_eq!(game.hp, 1);
+        assert_eq!(game.potions, 0);
+    }
+
+    #[test]
+    fn lethal_generic_trades_cannot_award_gold_or_maximum_hp() {
+        for (event, index, hp) in [(0,3,8),(2,2,7),(8,2,7),(6,2,8)] {
+            let mut game = campaign(Hero::CaoCao);
+            game.floor = 2;
+            game.stage = Stage::Story;
+            game.lore_current = None;
+            game.event_id = event;
+            game.hp = hp;
+            let before = (game.gold, game.max_hp);
+            game.apply(Action::Choose { index }).unwrap();
+            assert_eq!(game.stage, Stage::Lost);
+            assert_eq!(game.hp, 0);
+            assert_eq!((game.gold, game.max_hp), before);
         }
     }
 }
