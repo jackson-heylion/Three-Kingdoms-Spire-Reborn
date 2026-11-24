@@ -3137,8 +3137,8 @@ impl Game {
                         && self.jieting_plan == Some(JietingPlan::WaterSettled)
                         && b.turn == 1
                     {
-                        b.events.iter().filter(|event| matches!(event.source.as_str(),
-                            "jieting_yinping_wells" | "jieting_late_water_settlement"))
+                        10 + b.events.iter().filter(|event|
+                            event.source == "jieting_late_water_settlement")
                             .map(|event| event.amount).sum::<i32>()
                     } else { 0 };
                     b.block >= 10 + 2 * i32::from(phase) + free_water_cover
