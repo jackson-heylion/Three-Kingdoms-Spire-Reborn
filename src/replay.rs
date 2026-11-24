@@ -43,7 +43,9 @@ impl Game {
             return Err("请求的历史修订号超过当前存档".into());
         }
         let mut replayed = if let Some(difficulty) = self.difficulty {
-            Game::new_with_campaign_difficulty(self.hero, self.seed, difficulty, self.run_id.clone())
+            Game::new_with_campaign_rules_revision(
+                self.hero, self.seed, difficulty, self.run_id.clone(), self.expanded_rules_revision,
+            )
         } else {
             Game::new_with_identity(
                 self.hero, self.seed, self.ascension, self.mode, self.run_id.clone(),
@@ -146,7 +148,9 @@ impl Game {
             "legacy save has no complete action journal")?;
         if actions.len()>50_000 {return Err("action replay limit exceeded".into());}
         let mut replay = if let Some(difficulty) = self.difficulty {
-            Game::new_with_campaign_difficulty(self.hero, self.seed, difficulty, self.run_id.clone())
+            Game::new_with_campaign_rules_revision(
+                self.hero, self.seed, difficulty, self.run_id.clone(), self.expanded_rules_revision,
+            )
         } else {
             Game::new_with_identity(
                 self.hero, self.seed, self.ascension, self.mode, self.run_id.clone(),

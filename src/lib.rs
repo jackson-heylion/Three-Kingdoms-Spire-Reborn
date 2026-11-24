@@ -40,6 +40,13 @@ use content::{Effect, Hero, REWARD_POOL, NEUTRAL_POOL, hero_pool, card_spec, ene
 use serde::{Deserialize, Serialize};
 
 pub const SAVE_VERSION: u32 = 2;
+/// V2 is the serialization format; this independent epoch selects expanded
+/// campaign rules. An omitted epoch retains the already shipped rules.
+pub const EXPANDED_RULES_REVISION: u8 = 1;
+
+pub(crate) fn is_baseline_expanded_rules(revision: &u8) -> bool {
+    *revision == 0
+}
 pub const MAX_FLOOR: u8 = 21;
 pub const EXPANDED_MAX_FLOOR: u8 = 40;
 const BREAKOUT_TURN_LIMIT: u32 = 4;
@@ -339,6 +346,8 @@ pub struct Game {
     /// Explicit new-era three-tier campaign; None preserves original ascension rules.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub difficulty: Option<Difficulty>,
+    #[serde(default, skip_serializing_if = "is_baseline_expanded_rules")]
+    pub(crate) expanded_rules_revision: u8,
     #[serde(default)] pub event_id: u8,
     #[serde(default)] pub potion_bag: Vec<String>,
     #[serde(default)] pub shop_relic: Option<String>,
@@ -394,6 +403,20 @@ pub enum Action {
 }
 
 impl Game {
+    pub(crate) fn has_expanded_history_rules(&self) -> bool {
+        self.difficulty.is_some() && self.expanded_rules_revision == EXPANDED_RULES_REVISION
+    }
+
+    // Resolve the older plan state only for the new rules epoch. Both map
+    // previews and the actual Yinping entry consume the same decision.
+    fn yinping_entry_plan(&self) -> Option<JietingPlan> {
+        match self.jieting_plan {
+            Some(JietingPlan::WaterResolved | JietingPlan::HillResolved | JietingPlan::RetreatResolved)
+                if !self.has_expanded_history_rules() => None,
+            plan => plan,
+        }
+    }
+
     /// Visible objective for the first new-tier encounter. Derived entirely
     /// from committed campaign/battle state, so saves and replay need no new schema.
     /// Read-only convoy warning before committing to a route.
@@ -407,24 +430,24 @@ impl Game {
         if node == Node::Boss && self.floor == 39 && self.hero == Hero::ZhugeLiang
             && self.act_variant(4) == 1
         {
-            return match self.jieting_plan {
+            return match self.yinping_entry_plan() {
                 Some(JietingPlan::WaterResolved | JietingPlan::WaterSettled) => Some("邓艾·阴平：街亭守水责任延续；入阵我军护甲+10，邓艾虚弱2层（回合末衰减）；亲自击败山道援军可夺回4点护甲"),
                 Some(JietingPlan::HillResolved | JietingPlan::HillSettled) => Some("邓艾·阴平：街亭据山暴露山道；邓艾武勇+2、护甲+10，我军武勇+1；亲自击败山道援军可反击8点"),
                 Some(JietingPlan::RetreatResolved | JietingPlan::RetreatSettled) => Some("邓艾·阴平：街亭撤退保全先机；入阵军令+1，邓艾护甲+6；成功截击阴平偷渡额外反击2点；亲自击败山道援军并伤及邓艾可回收1点军令（至多5点）"),
                 _ => None,
             };
         }
-        if node == Node::Boss && self.floor == 23 && self.act_variant(2) == 0
+        if self.has_expanded_history_rules() && node == Node::Boss && self.floor == 23 && self.act_variant(2) == 0
             && self.lore_flags.iter().any(|flag| flag == "empty_city")
         {
             return Some("司马懿关底：空城旧策可反制暗度陈仓；回合内实际出牌1–2张并保持10护甲，可抵消军令封锁与诅咒");
         }
-        if node == Node::Boss && self.floor == 31 && self.act_variant(3) == 1
+        if self.has_expanded_history_rules() && node == Node::Boss && self.floor == 31 && self.act_variant(3) == 1
             && self.hero == Hero::GuanYu && self.lore_flags.iter().any(|flag| flag == "jingzhou_warning")
         {
             return Some("吕蒙关底：荆州警戒使主动布防的军队识破白衣潜袭；实际出牌并保持8护甲可额外使吕蒙虚弱2层");
         }
-        if node == Node::Battle && self.floor == 26 && self.hero == Hero::GuanYu
+        if self.has_expanded_history_rules() && node == Node::Battle && self.floor == 26 && self.hero == Hero::GuanYu
             && self.lore_flags.iter().any(|flag| flag == "fancheng_flood_record")
         {
             return Some("樊城水势推演：偶数回合敌军行动后，若保有8护甲可借水势反击前锋6点无视护甲伤害；否则己军失去3体力");
@@ -441,7 +464,7 @@ impl Game {
                     Some("姜维·北伐：街亭据山导致姜维武勇+2、护甲+8，我军也获武勇+1；需预留反制牌突破封锁"),
                 Some(JietingPlan::RetreatResolved | JietingPlan::RetreatSettled) =>
                     Some("姜维·北伐：街亭撤退保留机动，入阵额外军令+1、护甲+4，但姜维护甲+6；需把军令投入对抗断粮"),
-                _ if self.lore_flags.iter().any(|flag| flag == "star_lantern") =>
+                _ if self.has_expanded_history_rules() && self.lore_flags.iter().any(|flag| flag == "star_lantern") =>
                     Some("姜维·北伐：五丈原军心旧策；首回合实际出牌至少2张并保持8护甲，守住断粮可回复至多6体力"),
                 _ => None,
             };
@@ -458,7 +481,7 @@ impl Game {
             });
         }
         // The other act-II commander must not discard the optional Wuchao decision.
-        if node == Node::Boss && self.floor == 15 && self.hero == Hero::CaoCao
+        if self.has_expanded_history_rules() && node == Node::Boss && self.floor == 15 && self.hero == Hero::CaoCao
             && self.act_variant(1) == 0
         {
             return match self.wuchao_plan {
@@ -470,7 +493,7 @@ impl Game {
         }
         // If ordinary encounters were bypassed after the council, the
         // mandatory boss is the final water objective of act IV.
-        if node == Node::Boss && self.floor == 31 && self.hero == Hero::ZhugeLiang {
+        if self.has_expanded_history_rules() && node == Node::Boss && self.floor == 31 && self.hero == Hero::ZhugeLiang {
             match self.jieting_plan {
                 Some(JietingPlan::WaterPending) => return Some("第四幕关底兼街亭水源战：守水预留4点掩护，水源12；每名存活敌军劫水4点，水源耗尽即战败"),
                 Some(JietingPlan::HillPending) => return Some("第四幕关底兼街亭水源战：据山先失4点水源；主动攻击可以掩护水源，亲自击败敌军可夺回水源"),
@@ -483,9 +506,13 @@ impl Game {
         {
             return match self.chibi_plan {
                 Some(ChibiPlan::FireBattleResolved | ChibiPlan::FireSettled) =>
-                    Some("赤壁火攻余波：第四幕关底敌统帅开场虚弱2层；若遇陆逊焚营，实际出牌并保持12点护甲可少引燃1层火势；仍承担此前后勤债务"),
+                    Some(if self.has_expanded_history_rules() {
+                        "赤壁火攻余波：第四幕关底敌统帅开场虚弱2层；若遇陆逊焚营，实际出牌并保持12点护甲可少引燃1层火势；仍承担此前后勤债务"
+                    } else { "赤壁火攻余波：第四幕关底敌统帅开场虚弱2层，可乘势突击；该效果不抵销此前火攻后勤债务" }),
                 Some(ChibiPlan::FleetBattleResolved | ChibiPlan::FleetSettled) =>
-                    Some("赤壁稳守旧部：第四幕关底我军开场护甲+8、军令+1；吕蒙白衣渡江前实际出牌且保持12护甲，额外反击4点无视护甲伤害"),
+                    Some(if self.has_expanded_history_rules() {
+                        "赤壁稳守旧部：第四幕关底我军开场护甲+8、军令+1；吕蒙白衣渡江前实际出牌且保持12护甲，额外反击4点无视护甲伤害"
+                    } else { "赤壁稳守旧部：第四幕关底我军开场护甲+8、军令+1，护阵可以反制关底致命意图" }),
                 Some(ChibiPlan::DeclineBattleResolved | ChibiPlan::DeclineSettled) =>
                     Some("赤壁失机余波：第四幕关底敌统帅武勇+1、护甲+10；需先破阵或蓄力输出"),
                 _ => None,
@@ -493,7 +520,7 @@ impl Game {
         }
         // A pending Jieting plan must have the same water objective when
         // the first encounter is an elite instead of a regular battle.
-        if node == Node::Elite && (25..=30).contains(&self.floor)
+        if self.has_expanded_history_rules() && node == Node::Elite && (25..=30).contains(&self.floor)
             && self.hero == Hero::ZhugeLiang
         {
             return match self.jieting_plan {
@@ -511,7 +538,9 @@ impl Game {
         if self.floor == 18 && self.hero == Hero::CaoCao {
             match self.wuchao_plan {
                 Some(WuchaoPlan::RaidPending | WuchaoPlan::RaidResolved) =>
-                    return Some("水陆阵战：战船12耐久；乌巢夜袭余威使劫船前锋虚弱2层，前锋存活且虚弱期间每回合少劫船2点。偶数回合逆流2/4/6点"),
+                    return Some(if self.has_expanded_history_rules() {
+                        "水陆阵战：战船12耐久；乌巢夜袭余威使劫船前锋虚弱2层，前锋存活且虚弱期间每回合少劫船2点。偶数回合逆流2/4/6点"
+                    } else { "水陆阵战：战船12耐久；乌巢夜袭余威使劫船前锋虚弱2层，可趁机护送或击退敌军。偶数回合逆流2/4/6点" }),
                 Some(WuchaoPlan::FortifyPending | WuchaoPlan::FortifyResolved) =>
                     return Some("水陆阵战：乌巢守粮军资为战船先提供4点掩护，船体12；偶数回合逆流2/4/6点，掩护可反制劫船"),
                 Some(WuchaoPlan::DeclinePending | WuchaoPlan::DeclineResolved) =>
@@ -519,13 +548,13 @@ impl Game {
                 _ => {}
             }
         }
-        if self.floor == 18 && self.hero == Hero::ZhugeLiang
+        if self.has_expanded_history_rules() && self.floor == 18 && self.hero == Hero::ZhugeLiang
             && self.lore_flags.iter().any(|flag| flag == "mist_arrows")
             && self.chibi_plan.is_none()
         {
             return Some("水陆阵战：雾江借箭旧策，偶数回合实际出牌并建立至少4点掩护、成功抵御劫船且船体未沉时，可向存活前锋反击4点无视护甲伤害");
         }
-        if self.floor == 18 && matches!(self.hero, Hero::ZhugeLiang | Hero::SunShangxiang) {
+        if self.has_expanded_history_rules() && self.floor == 18 && matches!(self.hero, Hero::ZhugeLiang | Hero::SunShangxiang) {
             match self.chibi_plan {
                 Some(ChibiPlan::FirePending | ChibiPlan::FireBattleResolved) =>
                     return Some("水陆阵战：赤壁火攻灼伤敌前锋，己船耐久先损2点且至少1层火势；防御牌可扑灭火势并在有效掩护时抢修船体。偶数回合逆流2/4/6点"),
@@ -590,7 +619,7 @@ impl Game {
     /// The paid Wuchao raid disrupts the actual cargo raid while the
     /// vanguard remains alive and weak. The HUD and settlement share this.
     fn wuchao_naval_raid_reduction(&self, battle: &Battle) -> u8 {
-        if self.difficulty.is_some() && self.floor == 19
+        if self.has_expanded_history_rules() && self.floor == 19
             && self.last_node == Some(Node::Battle) && self.hero == Hero::CaoCao
             && self.wuchao_plan == Some(WuchaoPlan::RaidResolved)
             && battle.foes.first().is_some_and(|foe| foe.hp > 0 && foe.weak > 0)
@@ -622,7 +651,7 @@ impl Game {
     }
 
     fn fancheng_flood_active(&self) -> bool {
-        self.difficulty.is_some() && self.floor == 27 && self.last_node == Some(Node::Battle)
+        self.has_expanded_history_rules() && self.floor == 27 && self.last_node == Some(Node::Battle)
             && self.hero == Hero::GuanYu
             && self.lore_flags.iter().any(|flag| flag == "fancheng_flood_record")
     }
@@ -632,13 +661,13 @@ impl Game {
             let b = self.battle.as_ref().expect("battle");
             return Some(format!("樊城水势推演：第{}回合；偶数回合敌军行动后保有8护甲可反击前锋6点无视护甲伤害，否则己军失去3体力。", b.turn));
         }
-        if self.stage == Stage::Combat && self.difficulty.is_some() && self.floor == 24
+        if self.stage == Stage::Combat && self.has_expanded_history_rules() && self.floor == 24
             && self.lore_flags.iter().any(|flag| flag == "empty_city")
             && self.battle.as_ref().is_some_and(|b| b.foes.first().is_some_and(|f| f.id == "simayi"))
         {
             return Some("空城旧策：暗度陈仓发动时实际出牌1–2张且保持10护甲，可阻止军令封锁及诅咒，并令司马懿易伤2层。".into());
         }
-        if self.stage == Stage::Combat && self.difficulty.is_some() && self.floor == 32
+        if self.stage == Stage::Combat && self.has_expanded_history_rules() && self.floor == 32
             && self.hero == Hero::GuanYu && self.lore_flags.iter().any(|flag| flag == "jingzhou_warning")
             && self.battle.as_ref().is_some_and(|b| b.foes.first().is_some_and(|f| f.id == "lumeng"))
         {
@@ -659,7 +688,7 @@ impl Game {
                     "街亭撤退：军令+1、护甲+4，姜维护甲+6",
                 _ => "未有街亭下游责任",
             };
-            let lantern = if self.lore_flags.iter().any(|flag| flag == "star_lantern") {
+            let lantern = if self.has_expanded_history_rules() && self.lore_flags.iter().any(|flag| flag == "star_lantern") {
                 "；五丈原旧策：首回合实际出牌至少2张并守住断粮可恢复至多6体力"
             } else { "" };
             return Some(format!("北伐史诗关底：{history}；姜维的预告断粮需护甲8/10点反制，失败将损失下一回合军令并混入军心涣散{lantern}。"));
@@ -670,9 +699,13 @@ impl Game {
         {
             let effect = match self.chibi_plan {
                 Some(ChibiPlan::FireBattleResolved | ChibiPlan::FireSettled) =>
-                    "赤壁火攻：敌统帅入阵虚弱2层；陆逊焚营前实际出牌并保持12点护甲可少引燃1层火势",
+                    if self.has_expanded_history_rules() {
+                        "赤壁火攻：敌统帅入阵虚弱2层；陆逊焚营前实际出牌并保持12点护甲可少引燃1层火势"
+                    } else { "赤壁火攻：敌统帅入阵虚弱2层，抓住反击窗口" },
                 Some(ChibiPlan::FleetBattleResolved | ChibiPlan::FleetSettled) =>
-                    "赤壁稳守：我军入阵护甲+8且多1点军令；吕蒙潜袭前实际出牌且保持12护甲可额外反击4点",
+                    if self.has_expanded_history_rules() {
+                        "赤壁稳守：我军入阵护甲+8且多1点军令；吕蒙潜袭前实际出牌且保持12护甲可额外反击4点"
+                    } else { "赤壁稳守：我军入阵护甲+8且多1点军令" },
                 Some(ChibiPlan::DeclineBattleResolved | ChibiPlan::DeclineSettled) =>
                     "赤壁失机：敌统帅入阵武勇+1并获得10点护甲，先破盾",
                 _ => "未携带赤壁军议后果",
@@ -712,7 +745,7 @@ impl Game {
                 if officer_alive { "存活" } else { "已败" }
             ));
         }
-        if self.stage == Stage::Combat && self.difficulty.is_some()
+        if self.stage == Stage::Combat && self.has_expanded_history_rules()
             && self.floor == 16 && self.hero == Hero::CaoCao
             && self.battle.as_ref().is_some_and(|b|
                 b.foes.first().is_some_and(|f| f.id == "dongzhuo"))
@@ -756,7 +789,9 @@ impl Game {
                 };
                 let wuchao = if self.hero == Hero::CaoCao {
                     match self.wuchao_plan {
-                        Some(WuchaoPlan::RaidResolved) => "乌巢夜袭后续：存活的虚弱前锋少劫船2点；",
+                        Some(WuchaoPlan::RaidResolved) => if self.has_expanded_history_rules() {
+                            "乌巢夜袭后续：存活的虚弱前锋少劫船2点；"
+                        } else { "乌巢夜袭后续：劫船前锋虚弱2层；" },
                         Some(WuchaoPlan::FortifyResolved) => "乌巢守粮后续：入阵预留4点舰队掩护；",
                         Some(WuchaoPlan::DeclineResolved) => "乌巢失机旧债：舰船入阵短缺2点耐久；",
                         _ => "",
@@ -764,15 +799,20 @@ impl Game {
                 } else { "" };
                 let chibi = match self.chibi_plan {
                     Some(ChibiPlan::FleetBattleResolved) => "赤壁稳守水军：入阵额外4点舰队掩护；",
-                    Some(ChibiPlan::FireBattleResolved) => "赤壁火攻旧议：火攻灼伤敌前锋3层、己方战船先损2点且起火；",
+                    Some(ChibiPlan::FireBattleResolved) => if self.has_expanded_history_rules() {
+                        "赤壁火攻旧议：火攻灼伤敌前锋3层、己方战船先损2点且起火；"
+                    } else { "赤壁火攻旧议：火攻灼伤敌前锋3层、己方战船先损2点；" },
                     Some(ChibiPlan::DeclineBattleResolved) => "赤壁不介入旧债：敌军前锋加甲4点；",
                     _ => "",
                 };
-                let arrows = if self.hero == Hero::ZhugeLiang
+                let arrows = if self.has_expanded_history_rules() && self.hero == Hero::ZhugeLiang
                     && self.lore_flags.iter().any(|flag| flag == "mist_arrows")
                 { "雾江借箭：偶数回合实际出牌且掩护至少4点、抵御劫船并存活时反击前锋4点；" } else { "" };
+                let disruption_hint = if self.has_expanded_history_rules() {
+                    format!("、夜袭牵制-{disruption}")
+                } else { String::new() };
                 return Some(format!(
-                    "水陆阵战：{wuchao}{chibi}{class_hint}{arrows}战船耐久{hp}/12；存活敌军{living}名各劫船4点，偶数回合逆流按难度额外+2/+4/+6（本回合逆流+{current}、夜袭牵制-{disruption}）；防御牌提供4点掩护，攻击实际扣除敌军体力可提供2点掩护（本回合已护{cover}/8）；亲自击败敌军可抢修2点；本回合预计失船{raid}点。{warning}战船覆没即战败；击退敌军或在第4回合劫船结算后耐久至少6且本回合有掩护，即可护航成功。"
+                    "水陆阵战：{wuchao}{chibi}{class_hint}{arrows}战船耐久{hp}/12；存活敌军{living}名各劫船4点，偶数回合逆流按难度额外+2/+4/+6（本回合逆流+{current}{disruption_hint}）；防御牌提供4点掩护，攻击实际扣除敌军体力可提供2点掩护（本回合已护{cover}/8）；亲自击败敌军可抢修2点；本回合预计失船{raid}点。{warning}战船覆没即战败；击退敌军或在第4回合劫船结算后耐久至少6且本回合有掩护，即可护航成功。"
                 ));
             }
             if (26..=32).contains(&self.floor) {
@@ -1109,6 +1149,7 @@ impl Game {
         }
     }
     fn start_battle(&mut self, node: Node) {
+        let new_history_rules = self.has_expanded_history_rules();
         let mut foes = self.generate_foes(node);
         for foe in &mut foes {
             // Round up so ascension 1 already increases enemy HP.
@@ -1144,15 +1185,17 @@ impl Game {
             wildfire: 0,
             convoy_hp: (self.difficulty.is_some()
                 && ((node == Node::Battle && (self.floor == 2 || self.floor == 19))
-                    || ((matches!(node, Node::Battle | Node::Elite) && (26..=31).contains(&self.floor)
-                        || node == Node::Boss && self.floor == 32)
+                    || ((node == Node::Battle && (26..=31).contains(&self.floor)
+                        || new_history_rules && (node == Node::Elite && (26..=31).contains(&self.floor)
+                            || node == Node::Boss && self.floor == 32))
                         && self.hero == Hero::ZhugeLiang
                         && matches!(self.jieting_plan, Some(JietingPlan::WaterPending
                             | JietingPlan::HillPending | JietingPlan::RetreatPending))))).then_some(12),
             convoy_cover: (self.difficulty.is_some()
                 && ((node == Node::Battle && (self.floor == 2 || self.floor == 19))
-                    || ((matches!(node, Node::Battle | Node::Elite) && (26..=31).contains(&self.floor)
-                        || node == Node::Boss && self.floor == 32)
+                    || ((node == Node::Battle && (26..=31).contains(&self.floor)
+                        || new_history_rules && (node == Node::Elite && (26..=31).contains(&self.floor)
+                            || node == Node::Boss && self.floor == 32))
                         && self.hero == Hero::ZhugeLiang
                         && matches!(self.jieting_plan, Some(JietingPlan::WaterPending
                             | JietingPlan::HillPending | JietingPlan::RetreatPending))))).then_some(0),
@@ -1217,7 +1260,7 @@ impl Game {
         }
         // Alternate act-II branch: the same paid choice changes the tyrant's
         // actual combat entry without consuming its separate act-III settlement.
-        if self.difficulty.is_some() && self.hero == Hero::CaoCao
+        if new_history_rules && self.hero == Hero::CaoCao
             && self.floor == 16 && node == Node::Boss
             && self.battle.as_ref().is_some_and(|b|
                 b.foes.first().is_some_and(|f| f.id == "dongzhuo"))
@@ -1386,9 +1429,10 @@ impl Game {
             && self.battle.as_ref().is_some_and(|b|
                 b.foes.first().is_some_and(|f| f.id == "dengai"))
         {
+            let plan = self.yinping_entry_plan();
             let effect = {
                 let b = self.battle.as_mut().expect("historical final battle");
-                match self.jieting_plan {
+                match plan {
                     Some(JietingPlan::WaterResolved | JietingPlan::WaterSettled) => {
                         b.block += 10;
                         // Two stacks survive this Yinping signature's
@@ -1447,7 +1491,7 @@ impl Game {
             };
             if let Some((plan, source, amount)) = resolved {
                 self.wuchao_plan = Some(plan);
-                if amount > 0 {
+                if new_history_rules && amount > 0 {
                     self.combat_event(EventKind::PowerTriggered, source, amount, None);
                 }
             }
@@ -1509,7 +1553,7 @@ impl Game {
                     ChibiPlan::DeclineSettled => ("chibi_act_four_setback", 1),
                     _ => ("", 0),
                 };
-                if amount > 0 {
+                if new_history_rules && amount > 0 {
                     self.combat_event(EventKind::PowerTriggered, source, amount, None);
                 }
             }
@@ -1588,7 +1632,7 @@ impl Game {
                         // The fire spreads on this crossing even if the
                         // first act-III battle already consumed the tactic.
                         // A same-floor initial fire is not stacked twice.
-                        b.wildfire = b.wildfire.max(1);
+                        if new_history_rules { b.wildfire = b.wildfire.max(1); }
                         let hull = b.convoy_hp.as_mut().expect("ship hull");
                         let old = *hull;
                         *hull = hull.saturating_sub(2);
@@ -1664,7 +1708,7 @@ impl Game {
                 }
                 (33..=40, Some(JietingPlan::WaterResolved)) => {
                     if let Some(b) = self.battle.as_mut() { b.block += 8; }
-                    if self.floor == 40 && node == Node::Boss
+                    if new_history_rules && self.floor == 40 && node == Node::Boss
                         && self.battle.as_ref().is_some_and(|b|
                             b.foes.first().is_some_and(|f| f.id == "dengai"))
                     {
@@ -1694,7 +1738,7 @@ impl Game {
                     JietingPlan::RetreatSettled => ("jieting_act_five_recovery", self.hp - before_hp),
                     _ => ("", 0),
                 };
-                if amount > 0 {
+                if new_history_rules && amount > 0 {
                     self.combat_event(EventKind::PowerTriggered, source, amount, None);
                 }
             }
@@ -1797,8 +1841,8 @@ impl Game {
                 if self.difficulty.is_some() && self.floor == 16
                     && self.hero == Hero::CaoCao
                     && node == Node::Boss
-                    && self.battle.as_ref().is_some_and(|b|
-                        b.foes.first().is_some_and(|f| f.id == "yuanshao"))
+                    && (!self.has_expanded_history_rules() || self.battle.as_ref().is_some_and(|b|
+                        b.foes.first().is_some_and(|f| f.id == "yuanshao")))
                 {
                     msg.push_str(match self.wuchao_plan {
                         Some(WuchaoPlan::RaidPending) => "；乌巢夜袭前线兑现：亲卫失去8点体力并虚弱2层",
@@ -1807,7 +1851,7 @@ impl Game {
                         _ => "",
                     });
                 }
-                if self.difficulty.is_some() && self.floor == 16
+                if self.has_expanded_history_rules() && self.floor == 16
                     && self.hero == Hero::CaoCao && node == Node::Boss
                     && self.battle.as_ref().is_some_and(|b|
                         b.foes.first().is_some_and(|f| f.id == "dongzhuo"))
@@ -1821,7 +1865,7 @@ impl Game {
                 }
                 if self.difficulty.is_some() && self.floor == 19
                     && self.hero == Hero::CaoCao
-                    && node == Node::Battle
+                    && (!self.has_expanded_history_rules() || node == Node::Battle)
                 {
                     msg.push_str(match self.wuchao_plan {
                         Some(WuchaoPlan::RaidResolved) => "；乌巢夜袭余威：舰队敌前锋虚弱2层",
@@ -2383,6 +2427,7 @@ impl Game {
             self.preflight_event(EventKind::DamageDealt,source,&format!("foe:{idx}"),damage)
                 .unwrap_or(0)
         } else { 0 };
+        let new_history_rules = self.has_expanded_history_rules();
         let (actual, killed, ambush_shattered) = {
             let b = self.battle.as_mut().expect("battle");
             let foe = &mut b.foes[idx];
@@ -2399,7 +2444,9 @@ impl Game {
             // Automatic troops or potions may break armor but cannot
             // manufacture the player's historical counterattack reward.
             let ambush_shattered = first_ambush_break && source == "hero";
-            if ambush_shattered { b.ambush_armor_broken = true; }
+            if first_ambush_break && (!new_history_rules || ambush_shattered) {
+                b.ambush_armor_broken = true;
+            }
             let actual = foe.hp.min(incoming.saturating_sub(blocked));
             foe.hp -= actual;
             (actual, actual > 0 && foe.hp == 0, ambush_shattered && foe.hp > 0)
@@ -3261,7 +3308,7 @@ impl Game {
                 format!("虎袭连击{hits}段，损失{sum}生命")
             }
             BossMove::TyrantLevy(attack) => {
-                let supply_guarded = self.difficulty.is_some() && self.floor == 16
+                let supply_guarded = self.has_expanded_history_rules() && self.floor == 16
                     && self.hero == Hero::CaoCao && id == "dongzhuo"
                     && self.wuchao_plan == Some(WuchaoPlan::FortifyPending)
                     && self.battle.as_ref().is_some_and(|b| b.played_this_turn > 0 && b.block >= 12);
@@ -3321,7 +3368,7 @@ impl Game {
                     else { String::new() })
             }
             BossMove::HiddenScheme(penalty) => {
-                let deception = self.difficulty.is_some() && self.floor == 24 && id == "simayi"
+                let deception = self.has_expanded_history_rules() && self.floor == 24 && id == "simayi"
                     && self.lore_flags.iter().any(|flag| flag == "empty_city")
                     && self.battle.as_ref().is_some_and(|b|
                         (1..=2).contains(&b.played_this_turn) && b.block >= 10);
@@ -3342,7 +3389,7 @@ impl Game {
             BossMove::FireCamp(layers) => {
                 // Prior experience with the Red Cliffs fire grants an extra
                 // counter only when the player commits cards and holds a shield.
-                let trained = self.difficulty.is_some() && self.floor == 32 && id == "luxun"
+                let trained = self.has_expanded_history_rules() && self.floor == 32 && id == "luxun"
                     && matches!(self.hero, Hero::ZhugeLiang | Hero::SunShangxiang)
                     && self.chibi_plan == Some(ChibiPlan::FireSettled)
                     && self.battle.as_ref().is_some_and(|b| b.played_this_turn > 0 && b.block >= 12);
@@ -3367,14 +3414,14 @@ impl Game {
                     // One stack expires at the current turn boundary. The two
                     // remaining stacks give the player a genuine attack window.
                     self.apply_foe_status(idx, "vulnerable", 3);
-                    let reserve = self.difficulty.is_some() && self.floor == 32 && id == "lumeng"
+                    let reserve = self.has_expanded_history_rules() && self.floor == 32 && id == "lumeng"
                         && matches!(self.hero, Hero::ZhugeLiang | Hero::SunShangxiang)
                         && self.chibi_plan == Some(ChibiPlan::FleetSettled)
                         && self.battle.as_ref().is_some_and(|b| b.played_this_turn > 0 && b.block >= 12);
                     let counter = if reserve {
                         self.deal_enemy_damage_unblockable(idx, 4, "chibi_lumeng_counterattack")
                     } else { 0 };
-                    let vigilance = self.difficulty.is_some() && self.floor == 32 && id == "lumeng"
+                    let vigilance = self.has_expanded_history_rules() && self.floor == 32 && id == "lumeng"
                         && self.hero == Hero::GuanYu
                         && self.lore_flags.iter().any(|flag| flag == "jingzhou_warning")
                         && self.battle.as_ref().is_some_and(|b| b.played_this_turn > 0);
@@ -3404,7 +3451,7 @@ impl Game {
                 let guarded = self.battle.as_ref().is_some_and(|b| b.block >= required);
                 if guarded {
                     self.apply_foe_status(idx, "vulnerable", 3);
-                    let lantern = self.difficulty.is_some() && self.floor == 40 && id == "jiangwei"
+                    let lantern = self.has_expanded_history_rules() && self.floor == 40 && id == "jiangwei"
                         && self.hero == Hero::ZhugeLiang
                         && self.lore_flags.iter().any(|flag| flag == "star_lantern")
                         && self.battle.as_ref().is_some_and(|b| b.turn == 1 && b.played_this_turn >= 2);
@@ -3449,7 +3496,8 @@ impl Game {
                         // during a long first-turn combo. Prefer the durable
                         // encounter archive; older snapshots without it retain
                         // their existing ring-based fallback.
-                        let late_grant = if let Some(history) = &self.event_history {
+                        let late_grant = if !self.has_expanded_history_rules() { 0 }
+                        else if let Some(history) = &self.event_history {
                             let encounter = self.telemetry.totals.battles_started;
                             history.iter().filter(|record|
                                 record.encounter == encounter
@@ -4021,7 +4069,7 @@ impl Game {
             // The mist-arrow tactic requires actual card play, useful cover,
             // an even-turn raid, and surviving the cargo settlement. It cannot
             // revive a sunk ship or award free attacks for starting cover.
-            let mist_counter = fleet_objective && self.hero == Hero::ZhugeLiang
+            let mist_counter = self.has_expanded_history_rules() && fleet_objective && self.hero == Hero::ZhugeLiang
                 && self.lore_flags.iter().any(|flag| flag == "mist_arrows")
                 && adverse_current > 0 && cover >= 4
                 && self.battle.as_ref().is_some_and(|b| b.played_this_turn > 0);
@@ -4252,7 +4300,7 @@ impl Game {
         if idx >= self.deck.len() { return Err("无效卡牌编号".into()); }
         // Prevent an expanded campaign from paying to remove its last
         // playable permanent card and being left with only curses.
-        if self.difficulty.is_some() && !self.deck.iter().enumerate().any(|(i, card)|
+        if self.has_expanded_history_rules() && !self.deck.iter().enumerate().any(|(i, card)|
             i != idx && card_spec(&card.id).is_some_and(|spec|
                 !matches!(spec.effect, Effect::Unplayable)))
         {
@@ -8126,5 +8174,73 @@ mod cargo_forecast_regression {
             game.end_turn().unwrap();
             assert_eq!(game.battle.as_ref().unwrap().convoy_hp, Some(12 - expected));
         }
+    }
+}
+
+
+#[cfg(test)]
+mod expanded_rules_revision_compatibility {
+    use super::*;
+
+    #[test]
+    fn absent_revision_keeps_shipped_expanded_rules_and_exact_replay() {
+        let mut old = Game::new_with_campaign_rules_revision(
+            Hero::CaoCao, 7, Difficulty::Warlords, "old-expanded-rules".into(), 0,
+        );
+        old.apply(Action::Choose { index: 1 }).unwrap();
+        let json = old.to_json().unwrap();
+        assert!(!json.contains("expanded_rules_revision"));
+        let restored = Game::from_json(&json).unwrap();
+        assert!(!restored.has_expanded_history_rules());
+        assert_eq!(restored.verify_action_replay().unwrap(), 1);
+        assert!(restored.reconstruct_event_history().is_ok());
+        assert_eq!(restored.to_json().unwrap(), json);
+    }
+
+    #[test]
+    fn new_rules_epoch_is_saved_anchored_and_replayed() {
+        let mut current = Game::new_with_campaign_difficulty(
+            Hero::CaoCao, 7, Difficulty::Warlords, "new-expanded-rules".into(),
+        );
+        current.apply(Action::Choose { index: 1 }).unwrap();
+        let json = current.to_json().unwrap();
+        let restored = Game::from_json(&json).unwrap();
+        assert!(restored.has_expanded_history_rules());
+        assert!(restored.audit_campaign_authority().is_ok());
+        assert_eq!(restored.verify_action_replay().unwrap(), 1);
+        assert!(restored.reconstruct_event_history().is_ok());
+        let mut unsupported: serde_json::Value = serde_json::from_str(&json).unwrap();
+        unsupported["expanded_rules_revision"] = serde_json::json!(255);
+        assert!(Game::from_json(&unsupported.to_string()).is_err());
+    }
+
+    #[test]
+    fn baseline_and_current_rules_differ_only_at_intended_tactical_boundary() {
+        let mut old = Game::new_with_campaign_rules_revision(
+            Hero::CaoCao, 7, Difficulty::Warlords, "old-naval".into(), 0,
+        );
+        let mut current = Game::new_with_campaign_difficulty(
+            Hero::CaoCao, 7, Difficulty::Warlords, "new-naval".into(),
+        );
+        // Controlled entry only: the natural council path has separate tests.
+        for game in [&mut old, &mut current] {
+            game.floor = 19;
+            game.last_node = Some(Node::Battle);
+            game.wuchao_plan = Some(WuchaoPlan::RaidResolved);
+            game.start_battle(Node::Battle);
+            let b = game.battle.as_mut().unwrap();
+            b.foes.truncate(1);
+            b.foes[0].intent = Intent::Guard(0);
+            b.foes[0].weak = 2;
+            b.troops_hp = 0;
+            b.troops_attack = 0;
+            b.turn = 1;
+        }
+        assert_eq!(old.projected_cargo_loss(), Some(4));
+        assert_eq!(current.projected_cargo_loss(), Some(2));
+        old.end_turn().unwrap();
+        current.end_turn().unwrap();
+        assert_eq!(old.battle.as_ref().unwrap().convoy_hp, Some(8));
+        assert_eq!(current.battle.as_ref().unwrap().convoy_hp, Some(10));
     }
 }

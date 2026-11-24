@@ -13,8 +13,15 @@ impl Game {
     pub fn new_with_campaign_difficulty(
         hero: Hero, seed: u64, difficulty: difficulty::Difficulty, run_id: String,
     ) -> Self {
+        Self::new_with_campaign_rules_revision(hero, seed, difficulty, run_id, crate::EXPANDED_RULES_REVISION)
+    }
+
+    pub(crate) fn new_with_campaign_rules_revision(
+        hero: Hero, seed: u64, difficulty: difficulty::Difficulty, run_id: String, revision: u8,
+    ) -> Self {
         let mut game = Self::new_with_identity(hero, seed, 0, RunMode::Standard, run_id);
         game.difficulty = Some(difficulty);
+        game.expanded_rules_revision = revision;
         game.act_map = None;
         game.map_lane = None;
         game.refresh_route();
@@ -63,7 +70,7 @@ impl Game {
             }]),
             modifiers: vec![], doctrine: None, telemetry: CombatTelemetry::default(), rewards: vec![], market: vec![],
             log: vec![format!("{}率部出征，征途由此开始。", hero.name())],
-            ascension: ascension.min(10), difficulty: None, event_id: 0,
+            ascension: ascension.min(10), difficulty: None, expanded_rules_revision: 0, event_id: 0,
             potion_bag: vec!["healing".into()], shop_relic: None,
             relic_history: vec!["军旗".into()], victories: 0,
             boons: vec![], boon_choices: vec![], variants: None,

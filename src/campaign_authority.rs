@@ -16,6 +16,8 @@ pub struct CampaignIdentity {
     pub ascension: u8,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub difficulty: Option<Difficulty>,
+    #[serde(default, skip_serializing_if = "crate::is_baseline_expanded_rules")]
+    pub expanded_rules_revision: u8,
     pub mode: RunMode,
     pub run_id: String,
 }
@@ -64,7 +66,8 @@ impl CampaignState {
         Self {
             identity: Some(CampaignIdentity {
                 hero: game.hero, seed: game.seed, ascension: game.ascension,
-                difficulty: game.difficulty, mode: game.mode, run_id: game.run_id.clone(),
+                difficulty: game.difficulty, expanded_rules_revision: game.expanded_rules_revision,
+                mode: game.mode, run_id: game.run_id.clone(),
             }),
             floor: game.floor, stage: game.stage, last_node: game.last_node,
             route: game.route.clone(), act_map: game.act_map.clone(),
@@ -89,6 +92,8 @@ impl CampaignState {
         })
             && self.identity.as_ref().is_none_or(|identity| {
                 identity.ascension <= 10
+                    && identity.expanded_rules_revision <= crate::EXPANDED_RULES_REVISION
+                    && (identity.expanded_rules_revision == 0 || identity.difficulty.is_some())
                     && identity.difficulty.is_none_or(|_| identity.ascension == 0 && identity.mode == RunMode::Standard)
                     && (identity.mode == RunMode::Custom || self.modifiers.is_empty())
                     && self.doctrine.is_none_or(|doctrine| doctrine.hero() == identity.hero)
