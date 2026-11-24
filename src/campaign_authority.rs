@@ -418,6 +418,29 @@ impl Game {
         Ok(lines.join("\n"))
     }
 
+    // Cheap, immutable revision-zero check; never scan the growing journal
+    // on each action. This is not authentication of a deliberately rewritten
+    // whole save. Legacy identity-free journals retain their old semantics.
+    pub(crate) fn verify_rules_epoch_anchor(&self) -> Result<(), String> {
+        if self.expanded_rules_revision > crate::EXPANDED_RULES_REVISION
+            || (self.expanded_rules_revision != 0 && self.difficulty.is_none())
+        {
+            return Err("不支持的战役规则版本".into());
+        }
+        let anchor = match self.campaign_history.as_deref().and_then(|events| events.first()) {
+            Some(CampaignEvent::Started { state }) => state.identity.as_ref(),
+            _ => None,
+        };
+        match anchor {
+            Some(identity) if identity.expanded_rules_revision != self.expanded_rules_revision
+                || identity.difficulty != self.difficulty =>
+                Err("战役起始记录与当前规则版本或难度不一致".into()),
+            None if self.expanded_rules_revision != 0 =>
+                Err("新制规则版本缺少战役起始身份记录".into()),
+            _ => Ok(()),
+        }
+    }
+
     pub fn audit_campaign_authority(&self) -> Result<usize, String> {
         let history = self.campaign_history.as_ref()
             .ok_or("legacy save has no campaign authority journal")?;
@@ -469,5 +492,46 @@ mod tactical_lore_receipt_projection_tests {
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0].kind, "empty_city");
         assert_eq!(candidates[0].revision, 2);
+    }
+}
+
+
+#[cfg(test)]
+mod rules_epoch_anchor_regression {
+    use super::*;
+
+    #[test]
+    fn current_epoch_cannot_be_removed_from_snapshot_or_anchor() {
+        let mut game = Game::new_with_campaign_difficulty(
+            Hero::CaoCao, 7, Difficulty::Warlords, "epoch-anchor".into(),
+        );
+        game.apply(crate::Action::Choose { index: 1 }).unwrap();
+        let raw = game.to_json().unwrap();
+        let mut edited: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        edited.as_object_mut().unwrap().remove("expanded_rules_revision");
+        assert!(Game::from_json(&edited.to_string()).is_err());
+
+        let mut changed = game.clone();
+        changed.expanded_rules_revision = 0;
+        let before = changed.to_json().unwrap();
+        assert!(changed.apply(crate::Action::EndTurn).is_err());
+        assert_eq!(changed.to_json().unwrap(), before);
+
+        let mut missing = game.clone();
+        missing.campaign_history = None;
+        assert!(Game::from_json(&missing.to_json().unwrap()).is_err());
+        let before = missing.to_json().unwrap();
+        assert!(missing.apply(crate::Action::EndTurn).is_err());
+        assert_eq!(missing.to_json().unwrap(), before);
+        assert!(Game::from_json(&raw).unwrap().verify_action_replay().is_ok());
+    }
+
+    #[test]
+    fn shipped_epoch_without_identity_remains_loadable() {
+        let mut game = Game::new(Hero::CaoCao, 7);
+        game.campaign_history = None;
+        let mut restored = Game::from_json(&game.to_json().unwrap()).unwrap();
+        restored.apply(crate::Action::Choose { index: 1 }).unwrap();
+        assert!(restored.campaign_history.is_none());
     }
 }

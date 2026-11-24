@@ -898,6 +898,7 @@ impl Game {
             return Err(format!("存档版本 {} 不兼容当前版本 {}", g.version, SAVE_VERSION));
         }
         g.validate()?;
+        g.verify_rules_epoch_anchor()?;
         Ok(g)
     }
     pub fn effective_doctrine(&self) -> Option<archetypes::Doctrine> {
