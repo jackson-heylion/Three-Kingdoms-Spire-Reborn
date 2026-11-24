@@ -31,7 +31,6 @@ fn fight(game: &mut Game) -> Result<(), String> {
                 // The water/convoy objective is independent of hero block.
                 // A guard card protects the objective even when the hero already
                 // has armor, and several guards can be necessary in one turn.
-                let raiders = b.foes.iter().filter(|foe| foe.hp > 0).count() as u8;
                 // Scope objective-first defense to the Jieting water battle.
                 // Applying it to the ordinary early-floor grain convoy changed
                 // card ordering and caused every fixed Zhuge Liang seed to die
@@ -39,14 +38,11 @@ fn fight(game: &mut Game) -> Result<(), String> {
                 let fleet_objective = game.floor == 19
                     && game.last_node == Some(Node::Battle)
                     && b.convoy_hp.is_some();
-                // Third-act tides add two raiding points every even turn;
-                // the driver observes the same posted objective as a player,
-                // rather than treating every escort as identical cargo.
-                let tide = if fleet_objective && b.turn.is_multiple_of(2) { 2 } else { 0 };
-                let incoming_water_loss = raiders.saturating_mul(4)
-                    .saturating_add(tide).saturating_sub(b.convoy_cover.unwrap_or(0));
+                // Use the actual read-only forecast rather than hardcoding
+                // Warlords tide or ignoring Wuchao disruption in other tiers.
+                let incoming_water_loss = game.projected_cargo_loss().unwrap_or(0);
                 let water_objective = game.hero == Hero::ZhugeLiang
-                    && (26..=31).contains(&game.floor)
+                    && (26..=32).contains(&game.floor)
                     && b.convoy_hp.is_some();
                 let threatened_objective = (water_objective || fleet_objective)
                     && b.convoy_hp.is_some_and(|hp| incoming_water_loss >= hp);
@@ -115,7 +111,7 @@ fn fight(game: &mut Game) -> Result<(), String> {
         }
         if game.stage == Stage::Combat {
             let trace_before = if game.hero == Hero::ZhugeLiang
-                && (26..=31).contains(&game.floor)
+                && (26..=32).contains(&game.floor)
                 && game.jieting_plan == Some(three_kingdoms_spire_reborn::JietingPlan::HillResolved)
             {
                 let battle = game.battle.as_ref().expect("real hill battle");
@@ -708,7 +704,7 @@ fn natural_jieting_three_choices_replay_into_fifth_act() {
                     game = restored;
                     planned = true;
                 } else if planned && !water_battle && game.stage == Stage::Combat
-                    && (26..=31).contains(&game.floor)
+                    && (26..=32).contains(&game.floor)
                 {
                     assert_eq!(game.jieting_plan, Some(match choice {
                         1 => JietingPlan::WaterResolved,
@@ -745,7 +741,7 @@ fn natural_jieting_three_choices_replay_into_fifth_act() {
                     };
                     assert_eq!(receipts.iter().filter(|r|
                         r.source == first_source && r.amount > 0
-                        && (26..=31).contains(&r.floor)
+                        && (26..=32).contains(&r.floor)
                         && r.decision_id.contains(":jieting:")).count(), 1);
                     let aftermath_source = match choice {
                         1 => "jieting_act_five_water",
