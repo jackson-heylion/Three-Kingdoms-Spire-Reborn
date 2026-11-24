@@ -408,9 +408,9 @@ impl Game {
             && self.act_variant(4) == 1
         {
             return match self.jieting_plan {
-                Some(JietingPlan::WaterSettled) => Some("邓艾·阴平：街亭守水责任延续；入阵我军护甲+10，邓艾虚弱2层（回合末衰减）；亲自击败山道援军可夺回4点护甲"),
-                Some(JietingPlan::HillSettled) => Some("邓艾·阴平：街亭据山暴露山道；邓艾武勇+2、护甲+10，我军武勇+1；亲自击败山道援军可反击8点"),
-                Some(JietingPlan::RetreatSettled) => Some("邓艾·阴平：街亭撤退保全先机；入阵军令+1，邓艾护甲+6；成功截击阴平偷渡额外反击2点；亲自击败山道援军并伤及邓艾可回收1点军令（至多5点）"),
+                Some(JietingPlan::WaterResolved | JietingPlan::WaterSettled) => Some("邓艾·阴平：街亭守水责任延续；入阵我军护甲+10，邓艾虚弱2层（回合末衰减）；亲自击败山道援军可夺回4点护甲"),
+                Some(JietingPlan::HillResolved | JietingPlan::HillSettled) => Some("邓艾·阴平：街亭据山暴露山道；邓艾武勇+2、护甲+10，我军武勇+1；亲自击败山道援军可反击8点"),
+                Some(JietingPlan::RetreatResolved | JietingPlan::RetreatSettled) => Some("邓艾·阴平：街亭撤退保全先机；入阵军令+1，邓艾护甲+6；成功截击阴平偷渡额外反击2点；亲自击败山道援军并伤及邓艾可回收1点军令（至多5点）"),
                 _ => None,
             };
         }
@@ -1190,7 +1190,7 @@ impl Game {
             }
         }
         // A real act-IV Jieting choice continues into the alternate fifth-act
-        // historical commander. Existing settled plan identity is the durable
+        // historical commander. Resolved or settled plan identity is the durable
         // receipt: no extra save field, no repeated reward from reload, and no
         // effect in other commanders or the legacy 21-floor campaign.
         if self.difficulty.is_some() && self.hero == Hero::ZhugeLiang
@@ -1201,20 +1201,20 @@ impl Game {
             let effect = {
                 let b = self.battle.as_mut().expect("historical final battle");
                 match self.jieting_plan {
-                    Some(JietingPlan::WaterSettled) => {
+                    Some(JietingPlan::WaterResolved | JietingPlan::WaterSettled) => {
                         b.block += 10;
                         // Two stacks survive this Yinping signature's
                         // EndTurn tick, so the next genuine attack is weaker.
                         b.foes[0].weak = b.foes[0].weak.saturating_add(2);
                         Some(("jieting_yinping_wells", 10))
                     }
-                    Some(JietingPlan::HillSettled) => {
+                    Some(JietingPlan::HillResolved | JietingPlan::HillSettled) => {
                         b.foes[0].strength += 2;
                         b.foes[0].block += 10;
                         b.strength += 1;
                         Some(("jieting_yinping_hills", 10))
                     }
-                    Some(JietingPlan::RetreatSettled) => {
+                    Some(JietingPlan::RetreatResolved | JietingPlan::RetreatSettled) => {
                         b.energy += 1;
                         b.foes[0].block += 6;
                         Some(("jieting_yinping_retreat", 1))
@@ -1564,6 +1564,8 @@ impl Game {
                 if self.difficulty.is_some() && self.floor == 16
                     && self.hero == Hero::CaoCao
                     && node == Node::Boss
+                    && self.battle.as_ref().is_some_and(|b|
+                        b.foes.first().is_some_and(|f| f.id == "yuanshao"))
                 {
                     msg.push_str(match self.wuchao_plan {
                         Some(WuchaoPlan::RaidPending) => "；乌巢夜袭前线兑现：亲卫失去8点体力并虚弱2层",
@@ -1574,6 +1576,7 @@ impl Game {
                 }
                 if self.difficulty.is_some() && self.floor == 19
                     && self.hero == Hero::CaoCao
+                    && node == Node::Battle
                 {
                     msg.push_str(match self.wuchao_plan {
                         Some(WuchaoPlan::RaidResolved) => "；乌巢夜袭余威：舰队敌前锋虚弱2层",
@@ -7264,5 +7267,53 @@ mod encounter_seal_regression {
         assert!(project_sealed(archive).unwrap().encounters[0].closed);
         let restored = Game::from_json(&game.to_json().unwrap()).unwrap();
         assert_eq!(restored.event_history, game.event_history);
+    }
+}
+
+
+#[cfg(test)]
+mod historical_entry_boundary_regression {
+    use super::*;
+
+    // Controlled checkpoint only: isolate encounter entry, not a natural 40-floor run.
+    #[test]
+    fn yinping_first_fifth_act_battle_honors_all_three_resolved_plans() {
+        for (plan, settled, source) in [
+            (JietingPlan::WaterResolved, JietingPlan::WaterSettled, "jieting_yinping_wells"),
+            (JietingPlan::HillResolved, JietingPlan::HillSettled, "jieting_yinping_hills"),
+            (JietingPlan::RetreatResolved, JietingPlan::RetreatSettled, "jieting_yinping_retreat"),
+        ] {
+            let mut game = Game::new_with_campaign_difficulty(
+                Hero::ZhugeLiang, 7, Difficulty::Warlords, "yinping-entry-boundary".into(),
+            );
+            game.apply(Action::SetExpandedVariants {
+                act1: 0, act2: 0, act3: 0, act4: 0, act5: 1,
+            }).unwrap();
+            game.floor = 39;
+            game.jieting_plan = Some(plan);
+            assert!(game.route_objective_hint(Node::Boss).is_some());
+            game.floor = 40;
+            game.start_battle(Node::Boss);
+            assert_eq!(game.jieting_plan, Some(settled));
+            let battle = game.battle.as_ref().unwrap();
+            assert_eq!(battle.foes[0].id, "dengai");
+            assert_eq!(battle.events.iter().filter(|e| e.source == source).count(), 1);
+            match plan {
+                JietingPlan::WaterResolved => {
+                    assert_eq!(battle.block, 18);
+                    assert_eq!(battle.foes[0].weak, 2);
+                }
+                JietingPlan::HillResolved => {
+                    assert_eq!(battle.foes[0].strength, 2);
+                    assert_eq!(battle.foes[0].block, 10);
+                    assert_eq!(battle.strength, 1);
+                }
+                JietingPlan::RetreatResolved => {
+                    assert_eq!(battle.energy, 4);
+                    assert_eq!(battle.foes[0].block, 6);
+                }
+                _ => unreachable!(),
+            }
+        }
     }
 }
