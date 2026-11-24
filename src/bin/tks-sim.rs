@@ -940,14 +940,17 @@ struct ExpandedMatrixRun {
 }
 
 fn expanded_matrix_action(game: &Game, policy: Policy) -> Result<Action, String> {
-    // A siege has a genuine extra player action. Old 21-floor autoplay does
-    // not know it. Use it only when it can legally spend two energy.
-    if matches!(policy, Policy::Tactical)
-        && game.stage == Stage::Combat
-        && game.battle.as_ref().is_some_and(|b| b.siege_gate_hp.is_some_and(|hp| hp > 0)
-            && b.energy >= 2)
+    // Siege defenders can all be dead while the gate is still standing.
+    // Both policies must use a legal action rather than target a dead foe.
+    // FirstPlayable still fights the defenders first; Tactical rushes the gate.
+    if game.stage == Stage::Combat
+        && let Some(battle) = game.battle.as_ref()
+        && battle.siege_gate_hp.is_some_and(|hp| hp > 0)
     {
-        return Ok(Action::AssaultGate);
+        let defenders_gone = battle.foes.iter().all(|foe| foe.hp <= 0);
+        if defenders_gone || matches!(policy, Policy::Tactical) && battle.energy >= 2 {
+            return Ok(if battle.energy >= 2 { Action::AssaultGate } else { Action::EndTurn });
+        }
     }
     preferred_action_policy(game, policy)
 }
