@@ -203,6 +203,17 @@ pub struct Foe {
 }
 impl Foe {
     pub fn name(&self) -> &'static str { enemy_name(&self.id) }
+
+    fn has_second_phase(&self) -> bool {
+        matches!(self.id.as_str(), "zhangjiao" | "sunjian" | "dongzhuo" | "yuanshao"
+            | "simayi" | "zuoci" | "luxun" | "lumeng" | "jiangwei" | "dengai"
+            | "elite" | "war_elephant" | "royal_guard" | "tiger_general" | "sacred_beast")
+    }
+
+    fn phase_transition_pending(&self) -> bool {
+        self.hp > 0 && self.phase == 0 && self.hp * 2 <= self.max_hp
+            && self.has_second_phase()
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -3770,12 +3781,46 @@ impl Game {
         }
     }
 
+    /// Read-only second-phase warning. Use the same threshold predicate
+    /// as EndTurn; do not roll an intent or mutate a journal when displaying it.
+    pub fn phase_transition_hint(&self, index: usize) -> Option<String> {
+        if self.difficulty.is_none() || self.stage != Stage::Combat { return None; }
+        let battle = self.battle.as_ref()?;
+        let foe = battle.foes.get(index)?;
+        if foe.hp <= 0 || foe.phase != 0 || !foe.has_second_phase() { return None; }
+        let change = match foe.id.as_str() {
+            "zhangjiao" => "召黄巾援军（下回合才行动）",
+            "yuanshao" if self.floor == 16
+                && !battle.foes.iter().any(|f| f.id == "officer" && f.hp > 0) =>
+                "亲卫已亡，无法召援",
+            "yuanshao" => "召亲卫援军（先歼亲卫可断援；下回合才行动）",
+            "zuoci" => "回复至多18体力并召援（下回合才行动）",
+            "sunjian" => "武勇+4、护甲+8，虎袭升级为三段",
+            "dongzhuo" => "武勇+3、我军虚弱2层并损失至多30金",
+            "simayi" => "混入2张军心涣散、我军易伤2层",
+            "luxun" => "武勇+2、护甲+10，后续火势加剧",
+            "lumeng" => "武勇+2、护甲+10；保持8护甲反制白衣渡江",
+            "jiangwei" => "武勇+2、护甲+10，后续断粮需10护甲",
+            "dengai" => "武勇+2、护甲+8；后续偷渡需4牌或12护甲，首次失守召援",
+            "elite" => "武勇+2、护甲+6",
+            "war_elephant" => "武勇+2、护甲+14",
+            "royal_guard" => "武勇+1、自身护甲+10、友军护甲+5",
+            "tiger_general" => "武勇+3、护甲+5，后续三连虎袭",
+            "sacred_beast" => "回复至多12体力、护甲+6",
+            _ => return None,
+        };
+        let threshold = foe.max_hp / 2;
+        let timing = if foe.phase_transition_pending() {
+            "本回合结束若仍存活"
+        } else {
+            "体力降至半血后"
+        };
+        Some(format!("{timing}进入二阶段（≤{threshold}体力）：{change}"))
+    }
+
     fn boss_phase_transitions(&mut self) -> Vec<String> {
         let changes: Vec<(usize,String)> = self.battle.as_ref().expect("battle").foes
-            .iter().enumerate().filter(|(_,foe)|
-                foe.hp > 0 && foe.phase == 0 && foe.hp * 2 <= foe.max_hp
-                && matches!(foe.id.as_str(),"zhangjiao"|"sunjian"|"dongzhuo"|"yuanshao"|"simayi"|"zuoci"
-                    |"luxun"|"lumeng"|"jiangwei"|"dengai"|"elite"|"war_elephant"|"royal_guard"|"tiger_general"|"sacred_beast"))
+            .iter().enumerate().filter(|(_,foe)| foe.phase_transition_pending())
             .map(|(i,foe)| (i,foe.id.clone())).collect();
         let mut messages = vec![];
         for (idx,id) in changes {
@@ -8596,5 +8641,42 @@ mod expanded_long_economy_regression {
             assert_eq!(game.hp, 0);
             assert_eq!((game.gold, game.max_hp), before);
         }
+    }
+}
+
+
+#[cfg(test)]
+mod expanded_phase_forecast_regression {
+    use super::*;
+
+    #[test]
+    fn second_phase_forecast_is_read_only_and_matches_end_turn() {
+        // Controlled entry boundary, not a natural full campaign claim.
+        let mut game = Game::new_with_campaign_difficulty(
+            Hero::GuanYu, 0, Difficulty::Warlords, "phase-preview".into(),
+        );
+        game.floor = 8;
+        game.last_node = Some(Node::Boss);
+        game.start_battle(Node::Boss);
+        game.stage = Stage::Combat;
+        {
+            let b = game.battle.as_mut().unwrap();
+            b.foes[0].hp = b.foes[0].max_hp / 2;
+            b.foes[0].intent = Intent::Guard(4);
+            b.foes[0].poison = 0;
+            b.troops_hp = 0;
+        }
+        let raw = game.to_json().unwrap();
+        let hint = game.phase_transition_hint(0).expect("impending phase");
+        assert!(hint.contains("本回合结束") && hint.contains("援军"));
+        assert_eq!(game.to_json().unwrap(), raw);
+        assert!(game.phase_transition_hint(99).is_none());
+        let mut restored = Game::from_json(&raw).unwrap();
+        let left = game.apply(Action::EndTurn).unwrap();
+        let right = restored.apply(Action::EndTurn).unwrap();
+        assert_eq!(left, right);
+        assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
+        assert_eq!(game.battle.as_ref().unwrap().foes[0].phase, 1);
+        assert!(game.phase_transition_hint(0).is_none());
     }
 }

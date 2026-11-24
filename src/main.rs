@@ -337,6 +337,9 @@ impl App {
                         println!("   敌{}：{}  {}/{}体力  甲{}  毒{}  意图：{}{}",
                             i + 1, foe.name(), foe.hp, foe.max_hp, foe.block, foe.poison,
                             foe.intent.label(), if foe.hp == 0 { " [阵亡]" } else if foe.phase > 0 { " [二阶段]" } else { "" });
+                        if let Some(warning) = g.phase_transition_hint(i) {
+                            println!("      【变阵预告】{warning}");
+                        }
                     }
                     println!(" 【职业资源】战意{} 谋略{} 连段{} 统御{} 怒气{} 反击{}",
                         b.momentum,b.scheme,b.combo,b.command,b.fury,b.thorns);

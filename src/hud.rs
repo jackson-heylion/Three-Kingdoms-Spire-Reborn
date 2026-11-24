@@ -146,6 +146,9 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
                 line(&mut out, app, &label, columns,
                     if enemy.hp == 0 { Tone::Muted }
                     else if active { Tone::Warning } else { Tone::Danger });
+                if out.len() + 6 < rows && let Some(warning) = g.phase_transition_hint(i) {
+                    line(&mut out, app, &format!("变阵预告：{warning}"), columns, Tone::Warning);
+                }
             }
             // Surface only relevant resources by default; diagnostics live in detail mode.
             let resources = [
