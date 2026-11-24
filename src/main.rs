@@ -260,6 +260,9 @@ impl App {
                 g.mode, difficulty_label, g.victories, g.version);
             if let Some(tier) = g.difficulty {
                 println!(" 【难度规则】{}", tier.rules_summary());
+                if let Some(cap) = g.victory_recovery_cap() {
+                    println!(" 【战役经济】本幕战后被动回血合计上限{cap}点；主动治疗、营寨及关底成长不受此限。");
+                }
             }
             println!(" {}",g.doctrine_status());
             if !g.modifiers.is_empty() {
@@ -483,7 +486,9 @@ impl App {
                     |tier| format!("新制【{}】；五幕40层；{}",
                         tier.name(), tier.rules_summary()),
                 );
-                format!("{}，第{}层，体力{}/{}，{}金，{}张卡牌，版本{}；{}。",
+                let economy = g.victory_recovery_cap().map_or_else(String::new,
+                    |cap| format!("；本幕战后被动回血上限{cap}"));
+                format!("{}，第{}层，体力{}/{}，{}金，{}张卡牌，版本{}；{}{economy}。",
                     g.hero.name(), g.floor, g.hp, g.max_hp, g.gold, g.deck.len(), g.version, rules)
             })),
             "map" => Ok(self.game.as_ref().map_or("尚未开局".into(),|g| {
