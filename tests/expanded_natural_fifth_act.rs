@@ -4,13 +4,56 @@ use three_kingdoms_spire_reborn::{
     Action, ChibiPlan, Difficulty, Game, Node, Stage, WuchaoPlan, content::{Effect, Hero, card_spec}, progression::Profile,
 };
 
+// Only the alternate-boss probe opts into this supply-aware policy. Keep
+// previously verified natural journeys on their original player policy.
 fn fight(game: &mut Game) -> Result<(), String> {
+    fight_with_supplies(game, false)
+}
+
+fn use_available_supply(game: &mut Game) -> Result<(), String> {
+    let Some(battle) = game.battle.as_ref() else { return Ok(()); };
+    let Some(target) = battle.foes.iter().enumerate()
+        .filter(|(_, foe)| foe.hp > 0)
+        .min_by_key(|(_, foe)| foe.hp)
+        .map(|(index, _)| index + 1) else { return Ok(()); };
+    let missing_hp = game.max_hp - game.hp;
+    let incoming_attack = battle.foes.iter().any(|foe| foe.hp > 0 && matches!(
+        foe.intent, three_kingdoms_spire_reborn::Intent::Attack(_)
+            | three_kingdoms_spire_reborn::Intent::MultiAttack(_, _)
+    ));
+    let hard_battle = matches!(game.last_node, Some(Node::Boss | Node::Elite));
+    let use_combat_supply = hard_battle || game.potion_bag.len() >= 3;
+    // Use healing before damage; spend offensive supplies in hard battles or
+    // to free an inventory slot for future earned drops. Never pay blood HP
+    // near defeat, and never fabricate an inventory or spend an invalid slot.
+    let slot = game.potion_bag.iter().position(|id| match id.as_str() {
+        "healing" => missing_hp >= 16,
+        "cleanse" => missing_hp >= 8 || battle.weak > 0 || battle.vulnerable > 0,
+        "shield" => use_combat_supply && incoming_attack && battle.block < 12,
+        "strength" | "fire" | "poison" => use_combat_supply,
+        "energy" => use_combat_supply && battle.energy <= 3,
+        "insight" => use_combat_supply && battle.hand.len() <= 5,
+        "weak" => use_combat_supply && incoming_attack,
+        "blood" => hard_battle && game.hp > 24,
+        _ => false,
+    });
+    if let Some(index) = slot {
+        game.apply(Action::UsePotionAt { slot: index + 1, target })?;
+    }
+    Ok(())
+}
+
+fn fight_with_supplies(game: &mut Game, use_supplies: bool) -> Result<(), String> {
     // Preserve an actionable trace if a natural high-ground water-defense run
     // ends in defeat. This records READ-ONLY state before real player actions;
     // no hand, map, foe, historical flag or RNG is ever injected.
     let mut hill_water_trace: Vec<String> = Vec::new();
     for _ in 0..32 {
         if game.stage != Stage::Combat { return Ok(()); }
+        if use_supplies {
+            use_available_supply(game)?;
+            if game.stage != Stage::Combat { return Ok(()); }
+        }
         if game.battle.as_ref().is_some_and(|b| b.siege_gate_hp.is_some() && b.energy >= 2) {
             game.apply(Action::AssaultGate)?;
             continue;
@@ -357,7 +400,14 @@ fn natural_fifth_act_deng_ai_entry_and_victory_survive_action_replay() {
         game.apply(Action::Choose { index: 1 }).expect("begin natural breakout");
         let mut error = None;
         let mut found_deng_ai = false;
+        let mut floor_trace = Vec::new();
+        let mut last_floor = 0;
         for _ in 0..900 {
+            if game.floor != last_floor {
+                last_floor = game.floor;
+                floor_trace.push(format!("{}:hp{}/{}:gold{}:cards{}:potions{}",
+                    game.floor, game.hp, game.max_hp, game.gold, game.deck.len(), game.potion_bag.len()));
+            }
             if game.stage == Stage::Combat && game.floor == 40
                 && game.last_node == Some(Node::Boss)
             {
@@ -370,7 +420,7 @@ fn natural_fifth_act_deng_ai_entry_and_victory_survive_action_replay() {
                 restored.verify_action_replay().expect("replay natural Deng Ai entry");
                 // Prove that the same legal policy can resolve the new
                 // commander after a save/restart, not merely arrive at it.
-                if let Err(e) = fight(&mut restored) { error = Some(e); break; }
+                if let Err(e) = fight_with_supplies(&mut restored, true) { error = Some(e); break; }
                 if restored.stage == Stage::Reward {
                     restored.apply(Action::Choose { index: 0 })
                         .expect("claim natural final boss reward");
@@ -386,10 +436,15 @@ fn natural_fifth_act_deng_ai_entry_and_victory_survive_action_replay() {
                 break;
             }
             if matches!(game.stage, Stage::Won | Stage::Lost) { break; }
-            if let Err(e) = advance(&mut game) { error = Some(e); break; }
+            let result = if game.stage == Stage::Combat {
+                fight_with_supplies(&mut game, true)
+            } else {
+                advance(&mut game)
+            };
+            if let Err(e) = result { error = Some(e); break; }
         }
-        failures.push(format!("seed {seed}: floor {} stage {:?}, deng_ai={found_deng_ai}, error={error:?}",
-            game.floor, game.stage));
+        failures.push(format!("seed {seed}: floor {} stage {:?}, deng_ai={found_deng_ai}, error={error:?}, trace={}",
+            game.floor, game.stage, floor_trace.join(" -> ")));
     }
     panic!("no fully natural alternate-act Deng Ai win in fixed acceptance cohort: {}",
         failures.join(" | "));
