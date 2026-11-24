@@ -241,7 +241,87 @@ pub fn historical_decisions(events: &[CampaignEvent]) -> Result<Vec<HistoricalDe
     Ok(decisions)
 }
 
+/// First observed positive, replay-verified tactical effect per historical
+/// decision and battlefield. This is evidence of an effect, not an additional
+/// meaningful-interaction count: multiple effects of one decision may overlap.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HistoricalEffectReceipt {
+    pub decision_id: String,
+    pub revision: u64,
+    pub floor: u8,
+    pub encounter: u64,
+    pub event_seq: u64,
+    pub battlefield: String,
+    pub source: String,
+    pub amount: i32,
+}
+
+fn historical_effect_site(source: &str) -> Option<(&'static str, &'static str)> {
+    match source {
+        "wuchao_coalition_raid" | "wuchao_coalition_fortified" | "wuchao_coalition_unchecked" =>
+            Some(("wuchao", "guandu")),
+        "wuchao_tyrant_raid" | "wuchao_tyrant_fortified" | "wuchao_tyrant_unchecked"
+        | "wuchao_tyrant_supply_saved" => Some(("wuchao", "dongzhuo")),
+        "wuchao_naval_raid_disruption" | "wuchao_naval_supply_screen"
+        | "wuchao_naval_supply_shortage" | "wuchao_naval_raid_countered" =>
+            Some(("wuchao", "naval")),
+        "chibi_naval_fleet_screen" | "chibi_naval_fire_spread"
+        | "chibi_naval_declined_cover" | "chibi_naval_fire_contained" =>
+            Some(("chibi", "naval")),
+        "chibi_fourth_act_fire" | "chibi_fourth_act_fleet" | "chibi_fourth_act_declined"
+        | "chibi_luxun_firebreak" | "chibi_lumeng_counterattack" =>
+            Some(("chibi", "fourth_act_boss")),
+        "jieting_hill_abandons_wells" | "jieting_hill_suppression"
+        | "jieting_hill_recaptured_wells" | "jieting_water_wells_repaired"
+        | "jieting_retreat_water_salvaged" => Some(("jieting", "water")),
+        "jieting_jiangwei_wells" | "jieting_jiangwei_hills" | "jieting_jiangwei_retreat" =>
+            Some(("jieting", "jiangwei")),
+        "jieting_yinping_wells" | "jieting_yinping_hills" | "jieting_yinping_retreat"
+        | "jieting_late_water_settlement" | "jieting_yinping_water_screen"
+        | "jieting_yinping_retreat_command" => Some(("jieting", "yinping")),
+        _ => None,
+    }
+}
+
 impl Game {
+    /// Offline diagnostic. Replays the committed actions and checks the exact
+    /// event stream and final snapshot before associating a real positive
+    /// battlefield effect with an earlier historical decision. No new save
+    /// fields, RNG draws or journal mutations; old unverified saves cannot
+    /// manufacture effect receipts. This deliberately covers only named sites.
+    pub fn historical_effect_receipts(&self) -> Result<Vec<HistoricalEffectReceipt>, String> {
+        if self.difficulty.is_none() { return Ok(Vec::new()); }
+        let history = self.campaign_history.as_ref()
+            .ok_or("missing campaign journal for historical effect receipts")?;
+        let decisions = historical_decisions(history)?;
+        let trace = self.reconstruct_action_event_trace()?;
+        let mut seen = HashSet::new();
+        let mut receipts = Vec::new();
+        for action in trace {
+            for record in action.events {
+                if record.event.amount <= 0
+                    || !matches!(record.event.kind, crate::EventKind::PowerTriggered
+                        | crate::EventKind::EnemyTechnique | crate::EventKind::DamageDealt)
+                { continue; }
+                let Some((kind, battlefield)) = historical_effect_site(&record.event.source) else { continue };
+                let Some(decision) = decisions.iter().find(|decision|
+                    decision.kind == kind && decision.revision < action.revision) else { continue };
+                if !seen.insert((kind, battlefield)) { continue; }
+                receipts.push(HistoricalEffectReceipt {
+                    decision_id: decision.id.clone(),
+                    revision: action.revision,
+                    floor: record.floor,
+                    encounter: record.encounter,
+                    event_seq: record.event.seq,
+                    battlefield: battlefield.to_owned(),
+                    source: record.event.source,
+                    amount: record.event.amount,
+                });
+            }
+        }
+        Ok(receipts)
+    }
+
     pub fn audit_campaign_authority(&self) -> Result<usize, String> {
         let history = self.campaign_history.as_ref()
             .ok_or("legacy save has no campaign authority journal")?;
