@@ -463,7 +463,7 @@ impl Game {
         {
             return match self.wuchao_plan {
                 Some(WuchaoPlan::RaidPending) => Some("董卓关底：乌巢夜袭破坏敌方补给，董卓入阵损失8体力并虚弱2层；第三幕夜袭效果仍保留"),
-                Some(WuchaoPlan::FortifyPending) => Some("董卓关底：乌巢固守粮道，我军开场获得10护甲；暴政造成伤害前若有至少12护甲，掠金至多减半"),
+                Some(WuchaoPlan::FortifyPending) => Some("董卓关底：乌巢固守粮道，我军开场获得10护甲；暴政造成伤害前实际出牌且保持至少12护甲，掠金至多减半"),
                 Some(WuchaoPlan::DeclinePending) => Some("董卓关底：未干预粮道，董卓入阵武勇+2、护甲+8；第三幕失机后果仍保留"),
                 _ => None,
             };
@@ -478,6 +478,18 @@ impl Game {
                     Some("赤壁稳守旧部：第四幕关底我军开场护甲+8、军令+1；吕蒙白衣渡江前实际出牌且保持12护甲，额外反击4点无视护甲伤害"),
                 Some(ChibiPlan::DeclineBattleResolved | ChibiPlan::DeclineSettled) =>
                     Some("赤壁失机余波：第四幕关底敌统帅武勇+1、护甲+10；需先破阵或蓄力输出"),
+                _ => None,
+            };
+        }
+        // A pending Jieting plan must have the same water objective when
+        // the first encounter is an elite instead of a regular battle.
+        if node == Node::Elite && (25..=30).contains(&self.floor)
+            && self.hero == Hero::ZhugeLiang
+        {
+            return match self.jieting_plan {
+                Some(JietingPlan::WaterPending) => Some("街亭精英水源战：水源12，守水预留4掩护；水源耗尽即战败"),
+                Some(JietingPlan::HillPending) => Some("街亭精英水源战：据山使水源先损4点；可主动进攻夺回水源"),
+                Some(JietingPlan::RetreatPending) => Some("街亭精英水源战：撤退预留2掩护；防御牌可抢修水源"),
                 _ => None,
             };
         }
@@ -659,7 +671,7 @@ impl Game {
                 b.foes.first().is_some_and(|f| f.id == "dongzhuo"))
             && self.wuchao_plan == Some(WuchaoPlan::FortifyPending)
         {
-            return Some("乌巢固守粮道：董卓暴政结算前保持12点护甲，可令本次军资掠夺减半；护甲仍承受其攻击。".into());
+            return Some("乌巢固守粮道：董卓暴政结算前实际出牌且保持12点护甲，可令本次军资掠夺减半；护甲仍承受其攻击。".into());
         }
         if self.stage == Stage::Combat && self.floor == 40
             && self.hero == Hero::ZhugeLiang
@@ -1086,14 +1098,18 @@ impl Game {
             combo: 0, command: 0, fury: 0, thorns: 0, played: 0,
             played_this_turn: 0, last_turn_cards: 0, next_turn_energy_penalty: 0,
             wildfire: 0,
-            convoy_hp: (self.difficulty.is_some() && node == Node::Battle
-                && (self.floor == 2 || self.floor == 19 || ((26..=31).contains(&self.floor) && self.hero == Hero::ZhugeLiang
-                    && matches!(self.jieting_plan, Some(JietingPlan::WaterPending
-                        | JietingPlan::HillPending | JietingPlan::RetreatPending))))).then_some(12),
-            convoy_cover: (self.difficulty.is_some() && node == Node::Battle
-                && (self.floor == 2 || self.floor == 19 || ((26..=31).contains(&self.floor) && self.hero == Hero::ZhugeLiang
-                    && matches!(self.jieting_plan, Some(JietingPlan::WaterPending
-                        | JietingPlan::HillPending | JietingPlan::RetreatPending))))).then_some(0),
+            convoy_hp: (self.difficulty.is_some()
+                && ((node == Node::Battle && (self.floor == 2 || self.floor == 19))
+                    || (matches!(node, Node::Battle | Node::Elite) && (26..=31).contains(&self.floor)
+                        && self.hero == Hero::ZhugeLiang
+                        && matches!(self.jieting_plan, Some(JietingPlan::WaterPending
+                            | JietingPlan::HillPending | JietingPlan::RetreatPending))))).then_some(12),
+            convoy_cover: (self.difficulty.is_some()
+                && ((node == Node::Battle && (self.floor == 2 || self.floor == 19))
+                    || (matches!(node, Node::Battle | Node::Elite) && (26..=31).contains(&self.floor)
+                        && self.hero == Hero::ZhugeLiang
+                        && matches!(self.jieting_plan, Some(JietingPlan::WaterPending
+                            | JietingPlan::HillPending | JietingPlan::RetreatPending))))).then_some(0),
             troops_hp: if self.hero == Hero::CaoCao { 12 } else { 0 },
             troops_attack: if self.hero == Hero::CaoCao { 2 } else { 0 },
             discard_tokens: 0,
@@ -1362,36 +1378,39 @@ impl Game {
         if self.difficulty.is_some() && (17..=24).contains(&self.floor) {
             let resolved = match self.wuchao_plan {
                 Some(WuchaoPlan::RaidPending) => {
-                    if let Some(battle) = self.battle.as_mut() {
-                        if let Some(front) = battle.foes.first_mut() {
-                            front.hp = (front.hp - 10).max(1);
-                            front.block = 0;
-                        }
-                        battle.vulnerable = 1;
-                    }
-                    Some(WuchaoPlan::RaidResolved)
+                    let lost = {
+                        let b = self.battle.as_mut().expect("act-III battle");
+                        let front = &mut b.foes[0];
+                        let lost = (front.hp - 1).clamp(0, 10);
+                        front.hp -= lost;
+                        front.block = 0;
+                        b.vulnerable = 1;
+                        lost
+                    };
+                    Some((WuchaoPlan::RaidResolved, "wuchao_act_three_raid", lost))
                 }
                 Some(WuchaoPlan::FortifyPending) => {
-                    if let Some(battle) = self.battle.as_mut() {
-                        battle.block += 12;
-                    }
-                    Some(WuchaoPlan::FortifyResolved)
+                    self.battle.as_mut().expect("act-III battle").block += 12;
+                    Some((WuchaoPlan::FortifyResolved, "wuchao_act_three_fortify", 12))
                 }
                 Some(WuchaoPlan::DeclinePending) => {
-                    if let Some(front) = self.battle.as_mut().and_then(|b| b.foes.first_mut()) {
-                        front.block += 12;
-                    }
-                    Some(WuchaoPlan::DeclineResolved)
+                    self.battle.as_mut().expect("act-III battle").foes[0].block += 12;
+                    Some((WuchaoPlan::DeclineResolved, "wuchao_act_three_decline", 12))
                 }
                 _ => None,
             };
-            if let Some(plan) = resolved {
+            if let Some((plan, source, amount)) = resolved {
                 self.wuchao_plan = Some(plan);
+                if amount > 0 {
+                    self.combat_event(EventKind::PowerTriggered, source, amount, None);
+                }
             }
         }
         // A real act-III battle consumes the fleet plan. Act-IV consequences
         // settle exactly once on that act's first actual combat.
         if self.difficulty.is_some() {
+            let before_gold = self.gold;
+            let before_front_hp = self.battle.as_ref().expect("battle").foes[0].hp;
             let resolved = match (self.floor, self.chibi_plan) {
                 (17..=24, Some(ChibiPlan::FirePending)) => {
                     if let Some(b) = self.battle.as_mut() {
@@ -1432,7 +1451,22 @@ impl Game {
                 }
                 _ => None,
             };
-            if let Some(plan) = resolved { self.chibi_plan = Some(plan); }
+            if let Some(plan) = resolved {
+                self.chibi_plan = Some(plan);
+                let (source, amount) = match plan {
+                    ChibiPlan::FireBattleResolved => ("chibi_act_three_fire",
+                        before_front_hp - self.battle.as_ref().expect("battle").foes[0].hp),
+                    ChibiPlan::FleetBattleResolved => ("chibi_act_three_fleet", 12),
+                    ChibiPlan::DeclineBattleResolved => ("chibi_act_three_decline", 12),
+                    ChibiPlan::FireSettled => ("chibi_act_four_debt", before_gold - self.gold),
+                    ChibiPlan::FleetSettled => ("chibi_act_four_supply", 6),
+                    ChibiPlan::DeclineSettled => ("chibi_act_four_setback", 1),
+                    _ => ("", 0),
+                };
+                if amount > 0 {
+                    self.combat_event(EventKind::PowerTriggered, source, amount, None);
+                }
+            }
         }
         // The Red Cliffs player decision has a second observable stake in
         // the third-act water-land crossing, even when another earlier battle
@@ -1531,6 +1565,8 @@ impl Game {
             }
         }
         if self.difficulty.is_some() {
+            let before_gold = self.gold;
+            let before_hp = self.hp;
             let resolved = match (self.floor, self.jieting_plan) {
                 (25..=32, Some(JietingPlan::WaterPending)) => {
                     if let Some(b) = self.battle.as_mut() {
@@ -1601,7 +1637,21 @@ impl Game {
                 }
                 _ => None,
             };
-            if let Some(plan) = resolved { self.jieting_plan = Some(plan); }
+            if let Some(plan) = resolved {
+                self.jieting_plan = Some(plan);
+                let (source, amount) = match plan {
+                    JietingPlan::WaterResolved => ("jieting_act_four_water", 14),
+                    JietingPlan::HillResolved => ("jieting_act_four_hill", 20),
+                    JietingPlan::RetreatResolved => ("jieting_act_four_retreat", 6),
+                    JietingPlan::WaterSettled => ("jieting_act_five_water", 8),
+                    JietingPlan::HillSettled => ("jieting_act_five_debt", before_gold - self.gold),
+                    JietingPlan::RetreatSettled => ("jieting_act_five_recovery", self.hp - before_hp),
+                    _ => ("", 0),
+                };
+                if amount > 0 {
+                    self.combat_event(EventKind::PowerTriggered, source, amount, None);
+                }
+            }
         }
         self.stage = Stage::Combat;
     }
@@ -1718,7 +1768,7 @@ impl Game {
                 {
                     msg.push_str(match self.wuchao_plan {
                         Some(WuchaoPlan::RaidPending) => "；乌巢夜袭前线兑现：董卓损8体力并虚弱2层",
-                        Some(WuchaoPlan::FortifyPending) => "；乌巢固守粮道：我军护甲+10，12护甲可反制暴政掠金",
+                        Some(WuchaoPlan::FortifyPending) => "；乌巢固守粮道：我军护甲+10，实际出牌且保持12护甲可反制暴政掠金",
                         Some(WuchaoPlan::DeclinePending) => "；乌巢失机：董卓武勇+2、护甲+8",
                         _ => "",
                     });
@@ -3168,7 +3218,7 @@ impl Game {
                 let supply_guarded = self.difficulty.is_some() && self.floor == 16
                     && self.hero == Hero::CaoCao && id == "dongzhuo"
                     && self.wuchao_plan == Some(WuchaoPlan::FortifyPending)
-                    && self.battle.as_ref().is_some_and(|b| b.block >= 12);
+                    && self.battle.as_ref().is_some_and(|b| b.played_this_turn > 0 && b.block >= 12);
                 let damage = self.enemy_attack(idx,attack);
                 let caster_alive = self.battle.as_ref().is_some_and(|b| b.foes[idx].hp > 0);
                 let levy = 10 + 5 * i32::from(phase > 0);
@@ -7636,6 +7686,10 @@ mod alternate_historical_boss_regression {
                 WuchaoPlan::FortifyPending => {
                     assert_eq!(b.block, 14);
                     let before = game.gold;
+                    let mut idle = game.clone();
+                    idle.boss_signature(0, BossMove::TyrantLevy(1));
+                    assert_eq!(idle.gold, before - 10);
+                    game.battle.as_mut().unwrap().played_this_turn = 1;
                     game.boss_signature(0, BossMove::TyrantLevy(1));
                     assert_eq!(game.gold, before - 5);
                     assert!(game.battle.as_ref().unwrap().events.iter().any(|e|
@@ -7856,5 +7910,34 @@ mod additional_history_tactics_regression {
         assert_eq!(game.battle.as_ref().unwrap().foes[0].hp, hp - 4);
         without_play.end_turn().unwrap();
         assert_eq!(without_play.battle.as_ref().unwrap().foes[0].hp, hp);
+    }
+}
+
+
+#[cfg(test)]
+mod jieting_elite_objective_regression {
+    use super::*;
+
+    #[test]
+    fn elite_entry_preserves_the_pending_water_objective_for_each_plan() {
+        for (plan, hp, cover) in [
+            (JietingPlan::WaterPending, 12, 4),
+            (JietingPlan::HillPending, 8, 0),
+            (JietingPlan::RetreatPending, 12, 2),
+        ] {
+            let mut game = Game::new_with_campaign_difficulty(
+                Hero::ZhugeLiang, 7, Difficulty::Warlords, "elite-water".into(),
+            );
+            game.floor = 26;
+            game.jieting_plan = Some(plan);
+            assert!(game.route_objective_hint(Node::Elite).unwrap().contains("水源"));
+            game.floor = 27;
+            game.last_node = Some(Node::Elite);
+            game.start_battle(Node::Elite);
+            let b = game.battle.as_ref().unwrap();
+            assert_eq!(b.convoy_hp, Some(hp));
+            assert_eq!(b.convoy_cover, Some(cover));
+            assert!(game.tactical_objective().unwrap().contains("街亭水源"));
+        }
     }
 }
