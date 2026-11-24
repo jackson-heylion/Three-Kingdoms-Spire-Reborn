@@ -505,6 +505,16 @@ fn verify_natural_wuchao_choice(choice: usize) {
                 let loaded = Game::from_json(&saved).expect("cross-act restore");
                 assert_eq!(loaded.to_json().unwrap(), saved);
                 loaded.verify_action_replay().expect("restored wuchao replay");
+                let receipts = game.historical_effect_receipts().expect("natural Wuchao receipts");
+                assert_eq!(receipts, loaded.historical_effect_receipts().unwrap());
+                let source = match choice {
+                    1 => "wuchao_act_three_raid",
+                    2 => "wuchao_act_three_fortify",
+                    _ => "wuchao_act_three_decline",
+                };
+                assert_eq!(receipts.iter().filter(|r|
+                    r.source == source && r.amount > 0 && r.floor == game.floor
+                    && r.decision_id.contains(":wuchao:")).count(), 1);
                 return;
             } else if game.stage == Stage::Lost || game.stage == Stage::Won {
                 break;
@@ -604,6 +614,28 @@ fn natural_chibi_east_wind_three_choices_replay_through_fourth_act() {
                     let restored = Game::from_json(&snapshot).expect("Chibi fourth-act restore");
                     assert_eq!(restored.to_json().unwrap(), snapshot);
                     restored.verify_action_replay().expect("restored Chibi action replay");
+                    let receipts = game.historical_effect_receipts().expect("natural Chibi receipts");
+                    assert_eq!(receipts, restored.historical_effect_receipts().unwrap());
+                    let first_source = match choice {
+                        1 => "chibi_act_three_fire",
+                        2 => "chibi_act_three_fleet",
+                        _ => "chibi_act_three_decline",
+                    };
+                    assert_eq!(receipts.iter().filter(|r|
+                        r.source == first_source && r.amount > 0
+                        && (17..=24).contains(&r.floor)
+                        && r.decision_id.contains(":chibi:")).count(), 1);
+                    let aftermath_source = match choice {
+                        1 => "chibi_act_four_debt",
+                        2 => "chibi_act_four_supply",
+                        _ => "chibi_act_four_setback",
+                    };
+                    let paid = receipts.iter().filter(|r|
+                        r.source == aftermath_source && r.amount > 0
+                        && (25..=32).contains(&r.floor)).count();
+                    // A fire debt at zero gold has no actual resource change.
+                    assert!(paid <= 1);
+                    if choice != 1 { assert_eq!(paid, 1); }
                     completed = true;
                     break;
                 } else if matches!(game.stage, Stage::Won | Stage::Lost) {
@@ -704,6 +736,28 @@ fn natural_jieting_three_choices_replay_into_fifth_act() {
                     let restored = Game::from_json(&saved).expect("fifth-act restore");
                     assert_eq!(restored.to_json().unwrap(), saved);
                     restored.verify_action_replay().expect("restored fifth-act replay");
+                    let receipts = game.historical_effect_receipts().expect("natural Jieting receipts");
+                    assert_eq!(receipts, restored.historical_effect_receipts().unwrap());
+                    let first_source = match choice {
+                        1 => "jieting_act_four_water",
+                        2 => "jieting_act_four_hill",
+                        _ => "jieting_act_four_retreat",
+                    };
+                    assert_eq!(receipts.iter().filter(|r|
+                        r.source == first_source && r.amount > 0
+                        && (26..=31).contains(&r.floor)
+                        && r.decision_id.contains(":jieting:")).count(), 1);
+                    let aftermath_source = match choice {
+                        1 => "jieting_act_five_water",
+                        2 => "jieting_act_five_debt",
+                        _ => "jieting_act_five_recovery",
+                    };
+                    let paid = receipts.iter().filter(|r|
+                        r.source == aftermath_source && r.amount > 0
+                        && (33..=40).contains(&r.floor)).count();
+                    // No receipt for a zero-gold debt or healing at full HP.
+                    assert!(paid <= 1);
+                    if choice == 1 { assert_eq!(paid, 1); }
                     completed = true;
                     break;
                 } else if matches!(game.stage, Stage::Lost | Stage::Won) {
