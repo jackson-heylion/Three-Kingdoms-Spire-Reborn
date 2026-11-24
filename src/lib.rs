@@ -597,6 +597,30 @@ impl Game {
         { 2 } else { 0 }
     }
 
+    // Compute the same immediate pressure for route feedback, external
+    // players and committed EndTurn. Enemy actions may change the forecast
+    // before settlement, so EndTurn recalculates after their actions.
+    fn cargo_raid_projection(&self, battle: &Battle) -> Option<(u8, u8, u8, u8)> {
+        let hp = battle.convoy_hp?;
+        let cover = battle.convoy_cover?;
+        let living = battle.foes.iter().filter(|foe| foe.hp > 0).count() as u8;
+        let current = self.naval_tide_pressure(battle.turn)
+            .saturating_add(self.grain_raid_pressure(battle.turn));
+        let disruption = self.wuchao_naval_raid_reduction(battle);
+        let pressure = living.saturating_mul(4).saturating_add(current);
+        let undisrupted = pressure.saturating_sub(cover).min(hp);
+        let actual = pressure.saturating_sub(disruption).saturating_sub(cover).min(hp);
+        Some((current, disruption, undisrupted, actual))
+    }
+
+    /// Current cargo loss if all presently living raiders survive their
+    /// actions. None means this encounter does not have a cargo objective.
+    /// This read-only preview consumes no RNG and mutates no journals.
+    pub fn projected_cargo_loss(&self) -> Option<u8> {
+        self.battle.as_ref().and_then(|b| self.cargo_raid_projection(b))
+            .map(|(_, _, _, actual)| actual)
+    }
+
     fn fancheng_flood_active(&self) -> bool {
         self.difficulty.is_some() && self.floor == 27 && self.last_node == Some(Node::Battle)
             && self.hero == Hero::GuanYu
@@ -657,8 +681,7 @@ impl Game {
             if let Some(b) = self.battle.as_ref()
                 && let (Some(water), Some(cover)) = (b.convoy_hp, b.convoy_cover)
             {
-                let living = b.foes.iter().filter(|f| f.hp > 0).count() as u8;
-                let raid = living.saturating_mul(4).saturating_sub(cover).min(water);
+                let raid = self.projected_cargo_loss().unwrap_or(0);
                 let tactic = match self.jieting_plan {
                     Some(JietingPlan::WaterResolved) => "守水：非致命劫水后可抢修2点",
                     Some(JietingPlan::HillResolved) => "据山：主动攻击掩护2点、击败敌军夺回4点",
@@ -722,11 +745,8 @@ impl Game {
         {
             let living = b.foes.iter().filter(|foe| foe.hp > 0).count();
             let naval = self.difficulty.is_some() && self.floor == 19 && self.last_node == Some(Node::Battle);
-            let current = if naval { self.naval_tide_pressure(b.turn) }
-                else { self.grain_raid_pressure(b.turn) };
-            let disruption = self.wuchao_naval_raid_reduction(b);
-            let raid = (living as u8).saturating_mul(4).saturating_add(current)
-                .saturating_sub(disruption).saturating_sub(cover).min(hp);
+            let (current, disruption, _, raid) = self.cargo_raid_projection(b)
+                .expect("cargo and cover present");
             if naval {
                 let warning = if hp > 0 && raid >= hp { "警告：回合末战船即将覆没！请攻击、守护或击退敌人。" } else { "" };
                 let class_hint = match self.hero {
@@ -3954,24 +3974,12 @@ impl Game {
         // Only surviving enemies threaten cargo. Guard cards cancel part of
         // the raid; running out of cargo resolves through canonical combat defeat.
         if let Some(hp) = self.battle.as_ref().expect("battle").convoy_hp {
-            let (enemy_count, cover) = {
-                let b = self.battle.as_ref().expect("battle");
-                (b.foes.iter().filter(|foe| foe.hp > 0).count() as u8,
-                    b.convoy_cover.unwrap_or(0))
-            };
+            let battle = self.battle.as_ref().expect("battle");
+            let cover = battle.convoy_cover.unwrap_or(0);
             let fleet_objective = self.difficulty.is_some() && self.floor == 19
                 && self.last_node == Some(Node::Battle);
-            let adverse_current = if fleet_objective {
-                self.naval_tide_pressure(self.battle.as_ref().expect("battle").turn)
-            } else {
-                self.grain_raid_pressure(self.battle.as_ref().expect("battle").turn)
-            };
-            let disruption = self.wuchao_naval_raid_reduction(self.battle.as_ref().expect("battle"));
-            let without_disruption = enemy_count.saturating_mul(4)
-                .saturating_add(adverse_current).saturating_sub(cover).min(hp);
-            let damage = enemy_count.saturating_mul(4)
-                .saturating_add(adverse_current).saturating_sub(disruption).saturating_sub(cover);
-            let actual = damage.min(hp);
+            let (adverse_current, _, without_disruption, actual) = self.cargo_raid_projection(battle)
+                .expect("cargo and cover present");
             let saved = without_disruption - actual;
             if saved > 0 {
                 self.combat_event(EventKind::PowerTriggered,
@@ -8080,6 +8088,43 @@ mod late_jieting_boss_water_regression {
                 assert_eq!(b.convoy_cover, Some(cover));
                 assert!(game.tactical_objective().unwrap().contains("街亭水源"));
             }
+        }
+    }
+}
+
+
+#[cfg(test)]
+mod cargo_forecast_regression {
+    use super::*;
+
+    #[test]
+    fn all_tiers_forecast_real_even_turn_naval_loss_without_mutating_state() {
+        for (tier, expected) in [
+            (Difficulty::Warlords, 4),
+            (Difficulty::Conqueror, 6),
+            (Difficulty::Destiny, 8),
+        ] {
+            let mut game = Game::new_with_campaign_difficulty(
+                Hero::CaoCao, 7, tier, "cargo-projection".into(),
+            );
+            game.floor = 19;
+            game.last_node = Some(Node::Battle);
+            game.wuchao_plan = Some(WuchaoPlan::RaidResolved);
+            game.start_battle(Node::Battle);
+            let b = game.battle.as_mut().unwrap();
+            b.foes.truncate(1);
+            b.foes[0].intent = Intent::Guard(0);
+            b.foes[0].weak = 2;
+            b.troops_hp = 0;
+            b.troops_attack = 0;
+            b.turn = 2;
+            let before_rng = game.rng_state;
+            let before_rev = game.revision;
+            assert_eq!(game.projected_cargo_loss(), Some(expected));
+            assert_eq!(game.rng_state, before_rng);
+            assert_eq!(game.revision, before_rev);
+            game.end_turn().unwrap();
+            assert_eq!(game.battle.as_ref().unwrap().convoy_hp, Some(12 - expected));
         }
     }
 }
