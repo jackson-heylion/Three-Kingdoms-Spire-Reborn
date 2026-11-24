@@ -190,10 +190,10 @@ pub fn project(events: &[CampaignEvent]) -> Result<(CampaignState, u64), String>
 
 
 /**
- * Stable, replay-derived historical decisions. Only committed pending tactical choices in the
- * three historical chains count; narrative displays, revisits and unchanged
- * revisions never create a new interaction. This is a conservative lower
- * bound, not the SPEC's complete 12–18 interaction metric.
+ * Stable committed decision candidates, including the three councils and
+ * selected literary decisions with named tactical consequences. A candidate
+ * alone is not proof of an actual downstream effect. Narrative displays,
+ * revisits and unchanged revisions never create another candidate.
  */
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HistoricalDecision {
@@ -201,6 +201,17 @@ pub struct HistoricalDecision {
     pub revision: u64,
     pub floor: u8,
     pub kind: String,
+}
+
+fn tactical_lore_kind(flag: &str) -> Option<&'static str> {
+    match flag {
+        "mist_arrows" => Some("mist_arrows"),
+        "empty_city" => Some("empty_city"),
+        "jingzhou_warning" => Some("jingzhou_warning"),
+        "fancheng_flood_record" => Some("fancheng_flood_record"),
+        "star_lantern" => Some("star_lantern"),
+        _ => None,
+    }
 }
 
 pub fn historical_decisions(events: &[CampaignEvent]) -> Result<Vec<HistoricalDecision>, String> {
@@ -236,6 +247,25 @@ pub fn historical_decisions(events: &[CampaignEvent]) -> Result<Vec<HistoricalDe
                     kind: kind.to_owned(),
                 });
             }
+        }
+        // Only a committed choice at the current literary scene can unlock
+        // its tactical receipt. Merely opening the scene, reading a flag,
+        // or carrying a flag in an initial snapshot cannot create a decision.
+        if before.stage == Stage::Story
+            && let Some(beat) = before.lore_current.as_deref().and_then(crate::lore::beat)
+            && !before.lore_seen.iter().any(|id| id == beat.id)
+            && after.lore_seen.iter().any(|id| id == beat.id)
+            && !before.lore_flags.iter().any(|flag| flag == beat.flag)
+            && after.lore_flags.iter().any(|flag| flag == beat.flag)
+            && let Some(kind) = tactical_lore_kind(beat.flag)
+            && recorded.insert(kind)
+        {
+            decisions.push(HistoricalDecision {
+                id: format!("{}:{}:{}", after.identity.as_ref().map_or("", |id| id.run_id.as_str()), kind, revision),
+                revision,
+                floor: after.floor,
+                kind: kind.to_owned(),
+            });
         }
     }
     Ok(decisions)
@@ -279,6 +309,12 @@ fn historical_effect_site(source: &str) -> Option<(&'static str, &'static str)> 
         "jieting_yinping_wells" | "jieting_yinping_hills" | "jieting_yinping_retreat"
         | "jieting_late_water_settlement" | "jieting_yinping_water_screen"
         | "jieting_yinping_retreat_command" => Some(("jieting", "yinping")),
+        "mist_arrows_naval_counter" => Some(("mist_arrows", "naval")),
+        "empty_city_scheme_countered" => Some(("empty_city", "third_act_boss")),
+        "jingzhou_vigilance_countered" => Some(("jingzhou_warning", "fourth_act_boss")),
+        "fancheng_flood_counter" | "fancheng_flood_exposure" =>
+            Some(("fancheng_flood_record", "fancheng_flood")),
+        "wuzhang_morale_recovered" => Some(("star_lantern", "northern_expedition")),
         _ => None,
     }
 }
@@ -301,7 +337,8 @@ impl Game {
             for record in action.events {
                 if record.event.amount <= 0
                     || !matches!(record.event.kind, crate::EventKind::PowerTriggered
-                        | crate::EventKind::EnemyTechnique | crate::EventKind::DamageDealt)
+                        | crate::EventKind::EnemyTechnique | crate::EventKind::DamageDealt
+                        | crate::EventKind::DamageReceived)
                 { continue; }
                 let Some((kind, battlefield)) = historical_effect_site(&record.event.source) else { continue };
                 let Some(decision) = decisions.iter().find(|decision|
@@ -330,5 +367,48 @@ impl Game {
             return Err("campaign authority differs from Game snapshot".into());
         }
         Ok(history.len())
+    }
+}
+
+
+#[cfg(test)]
+mod tactical_lore_receipt_projection_tests {
+    use super::*;
+
+    // Projector fixture only: the full receipt API still requires successful
+    // replay of the actual player actions and rejects manipulated journals.
+    #[test]
+    fn literary_choice_requires_both_new_seen_scene_and_new_flag() {
+        let game = Game::new_with_campaign_difficulty(
+            Hero::ZhugeLiang, 7, Difficulty::Warlords, "literary-receipt".into(),
+        );
+        let start = CampaignState::current(&game);
+        let mut scene = start.clone();
+        scene.floor = 17;
+        scene.stage = Stage::Story;
+        scene.lore_current = Some("empty_city".into());
+        let mut declined = scene.clone();
+        declined.stage = Stage::Map;
+        declined.lore_current = None;
+        declined.lore_seen.push("empty_city".into());
+        let mut accepted = declined.clone();
+        accepted.lore_flags.push("empty_city".into());
+        let base = vec![
+            CampaignEvent::Started { state: start.clone() },
+            transition(&start, &scene, 1).unwrap(),
+        ];
+        assert!(historical_decisions(&base).unwrap().is_empty());
+
+        let mut no_choice = base.clone();
+        no_choice.push(transition(&scene, &declined, 2).unwrap());
+        assert!(historical_decisions(&no_choice).unwrap().is_empty());
+
+        let mut committed = base;
+        committed.push(transition(&scene, &accepted, 2).unwrap());
+        committed.push(transition(&accepted, &accepted, 3).unwrap());
+        let candidates = historical_decisions(&committed).unwrap();
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].kind, "empty_city");
+        assert_eq!(candidates[0].revision, 2);
     }
 }
