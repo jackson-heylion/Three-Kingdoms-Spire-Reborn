@@ -414,6 +414,21 @@ impl Game {
                 _ => None,
             };
         }
+        if node == Node::Boss && self.floor == 23 && self.act_variant(2) == 0
+            && self.lore_flags.iter().any(|flag| flag == "empty_city")
+        {
+            return Some("司马懿关底：空城旧策可反制暗度陈仓；回合内实际出牌1–2张并保持10护甲，可抵消军令封锁与诅咒");
+        }
+        if node == Node::Boss && self.floor == 31 && self.act_variant(3) == 1
+            && self.hero == Hero::GuanYu && self.lore_flags.iter().any(|flag| flag == "jingzhou_warning")
+        {
+            return Some("吕蒙关底：荆州警戒使主动布防的军队识破白衣潜袭；实际出牌并保持8护甲可额外使吕蒙虚弱2层");
+        }
+        if node == Node::Battle && self.floor == 26 && self.hero == Hero::GuanYu
+            && self.lore_flags.iter().any(|flag| flag == "fancheng_flood_record")
+        {
+            return Some("樊城水势推演：偶数回合敌军行动后，若保有8护甲可借水势反击前锋6点无视护甲伤害；否则己军失去3体力");
+        }
         // The other fifth-act commander must also honor Zhuge Liang's
         // act-IV Jieting choice; it is not a Deng-Ai-only hidden fixture.
         if node == Node::Boss && self.floor == 39 && self.hero == Hero::ZhugeLiang
@@ -426,6 +441,8 @@ impl Game {
                     Some("姜维·北伐：街亭据山导致姜维武勇+2、护甲+8，我军也获武勇+1；需预留反制牌突破封锁"),
                 Some(JietingPlan::RetreatResolved | JietingPlan::RetreatSettled) =>
                     Some("姜维·北伐：街亭撤退保留机动，入阵额外军令+1、护甲+4，但姜维护甲+6；需把军令投入对抗断粮"),
+                _ if self.lore_flags.iter().any(|flag| flag == "star_lantern") =>
+                    Some("姜维·北伐：五丈原军心旧策；首回合实际出牌至少2张并保持8护甲，守住断粮可回复至多6体力"),
                 _ => None,
             };
         }
@@ -479,6 +496,12 @@ impl Game {
                     return Some("水陆阵战：乌巢失机导致后勤短缺，战船入阵先损2点耐久；偶数回合逆流2/4/6点，可通过掩护与击退敌军应对"),
                 _ => {}
             }
+        }
+        if self.floor == 18 && self.hero == Hero::ZhugeLiang
+            && self.lore_flags.iter().any(|flag| flag == "mist_arrows")
+            && self.chibi_plan.is_none()
+        {
+            return Some("水陆阵战：雾江借箭旧策，偶数回合实际出牌并建立至少4点掩护、成功抵御劫船且船体未沉时，可向存活前锋反击4点无视护甲伤害");
         }
         if self.floor == 18 && matches!(self.hero, Hero::ZhugeLiang | Hero::SunShangxiang) {
             match self.chibi_plan {
@@ -552,7 +575,29 @@ impl Game {
         { 2 } else { 0 }
     }
 
+    fn fancheng_flood_active(&self) -> bool {
+        self.difficulty.is_some() && self.floor == 27 && self.last_node == Some(Node::Battle)
+            && self.hero == Hero::GuanYu
+            && self.lore_flags.iter().any(|flag| flag == "fancheng_flood_record")
+    }
+
     pub fn tactical_objective(&self) -> Option<String> {
+        if self.stage == Stage::Combat && self.fancheng_flood_active() {
+            let b = self.battle.as_ref().expect("battle");
+            return Some(format!("樊城水势推演：第{}回合；偶数回合敌军行动后保有8护甲可反击前锋6点无视护甲伤害，否则己军失去3体力。", b.turn));
+        }
+        if self.stage == Stage::Combat && self.difficulty.is_some() && self.floor == 24
+            && self.lore_flags.iter().any(|flag| flag == "empty_city")
+            && self.battle.as_ref().is_some_and(|b| b.foes.first().is_some_and(|f| f.id == "simayi"))
+        {
+            return Some("空城旧策：暗度陈仓发动时实际出牌1–2张且保持10护甲，可阻止军令封锁及诅咒，并令司马懿易伤2层。".into());
+        }
+        if self.stage == Stage::Combat && self.difficulty.is_some() && self.floor == 32
+            && self.hero == Hero::GuanYu && self.lore_flags.iter().any(|flag| flag == "jingzhou_warning")
+            && self.battle.as_ref().is_some_and(|b| b.foes.first().is_some_and(|f| f.id == "lumeng"))
+        {
+            return Some("荆州警戒：实际出牌并保持8护甲识破白衣渡江，可令吕蒙额外虚弱2层。".into());
+        }
         if self.stage == Stage::Combat && self.difficulty.is_some()
             && self.floor == 40 && self.last_node == Some(Node::Boss)
             && self.hero == Hero::ZhugeLiang
@@ -568,7 +613,10 @@ impl Game {
                     "街亭撤退：军令+1、护甲+4，姜维护甲+6",
                 _ => "未有街亭下游责任",
             };
-            return Some(format!("北伐史诗关底：{history}；姜维的预告断粮需护甲8/10点反制，失败将损失下一回合军令并混入军心涣散。"));
+            let lantern = if self.lore_flags.iter().any(|flag| flag == "star_lantern") {
+                "；五丈原旧策：首回合实际出牌至少2张并守住断粮可恢复至多6体力"
+            } else { "" };
+            return Some(format!("北伐史诗关底：{history}；姜维的预告断粮需护甲8/10点反制，失败将损失下一回合军令并混入军心涣散{lantern}。"));
         }
         if self.stage == Stage::Combat && self.difficulty.is_some()
             && self.floor == 32 && self.last_node == Some(Node::Boss)
@@ -664,8 +712,11 @@ impl Game {
                     Some(ChibiPlan::DeclineBattleResolved) => "赤壁不介入旧债：敌军前锋加甲4点；",
                     _ => "",
                 };
+                let arrows = if self.hero == Hero::ZhugeLiang
+                    && self.lore_flags.iter().any(|flag| flag == "mist_arrows")
+                { "雾江借箭：偶数回合实际出牌且掩护至少4点、抵御劫船并存活时反击前锋4点；" } else { "" };
                 return Some(format!(
-                    "水陆阵战：{wuchao}{chibi}{class_hint}战船耐久{hp}/12；存活敌军{living}名各劫船4点，偶数回合逆流按难度额外+2/+4/+6（本回合逆流+{current}、夜袭牵制-{disruption}）；防御牌提供4点掩护，攻击实际扣除敌军体力可提供2点掩护（本回合已护{cover}/8）；亲自击败敌军可抢修2点；本回合预计失船{raid}点。{warning}战船覆没即战败；击退敌军或在第4回合劫船结算后耐久至少6且本回合有掩护，即可护航成功。"
+                    "水陆阵战：{wuchao}{chibi}{class_hint}{arrows}战船耐久{hp}/12；存活敌军{living}名各劫船4点，偶数回合逆流按难度额外+2/+4/+6（本回合逆流+{current}、夜袭牵制-{disruption}）；防御牌提供4点掩护，攻击实际扣除敌军体力可提供2点掩护（本回合已护{cover}/8）；亲自击败敌军可抢修2点；本回合预计失船{raid}点。{warning}战船覆没即战败；击退敌军或在第4回合劫船结算后耐久至少6且本回合有掩护，即可护航成功。"
                 ));
             }
             if (26..=31).contains(&self.floor) {
@@ -3174,6 +3225,16 @@ impl Game {
                     else { String::new() })
             }
             BossMove::HiddenScheme(penalty) => {
+                let deception = self.difficulty.is_some() && self.floor == 24 && id == "simayi"
+                    && self.lore_flags.iter().any(|flag| flag == "empty_city")
+                    && self.battle.as_ref().is_some_and(|b|
+                        (1..=2).contains(&b.played_this_turn) && b.block >= 10);
+                if deception {
+                    self.apply_foe_status(idx, "vulnerable", 2);
+                    self.combat_event(EventKind::PowerTriggered,
+                        "empty_city_scheme_countered", i32::from(penalty), Some("hero".into()));
+                    return "空城旧策识破暗度陈仓：本次军令封锁与诅咒未生效，司马懿易伤2层".into();
+                }
                 let b = self.battle.as_mut().expect("battle");
                 b.next_turn_energy_penalty = b.next_turn_energy_penalty.max(penalty).min(2);
                 let curses = b.draw.iter().chain(b.hand.iter()).chain(b.discard.iter())
@@ -3217,8 +3278,19 @@ impl Game {
                     let counter = if reserve {
                         self.deal_enemy_damage_unblockable(idx, 4, "chibi_lumeng_counterattack")
                     } else { 0 };
+                    let vigilance = self.difficulty.is_some() && self.floor == 32 && id == "lumeng"
+                        && self.hero == Hero::GuanYu
+                        && self.lore_flags.iter().any(|flag| flag == "jingzhou_warning")
+                        && self.battle.as_ref().is_some_and(|b| b.played_this_turn > 0);
+                    if vigilance {
+                        self.apply_foe_status(idx, "weak", 2);
+                        self.combat_event(EventKind::PowerTriggered,
+                            "jingzhou_vigilance_countered", 2, Some(format!("foe:{idx}")));
+                    }
                     if counter > 0 {
                         format!("白衣渡江被识破：吕蒙露出破绽，易伤持续到后续回合；赤壁水军反击{counter}点无视护甲伤害")
+                    } else if vigilance {
+                        "白衣渡江被识破：荆州警戒令吕蒙额外虚弱2层".into()
                     } else {
                         "白衣渡江被识破：吕蒙露出破绽，易伤持续到后续回合".into()
                     }
@@ -3236,7 +3308,18 @@ impl Game {
                 let guarded = self.battle.as_ref().is_some_and(|b| b.block >= required);
                 if guarded {
                     self.apply_foe_status(idx, "vulnerable", 3);
-                    format!("北伐粮道守住（护甲至少{required}）：姜维阵线暴露，获得易伤")
+                    let lantern = self.difficulty.is_some() && self.floor == 40 && id == "jiangwei"
+                        && self.hero == Hero::ZhugeLiang
+                        && self.lore_flags.iter().any(|flag| flag == "star_lantern")
+                        && self.battle.as_ref().is_some_and(|b| b.turn == 1 && b.played_this_turn >= 2);
+                    let restored = if lantern { (self.max_hp - self.hp).clamp(0, 6) } else { 0 };
+                    if restored > 0 {
+                        self.hp += restored;
+                        self.combat_event(EventKind::PowerTriggered,
+                            "wuzhang_morale_recovered", restored, Some("hero".into()));
+                    }
+                    format!("北伐粮道守住（护甲至少{required}）：姜维阵线暴露，获得易伤{}",
+                        if restored > 0 { format!("；五丈原旧策恢复{restored}体力") } else { String::new() })
                 } else {
                     let b = self.battle.as_mut().expect("battle");
                     b.next_turn_energy_penalty = b.next_turn_energy_penalty.max(1);
@@ -3748,6 +3831,37 @@ impl Game {
         if self.defeated() {
             return Ok(format!("{}。反击清场！{}", messages.join("；"), self.win_battle()));
         }
+        // The recorded Fancheng flood unlocks an optional terrain tactic in
+        // expanded act IV. It is a game adaptation, not a new historical claim.
+        if self.fancheng_flood_active()
+            && self.battle.as_ref().is_some_and(|b| b.turn.is_multiple_of(2))
+        {
+            let guarded = self.battle.as_ref().is_some_and(|b| b.block >= 8);
+            if guarded {
+                let target = self.battle.as_ref().and_then(|b| b.foes.iter().position(|f| f.hp > 0));
+                if let Some(idx) = target {
+                    let damage = self.deal_enemy_damage_unblockable(idx, 6, "fancheng_flood_counter");
+                    messages.push(format!("樊城水势反击前锋{damage}点"));
+                    if self.defeated() {
+                        return Ok(format!("{}。{}", messages.join("；"), self.win_battle()));
+                    }
+                }
+            } else {
+                let lost = self.hp.min(3);
+                self.hp -= lost;
+                self.record_metric(|c| c.hero_hp_damage = c.hero_hp_damage.saturating_add(lost as u64));
+                self.combat_event(EventKind::DamageReceived, "fancheng_flood_exposure", lost, Some("hero".into()));
+                messages.push(format!("樊城水势失守，损失{lost}体力"));
+                if self.hp == 0 {
+                    self.record_metric(|c| c.battles_lost = c.battles_lost.saturating_add(1));
+                    self.capture_turn_metrics(true);
+                    self.combat_event(EventKind::BattleEnded, "defeat", 0, None);
+                    self.stage = Stage::Lost;
+                    self.battle = None;
+                    return Ok(format!("{}。征途结束。", messages.join("；")));
+                }
+            }
+        }
         // Only surviving enemies threaten cargo. Guard cards cancel part of
         // the raid; running out of cargo resolves through canonical combat defeat.
         if let Some(hp) = self.battle.as_ref().expect("battle").convoy_hp {
@@ -3806,6 +3920,23 @@ impl Game {
                     if water_objective { "街亭水源保卫失败，水源耗尽" }
                     else if fleet_objective { "水陆阵战失败，战船覆没" }
                     else { "粮道保卫失败，粮车被毁" }));
+            }
+            // The mist-arrow tactic requires actual card play, useful cover,
+            // an even-turn raid, and surviving the cargo settlement. It cannot
+            // revive a sunk ship or award free attacks for starting cover.
+            let mist_counter = fleet_objective && self.hero == Hero::ZhugeLiang
+                && self.lore_flags.iter().any(|flag| flag == "mist_arrows")
+                && adverse_current > 0 && cover >= 4
+                && self.battle.as_ref().is_some_and(|b| b.played_this_turn > 0);
+            if mist_counter {
+                let target = self.battle.as_ref().and_then(|b| b.foes.iter().position(|f| f.hp > 0));
+                if let Some(idx) = target {
+                    let damage = self.deal_enemy_damage_unblockable(idx, 4, "mist_arrows_naval_counter");
+                    messages.push(format!("雾江借箭反击前锋{damage}点"));
+                    if self.defeated() {
+                        return Ok(format!("{}。{}", messages.join("；"), self.win_battle()));
+                    }
+                }
             }
             // A genuine escort victory needs three resolved raiding turns,
             // intact cargo and cover earned in the final turn. It is never
@@ -7622,5 +7753,108 @@ mod historical_naval_and_lumeng_regression {
         assert_eq!(game.battle.as_ref().unwrap().foes[0].hp, hp - 4);
         assert!(game.battle.as_ref().unwrap().events.iter().any(|e|
             e.source == "chibi_lumeng_counterattack" && e.amount == 4));
+    }
+}
+
+
+#[cfg(test)]
+mod additional_history_tactics_regression {
+    use super::*;
+
+    // Controlled encounter checkpoints. These validate the rules in isolation,
+    // not natural discovery of the required literary flags.
+    fn checkpoint(hero: Hero, floor: u8, node: Node, flag: &str, act4: u8) -> Game {
+        let mut game = Game::new_with_campaign_difficulty(
+            hero, 7, Difficulty::Warlords, "history-tactics-checkpoint".into(),
+        );
+        game.apply(Action::SetExpandedVariants {
+            act1: 0, act2: 0, act3: 0, act4, act5: 0,
+        }).unwrap();
+        game.floor = floor;
+        game.last_node = Some(node);
+        game.lore_flags.push(flag.into());
+        game.start_battle(node);
+        game
+    }
+
+    #[test]
+    fn empty_city_requires_controlled_card_count_and_armor() {
+        let mut game = checkpoint(Hero::ZhugeLiang, 24, Node::Boss, "empty_city", 0);
+        assert!(game.tactical_objective().unwrap().contains("空城旧策"));
+        let b = game.battle.as_mut().unwrap();
+        b.block = 10;
+        b.played_this_turn = 2;
+        game.boss_signature(0, BossMove::HiddenScheme(2));
+        let b = game.battle.as_ref().unwrap();
+        assert_eq!(b.next_turn_energy_penalty, 0);
+        assert_eq!(b.foes[0].vulnerable, 2);
+        assert!(!b.discard.iter().any(|c| c.id == "cursed"));
+        game.battle.as_mut().unwrap().played_this_turn = 3;
+        game.boss_signature(0, BossMove::HiddenScheme(2));
+        let b = game.battle.as_ref().unwrap();
+        assert_eq!(b.next_turn_energy_penalty, 2);
+        assert!(b.discard.iter().any(|c| c.id == "cursed"));
+    }
+
+    #[test]
+    fn jingzhou_vigilance_requires_actual_play_before_lumeng() {
+        let mut game = checkpoint(Hero::GuanYu, 32, Node::Boss, "jingzhou_warning", 1);
+        game.battle.as_mut().unwrap().block = 8;
+        game.boss_signature(0, BossMove::WhiteClothes);
+        assert_eq!(game.battle.as_ref().unwrap().foes[0].weak, 0);
+        game.battle.as_mut().unwrap().played_this_turn = 1;
+        game.boss_signature(0, BossMove::WhiteClothes);
+        assert_eq!(game.battle.as_ref().unwrap().foes[0].weak, 2);
+    }
+
+    #[test]
+    fn wuzhang_morale_heals_only_on_first_successful_signature() {
+        let mut game = checkpoint(Hero::ZhugeLiang, 40, Node::Boss, "star_lantern", 0);
+        game.hp -= 12;
+        let before = game.hp;
+        let b = game.battle.as_mut().unwrap();
+        b.block = 8;
+        b.played_this_turn = 2;
+        game.boss_signature(0, BossMove::NorthernExpedition(0));
+        assert_eq!(game.hp, before + 6);
+        game.battle.as_mut().unwrap().turn = 2;
+        game.boss_signature(0, BossMove::NorthernExpedition(0));
+        assert_eq!(game.hp, before + 6);
+    }
+
+    #[test]
+    fn fancheng_flood_has_real_counter_and_failure_cost() {
+        let mut game = checkpoint(Hero::GuanYu, 27, Node::Battle, "fancheng_flood_record", 0);
+        let b = game.battle.as_mut().unwrap();
+        b.turn = 2;
+        b.block = 8;
+        for foe in &mut b.foes { foe.intent = Intent::Guard(0); }
+        let hp = b.foes[0].hp;
+        let mut exposed = game.clone();
+        exposed.battle.as_mut().unwrap().block = 0;
+        let hero_hp = exposed.hp;
+        let message = game.end_turn().unwrap();
+        assert!(message.contains("樊城水势反击"));
+        assert_eq!(game.battle.as_ref().unwrap().foes[0].hp, hp - 6);
+        let message = exposed.end_turn().unwrap();
+        assert!(message.contains("樊城水势失守"));
+        assert_eq!(exposed.hp, hero_hp - 3);
+    }
+
+    #[test]
+    fn mist_arrows_requires_surviving_covered_naval_raid() {
+        let mut game = checkpoint(Hero::ZhugeLiang, 19, Node::Battle, "mist_arrows", 0);
+        let b = game.battle.as_mut().unwrap();
+        b.turn = 2;
+        b.played_this_turn = 1;
+        b.convoy_cover = Some(8);
+        for foe in &mut b.foes { foe.intent = Intent::Guard(0); }
+        let hp = b.foes[0].hp;
+        let mut without_play = game.clone();
+        without_play.battle.as_mut().unwrap().played_this_turn = 0;
+        game.end_turn().unwrap();
+        assert_eq!(game.battle.as_ref().unwrap().foes[0].hp, hp - 4);
+        without_play.end_turn().unwrap();
+        assert_eq!(without_play.battle.as_ref().unwrap().foes[0].hp, hp);
     }
 }
