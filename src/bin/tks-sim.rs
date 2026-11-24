@@ -1032,6 +1032,33 @@ fn expanded_matrix_run(
     }
 }
 
+// The ordinary Rust CI already runs bin tests. Exercise a single fixed seed
+// in every paired cell there; the opt-in report command extends the sample
+// without changing, weakening or bypassing any existing workflow.
+#[cfg(test)]
+#[test]
+fn expanded_matrix_fixed_seed_all_cells_settle_and_replay() {
+    use three_kingdoms_spire_reborn::Difficulty;
+    let mut failures = Vec::new();
+    let mut count = 0;
+    for hero in HEROES {
+        for difficulty in Difficulty::ALL {
+            for policy in [Policy::FirstPlayable, Policy::Tactical] {
+                let run = expanded_matrix_run(hero, difficulty, 247_510, policy);
+                count += 1;
+                if run.error.is_some() || !run.replay_verified || !run.chronicle_verified
+                    || !matches!(run.terminal, Stage::Won | Stage::Lost)
+                {
+                    failures.push(format!("{:?} {:?} {} floor {}: {:?}",
+                        hero, difficulty, run.policy, run.final_sample.floor, run.error));
+                }
+            }
+        }
+    }
+    assert_eq!(count, 30);
+    assert!(failures.is_empty(), "incomplete natural matrix cells: {}", failures.join(" | "));
+}
+
 fn expanded_matrix_report(samples: usize, output: Option<&str>) -> Result<(), String> {
     use three_kingdoms_spire_reborn::Difficulty;
     let mut runs = Vec::new();
