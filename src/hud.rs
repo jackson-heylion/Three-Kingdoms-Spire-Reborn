@@ -101,10 +101,12 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
     if let Some(g) = &app.game {
         let act = (g.floor.saturating_sub(1) / g.campaign_rows() + 1)
             .min(g.campaign_max_floor() / g.campaign_rows());
+        let hero_label = g.difficulty.map_or_else(|| g.hero.name().to_owned(),
+            |tier| format!("{}·{}", g.hero.name(), tier.name()));
         let hp_tone = if g.hp * 4 <= g.max_hp { Tone::Danger }
             else if g.hp * 2 <= g.max_hp { Tone::Warning } else { Tone::Good };
         if columns < 48 {
-            line(&mut out, app, &format!("{} · 第{}幕·{}层", g.hero.name(), act, g.floor),
+            line(&mut out, app, &format!("{hero_label} · 第{act}幕·{}层", g.floor),
                 columns, Tone::Accent);
             pieces(&mut out, app, columns, &[
                 (&format!("生命 {}/{}  ", g.hp, g.max_hp), hp_tone),
@@ -112,7 +114,7 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
             ]);
         } else {
             pieces(&mut out, app, columns, &[
-                (&format!("{}  第{}幕·{}层  ", g.hero.name(), act, g.floor), Tone::Accent),
+                (&format!("{hero_label}  第{act}幕·{}层  ", g.floor), Tone::Accent),
                 (&format!("生命 {}/{}  ", g.hp, g.max_hp), hp_tone),
                 (&format!("金 {}  药 {}", g.gold, g.potions), Tone::Muted),
             ]);
@@ -134,6 +136,9 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
                 (&format!("武勇 {}  虚弱 {}  易伤 {}", b.strength, b.weak, b.vulnerable),
                     if b.weak > 0 || b.vulnerable > 0 { Tone::Warning } else { Tone::Muted }),
             ]);
+            if let Some(objective) = g.tactical_objective() {
+                line(&mut out, app, &format!("关卡目标：{objective}"), columns, Tone::Warning);
+            }
             heading(&mut out, app, "敌军（t 切换目标）", columns);
             for (i, enemy) in b.foes.iter().enumerate() {
                 if out.len() + 5 >= rows { break; }
@@ -194,6 +199,14 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
                 Stage::Combat => "战斗中",
             };
             line(&mut out, app, scene, columns, Tone::Accent);
+            if g.stage == Stage::Map
+                && let Some(index) = options.get(cursor).and_then(|(_, command)|
+                    command.strip_prefix("choose ")).and_then(|n| n.parse::<usize>().ok())
+                && let Some(node) = index.checked_sub(1).and_then(|i| g.route.get(i))
+                && let Some(hint) = g.route_objective_hint(*node)
+            {
+                line(&mut out, app, &format!("所选路线风险：{hint}"), columns, Tone::Warning);
+            }
         }
     } else {
         line(&mut out, app, "尚未出征 · 选择武将开始征程", columns, Tone::Muted);
@@ -214,6 +227,8 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
         } else {
             format!("手牌与行动  {}/{}", cursor + 1, options.len())
         }
+    } else if options.iter().any(|(_, command)| command.starts_with("campaign ")) {
+        format!("新制难度（三档）  {}/{}", cursor + 1, options.len())
     } else if app.game.is_some() {
         format!("行动选择  {}/{}", cursor + usize::from(!options.is_empty()), options.len())
     } else {
@@ -406,5 +421,34 @@ mod compact_hud_tests {
                 assert!(screen.contains("查看战斗事件审计"), "{screen}");
             }
         }
+    }
+}
+
+
+#[cfg(test)]
+mod expanded_objective_hud_regression {
+    use super::*;
+    use crate::{Profile, Theme, tui};
+    use three_kingdoms_spire_reborn::{Action, Difficulty, Game, content::Hero};
+
+    #[test]
+    fn map_and_combat_hud_show_authoritative_objective_without_mutation() {
+        let game = Game::new_with_campaign_difficulty(
+            Hero::GuanYu, 16, Difficulty::Warlords, "hud-objective".into(),
+        );
+        let mut app = App { game: Some(game), profile: Profile::new(), theme: Theme::Dark,
+            dir: std::path::PathBuf::new(), use_ansi: false, message: String::new() };
+        let before = app.game.as_ref().unwrap().to_json().unwrap();
+        let menu = tui::choices(&app, 1);
+        let screen = render(&app, 100, 30, 1, &menu, 0);
+        assert!(screen.contains("所选路线风险") && screen.contains("突围"));
+        assert!(screen.contains("群雄逐鹿"));
+        assert_eq!(app.game.as_ref().unwrap().to_json().unwrap(), before);
+        app.game.as_mut().unwrap().apply(Action::Choose { index: 1 }).unwrap();
+        let before = app.game.as_ref().unwrap().to_json().unwrap();
+        let menu = tui::choices(&app, 1);
+        let screen = render(&app, 100, 30, 1, &menu, 0);
+        assert!(screen.contains("关卡目标") && screen.contains("突围"));
+        assert_eq!(app.game.as_ref().unwrap().to_json().unwrap(), before);
     }
 }

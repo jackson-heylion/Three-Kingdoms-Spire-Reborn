@@ -82,12 +82,20 @@ def main() -> None:
         try:
             # A pipe-only fallback would not emit the full-screen TUI clear sequence.
             await_condition(lambda: b"\x1b[2J\x1b[H" in output, "first full-screen TUI render")
-            # Arrow down moves selection from Guan Yu to Zhuge Liang; Enter starts.
+            # The new standard campaign asks for hero, then one of three tiers.
+            # Selecting a hero alone must not overwrite or create a save.
+            os.write(master, b"\x1b[B\r")
+            await_condition(
+                lambda: "新制难度（三档）".encode() in output,
+                "three-tier difficulty menu",
+            )
+            assert not current_snapshot(), "selecting hero must not start the game"
             os.write(master, b"\x1b[B\r")
             await_condition(
                 lambda: current_snapshot().get("hero") == "zhuge_liang"
+                and current_snapshot().get("difficulty") == "conqueror"
                 and current_snapshot().get("stage") == "map",
-                "arrow-selected Zhuge Liang campaign saved",
+                "arrow-selected Zhuge Liang conqueror campaign saved",
             )
             first = current_snapshot()
             assert first["revision"] == 0, first

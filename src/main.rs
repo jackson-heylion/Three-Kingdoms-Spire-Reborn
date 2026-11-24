@@ -434,18 +434,24 @@ impl App {
                 }
             }
             "help" | "h" => Ok("campaign [武将] [seed] [warlords|conqueror|destiny] 新三档五幕40层战役；new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 旧三幕兼容；variants5 0|1 0|1 0|1 0|1 0|1 新制五幕独立选择；daily YYYY-MM-DD；load/save；choose N；play N [目标] [副选牌编号]；selections N 查可选副牌；discard N 弃换；end；use [药剂号] [目标]（火/毒指定存活目标，弱化影响全体） ；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看路径与评分；inventory 背包；achievements 成就；codex 图鉴；relics；lore 看纪事；history-audit 查看新制战史档案（完整动作重放）；bonds 看人物羁绊；chapter 1-120 回目索引；powers 持续能力/监听器；react-remove ID 注销监听；react <ID> <weak|vulnerable|poison|damage:来源|damage:foe:N|power:军略ID> <hero|foe:0..3> <cancel|reduce|replace> [数值] [优先级] [次数]（仅自由战斗）；events [游标] [条数1-80] 分页审计当前战斗事件；eventsource 查看跨战斗记录；verify-events 重建校验全量战斗事件；metrics 战役统计；verify 回放检验；history 最近操作；doctrine 查看流派 / doctrine auto|代码 选择；builds 查看3套候选构筑及反制；chronicle；timeline 战功时间线；modifier 查看挑战 / modifier 代码 on|off；theme dark|light|highcontrast；status；quit。".into()),
-            "campaign" => {
-                let hero = args.get(1).and_then(|s| Hero::parse(s)).unwrap_or(Hero::GuanYu);
-                let seed = args.get(2).and_then(|s| s.parse::<u64>().ok()).unwrap_or_else(|| {
-                    SystemTime::now().duration_since(UNIX_EPOCH).map_or(1, |t| t.as_secs().max(1))
-                });
-                match Difficulty::parse(args.get(3).copied().unwrap_or("warlords")) {
-                    Some(tier) => self.start_run(Game::new_with_campaign_difficulty(
-                        hero, seed, tier, new_run_id(),
-                    )).map(|_| format!("以 {} 开始【{}】新制战役，种子 {seed}（五幕40层）。", hero.name(), tier.name())),
-                    None => Err("新制难度仅支持 warlords、conqueror、destiny".into()),
+            "campaign" => (|| -> Result<String, String> {
+                if args.len() > 4 {
+                    return Err("用法：campaign [武将] [seed|auto] [warlords|conqueror|destiny]".into());
                 }
-            }
+                let hero = match args.get(1) {
+                    Some(value) => Hero::parse(value).ok_or("未知武将")?,
+                    None => Hero::GuanYu,
+                };
+                let seed = match args.get(2).copied() {
+                    None | Some("auto") => SystemTime::now().duration_since(UNIX_EPOCH)
+                        .map_or(1, |t| t.as_secs().max(1)),
+                    Some(value) => value.parse::<u64>().map_err(|_| "种子必须为非负整数或auto")?,
+                };
+                let tier = Difficulty::parse(args.get(3).copied().unwrap_or("warlords"))
+                    .ok_or("新制难度仅支持 warlords、conqueror、destiny")?;
+                self.start_run(Game::new_with_campaign_difficulty(hero, seed, tier, new_run_id()))?;
+                Ok(format!("以 {} 开始【{}】新制战役，种子 {seed}（五幕40层）。", hero.name(), tier.name()))
+            })(),
             "new" | "custom" => {
                 let mode = if args[0] == "custom" {RunMode::Custom} else {RunMode::Standard};
                 let hero = args.get(1).and_then(|s| Hero::parse(s)).unwrap_or(Hero::GuanYu);
@@ -497,17 +503,24 @@ impl App {
             "map" => Ok(self.game.as_ref().map_or("尚未开局".into(),|g| {
                 g.act_map.as_ref().map_or("当前存档没有已生成的地图".into(),|graph| {
                     graph.rows.iter().enumerate().map(|(r,row)| {
+                        let floor = graph.act * g.campaign_rows() + r as u8 + 1;
                         let cells = row.iter().enumerate().map(|(lane,n)| {
-                            let current = g.floor == graph.act*7 + r as u8 + 1
-                                && g.map_lane == Some(lane as u8);
-                            let ground=graph.terrain_at(r,lane as u8);
-                            if ground==three_kingdoms_spire_reborn::map::Terrain::Closed {
+                            let current = g.floor == floor && g.map_lane == Some(lane as u8);
+                            let ground = graph.terrain_at(r, lane as u8);
+                            if ground == three_kingdoms_spire_reborn::map::Terrain::Closed {
                                 return "× 断道".into();
                             }
-                            format!("{}{}·{}{}",if current {"["} else {""},
-                                n.name(),ground.label(),if current {"]"} else {""})
+                            // A historical route overlay can change the next
+                            // legal encounter without changing the seeded graph.
+                            let effective = if g.stage == Stage::Map && floor == g.floor + 1 {
+                                g.route_lanes.iter().position(|value| usize::from(*value) == lane)
+                                    .and_then(|index| g.route.get(index)).copied().unwrap_or(*n)
+                            } else { *n };
+                            let override_hint = if effective != *n { "·历史改道" } else { "" };
+                            format!("{}{}·{}{}{}", if current {"["} else {""},
+                                effective.name(), ground.label(), override_hint, if current {"]"} else {""})
                         }).collect::<Vec<_>>().join("  ─  ");
-                        format!("第{:02}层  {}",graph.act*7+r as u8+1,cells)
+                        format!("第{floor:02}层  {cells}")
                     }).collect::<Vec<_>>().join("\n")
                 })
             })),
@@ -1404,6 +1417,16 @@ mod gameplay_campaign_cli_tests {
         assert!(app.command("campaign cao 55311 unknown"));
         assert!(app.message.contains("仅支持"), "{}", app.message);
         assert_eq!(fs::read_to_string(save_path(&directory)).unwrap(), initial_save);
+        for command in ["campaign typo 55311 destiny", "campaign cao typo destiny",
+            "campaign cao 55311 destiny extra"]
+        {
+            let before_profile = app.profile.to_json().unwrap();
+            assert!(app.command(command));
+            assert!(app.message.starts_with("错误："), "{}", app.message);
+            assert_eq!(fs::read_to_string(save_path(&directory)).unwrap(), initial_save);
+            assert_eq!(app.game.as_ref().unwrap().to_json().unwrap(), initial_save);
+            assert_eq!(app.profile.to_json().unwrap(), before_profile);
+        }
 
         assert!(app.command("choose 1"));
         let game = app.game.as_ref().unwrap();
@@ -1446,5 +1469,35 @@ mod historical_archive_cli_regression {
         assert!(app.message.contains("用法"));
         assert_eq!(app.game.as_ref().unwrap().to_json().unwrap(), before);
         fs::remove_dir_all(directory).unwrap();
+    }
+}
+
+
+#[cfg(test)]
+mod expanded_map_cli_regression {
+    use super::*;
+    use three_kingdoms_spire_reborn::{Node, map};
+
+    #[test]
+    fn expanded_map_uses_eight_rows_and_shows_actual_next_route_overlay() {
+        // Controlled late-act map for rendering, not a fabricated playthrough.
+        let mut game = Game::new_with_campaign_difficulty(
+            Hero::ZhugeLiang, 7, Difficulty::Warlords, "cli-map".into(),
+        );
+        game.floor = 25;
+        game.stage = Stage::Map;
+        let mut layout = map::ActMap::generate_expanded(|_| 0, 3);
+        layout.rows[1][0] = Node::Camp;
+        game.act_map = Some(layout);
+        game.route_lanes = vec![0];
+        game.route = vec![Node::Battle];
+        let before = game.to_json().unwrap();
+        let mut app = App { game: Some(game), profile: Profile::new(),
+            theme: Theme::Dark, dir: PathBuf::new(), use_ansi: false, message: String::new() };
+        assert!(app.command("map"));
+        assert!(app.message.starts_with("第25层"));
+        assert!(app.message.lines().last().unwrap().starts_with("第32层"));
+        assert!(app.message.lines().nth(1).unwrap().contains("遭遇战·平道·历史改道"));
+        assert_eq!(app.game.as_ref().unwrap().to_json().unwrap(), before);
     }
 }
