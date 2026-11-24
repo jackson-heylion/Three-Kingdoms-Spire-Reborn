@@ -4263,7 +4263,13 @@ impl Game {
                 }
             }
             "herb_garden" => {
-                while self.potion_bag.len() < 3 { self.potion_bag.push("healing".into()); }
+                // The advertised grant is two bottles, not an unlimited
+                // refill. Preserve the shipped refill semantics for old runs.
+                let grant = if self.has_expanded_history_rules() { 2 } else { 3 };
+                for _ in 0..grant {
+                    if self.potion_bag.len() >= 3 { break; }
+                    self.potion_bag.push("healing".into());
+                }
                 self.potions = self.potion_bag.len() as u8;
             }
             "founder" => self.grant_relic(),
@@ -4291,11 +4297,21 @@ impl Game {
         self.finish_scene();
         Ok(message)
     }
+    // Use one eligibility rule for explicit, automatic and story upgrades.
+    // The unfinished quest is not a playable card and cannot consume a paid
+    // upgrade until it transforms. Old campaign action semantics are frozen.
+    fn upgrade_eligible(card: &Card, new_rules: bool) -> bool {
+        !card.upgraded && card.id != "cursed"
+            && (!new_rules || card_spec(&card.id).is_some_and(|spec|
+                !matches!(spec.effect, Effect::Unplayable)))
+    }
+
     fn upgrade_card(&mut self, index: usize) -> Result<String, String> {
         if self.stage != Stage::Camp { return Err("只能在营寨升级卡牌".into()); }
         let idx = index.checked_sub(1).ok_or("卡牌编号从1开始")?;
+        let new_rules = self.has_expanded_history_rules();
         let card = self.deck.get_mut(idx).ok_or("无效卡牌编号")?;
-        if card.upgraded || card.id == "cursed" { return Err("此卡不可升级".into()); }
+        if !Self::upgrade_eligible(card, new_rules) { return Err("此卡不可升级".into()); }
         card.upgraded = true;
         let msg = format!("升级【{}】。", card.name());
         self.finish_scene();
@@ -4332,7 +4348,8 @@ impl Game {
                 format!("休整回复{actual}点体力。")
             }
             2 => {
-                let index = self.deck.iter().position(|c| !c.upgraded && c.id != "cursed")
+                let index = self.deck.iter().position(|c|
+                    Self::upgrade_eligible(c, self.has_expanded_history_rules()))
                     .ok_or("没有可升级的卡牌")? + 1;
                 return self.upgrade_card(index);
             }
@@ -4595,14 +4612,22 @@ impl Game {
             2 => {
                 // Alternate choice pays immediately but never completes a future foreshadowing key.
                 let loot = 30 + b.reward_gold;
-                self.gold += loot;
                 self.hp = (self.hp - 6).max(0);
-                format!("{}：取走{}金，失去6体力；相关后续因果不会因此解锁。",b.title,loot)
+                if self.has_expanded_history_rules() && self.hp == 0 {
+                    format!("{}：逐利耗尽体力，未能取走军资，征途结束。", b.title)
+                } else {
+                    self.gold += loot;
+                    format!("{}：取走{}金，失去6体力；相关后续因果不会因此解锁。",b.title,loot)
+                }
             }
             _ => format!("{}：不介入，因果暂且埋入尘埃。",b.title),
         };
         self.lore_seen.push(b.id.into());
         if self.hp == 0 {
+            if self.has_expanded_history_rules() {
+                // A terminal snapshot must not retain an open Story scene.
+                self.lore_current = None;
+            }
             self.stage = Stage::Lost;
         } else if b.id == "fengchu" && index == 1
             && !self.lore_seen.iter().any(|seen| seen == "leiyang_review")
@@ -4720,12 +4745,20 @@ impl Game {
             (4,1) => 40, (8,1) => 20, (9,1) => 40, _ => 0,
         };
         if self.gold < cost { return Err(format!("需要{cost}金")); }
+        let new_rules = self.has_expanded_history_rules();
+        if new_rules && index == 1 && matches!(event, 0 | 2 | 8)
+            && self.hp == self.max_hp
+        {
+            return Err("体力已满，购粮不会产生恢复；请选择其他奇遇结果".into());
+        }
         // Paid medicine must never silently turn into a net gold loss when
         // the three potion slots are full. Free medicine may still convert
         // into its advertised fallback reward.
         if event == 3 && index == 1 && self.potions >= 3 {
             return Err("药剂已满（3瓶），请先使用药剂或选择其他奇遇".into());
         }
+        let gold_before = self.gold;
+        let treasure_owned = self.relics.iter().any(|r| r == "聚宝");
         self.gold -= cost;
         let msg = match (event,index) {
             (0,1) | (2,1) | (8,1) => {
@@ -4741,7 +4774,13 @@ impl Game {
             }
             (1,1) | (5,1) | (11,1) => {
                 self.hp = (self.hp - if event == 1 { 6 } else { 10 }).max(0);
-                self.grant_relic(); "献祭体力，获得遗物。"
+                if new_rules && self.hp == 0 {
+                    // Death is resolved before acquisition; Thick Armor may
+                    // not resurrect a hero whose sacrifice was lethal.
+                    "献祭耗尽体力，未能获得遗物，征途结束。"
+                } else {
+                    self.grant_relic(); "献祭体力，获得遗物。"
+                }
             }
             (1,2) | (6,1) | (10,1) | (11,3) => {
                 self.hp = (self.hp + 15).min(self.max_hp); "恢复15体力。"
@@ -4776,7 +4815,8 @@ impl Game {
                 "获得一张中立牌。"
             }
             (4,1) | (7,1) | (9,1) => {
-                if let Some(card) = self.deck.iter_mut().find(|c| !c.upgraded && c.id != "cursed") {
+                if let Some(card) = self.deck.iter_mut().find(|c|
+                    Self::upgrade_eligible(c, new_rules)) {
                     card.upgraded = true; "获得一次卡牌升级。"
                 } else { self.gold += cost; "没有可升级卡牌，退回所付费用。" }
             }
@@ -4785,11 +4825,16 @@ impl Game {
             (10,2) => { self.max_hp += 3; self.hp += 3; "最大体力增加3。" }
             _ => "避开纷争，继续行军。",
         };
-        if self.relics.iter().any(|r| r == "聚宝") && msg.contains("金") {
-            self.gold += 10;
-        }
+        let treasure_triggered = if new_rules {
+            treasure_owned && self.hp > 0 && self.gold > gold_before
+        } else {
+            self.relics.iter().any(|r| r == "聚宝") && msg.contains("金")
+        };
+        if treasure_triggered { self.gold += 10; }
         if self.hp == 0 { self.stage = Stage::Lost; } else { self.finish_scene(); }
-        Ok(msg.into())
+        if new_rules && treasure_triggered {
+            Ok(format!("{msg} 聚宝额外获得10金。"))
+        } else { Ok(msg.into()) }
     }
     fn use_potion(&mut self, slot: usize, target: usize) -> Result<String, String> {
         if self.stage != Stage::Combat { return Err("只能战斗时使用药剂".into()); }
@@ -8250,5 +8295,120 @@ mod expanded_rules_revision_compatibility {
         current.end_turn().unwrap();
         assert_eq!(old.battle.as_ref().unwrap().convoy_hp, Some(8));
         assert_eq!(current.battle.as_ref().unwrap().convoy_hp, Some(10));
+    }
+}
+
+
+#[cfg(test)]
+mod expanded_economy_boundary_regression {
+    use super::*;
+
+    // Controlled scene entry: exercise the production action seam without
+    // claiming that the seeded campaign naturally reached this checkpoint.
+    fn story(event: u8) -> Game {
+        let mut g = Game::new_with_campaign_difficulty(
+            Hero::CaoCao, 7, Difficulty::Warlords, "economy-boundary".into(),
+        );
+        g.stage = Stage::Story;
+        g.floor = 2;
+        g.event_id = event;
+        g.lore_current = None;
+        g
+    }
+
+    #[test]
+    fn full_health_paid_rations_are_rejected_atomically() {
+        for event in [0, 2, 8] {
+            let mut g = story(event);
+            let before = g.to_json().unwrap();
+            assert!(g.apply(Action::Choose { index: 1 }).is_err());
+            assert_eq!(g.to_json().unwrap(), before);
+        }
+        let mut g = story(0);
+        g.hp -= 8;
+        let before_gold = g.gold;
+        g.apply(Action::Choose { index: 1 }).unwrap();
+        assert_eq!(g.gold, before_gold - 15);
+        assert_eq!(g.hp, g.max_hp);
+    }
+
+    #[test]
+    fn lethal_relic_sacrifice_never_awards_thick_armor_or_consumes_loot_rng() {
+        let mut g = story(1);
+        g.hp = 6;
+        // Only Thick Armor remains, so the old grant would revive the hero.
+        g.relic_history.extend(items::RELICS.iter()
+            .filter(|(id, _)| *id != "厚甲").map(|(id, _)| (*id).to_owned()));
+        let relics = g.relics.clone();
+        let rng = g.rng_state;
+        let gold = g.gold;
+        g.apply(Action::Choose { index: 1 }).unwrap();
+        assert_eq!(g.stage, Stage::Lost);
+        assert_eq!(g.hp, 0);
+        assert_eq!(g.relics, relics);
+        assert_eq!(g.gold, gold);
+        assert_eq!(g.rng_state, rng);
+    }
+
+    #[test]
+    fn treasure_requires_actual_surviving_positive_gold_change() {
+        let mut refund = story(4);
+        refund.relics.push("聚宝".into());
+        for card in &mut refund.deck { card.upgraded = true; }
+        let gold = refund.gold;
+        refund.apply(Action::Choose { index: 1 }).unwrap();
+        assert_eq!(refund.gold, gold);
+
+        let mut gain = story(3);
+        gain.relics.push("聚宝".into());
+        let gold = gain.gold;
+        gain.apply(Action::Choose { index: 2 }).unwrap();
+        assert_eq!(gain.gold, gold + 40);
+    }
+
+    #[test]
+    fn unfinished_quest_cannot_consume_camp_or_story_upgrade() {
+        let mut g = story(4);
+        g.deck = vec![Card::new("quest_tulu"), Card::new("strike")];
+        let mut camp = g.clone();
+        camp.stage = Stage::Camp;
+        let before = camp.to_json().unwrap();
+        assert!(camp.apply(Action::Upgrade { index: 1 }).is_err());
+        assert_eq!(camp.to_json().unwrap(), before);
+        camp.apply(Action::Choose { index: 2 }).unwrap();
+        assert!(!camp.deck[0].upgraded);
+        assert!(camp.deck[1].upgraded);
+        g.apply(Action::Choose { index: 1 }).unwrap();
+        assert!(!g.deck[0].upgraded);
+        assert!(g.deck[1].upgraded);
+    }
+
+    #[test]
+    fn fatal_literary_choice_commits_defeat_without_paying_loot() {
+        let mut g = story(0);
+        g.lore_current = Some("taoyuan".into());
+        g.hp = 6;
+        let gold = g.gold;
+        g.apply(Action::Choose { index: 2 }).unwrap();
+        assert_eq!(g.stage, Stage::Lost);
+        assert_eq!(g.hp, 0);
+        assert_eq!(g.gold, gold);
+        assert!(g.lore_current.is_none());
+        assert!(g.lore_seen.iter().any(|id| id == "taoyuan"));
+        assert!(Game::from_json(&g.to_json().unwrap()).is_ok());
+    }
+
+    #[test]
+    fn herb_garden_grants_at_most_two_bottles_instead_of_free_full_refill() {
+        for (initial, expected) in [(0, 2), (1, 3), (2, 3), (3, 3)] {
+            let mut g = story(0);
+            g.stage = Stage::Ancient;
+            g.boon_choices = vec!["herb_garden".into()];
+            g.potion_bag = vec!["healing".into(); initial];
+            g.potions = initial as u8;
+            g.apply(Action::Choose { index: 1 }).unwrap();
+            assert_eq!(g.potion_bag.len(), expected);
+            assert_eq!(usize::from(g.potions), expected);
+        }
     }
 }
