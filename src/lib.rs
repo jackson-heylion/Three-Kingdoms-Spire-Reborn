@@ -440,12 +440,23 @@ impl Game {
                 _ => "官渡关底：袁绍携亲卫军官护阵并可压制下回合军令；先击败军官能削弱统帅并断绝第二阶段援军",
             });
         }
+        // The other act-II commander must not discard the optional Wuchao decision.
+        if node == Node::Boss && self.floor == 15 && self.hero == Hero::CaoCao
+            && self.act_variant(1) == 0
+        {
+            return match self.wuchao_plan {
+                Some(WuchaoPlan::RaidPending) => Some("董卓关底：乌巢夜袭破坏敌方补给，董卓入阵损失8体力并虚弱2层；第三幕夜袭效果仍保留"),
+                Some(WuchaoPlan::FortifyPending) => Some("董卓关底：乌巢固守粮道，我军开场获得10护甲；暴政造成伤害前若有至少12护甲，掠金至多减半"),
+                Some(WuchaoPlan::DeclinePending) => Some("董卓关底：未干预粮道，董卓入阵武勇+2、护甲+8；第三幕失机后果仍保留"),
+                _ => None,
+            };
+        }
         if node == Node::Boss && self.floor == 31
             && matches!(self.hero, Hero::ZhugeLiang | Hero::SunShangxiang)
         {
             return match self.chibi_plan {
                 Some(ChibiPlan::FireBattleResolved | ChibiPlan::FireSettled) =>
-                    Some("赤壁火攻余波：第四幕关底敌统帅开场虚弱2层，可乘势突击；该效果不抵销此前火攻后勤债务"),
+                    Some("赤壁火攻余波：第四幕关底敌统帅开场虚弱2层；若遇陆逊焚营，实际出牌并保持12点护甲可少引燃1层火势；仍承担此前后勤债务"),
                 Some(ChibiPlan::FleetBattleResolved | ChibiPlan::FleetSettled) =>
                     Some("赤壁稳守旧部：第四幕关底我军开场护甲+8、军令+1，护阵可以反制关底致命意图"),
                 Some(ChibiPlan::DeclineBattleResolved | ChibiPlan::DeclineSettled) =>
@@ -544,7 +555,7 @@ impl Game {
         {
             let effect = match self.chibi_plan {
                 Some(ChibiPlan::FireBattleResolved | ChibiPlan::FireSettled) =>
-                    "赤壁火攻：敌统帅入阵虚弱2层，抓住反击窗口",
+                    "赤壁火攻：敌统帅入阵虚弱2层；陆逊焚营前实际出牌并保持12点护甲可少引燃1层火势",
                 Some(ChibiPlan::FleetBattleResolved | ChibiPlan::FleetSettled) =>
                     "赤壁稳守：我军入阵护甲+8且多1点军令",
                 Some(ChibiPlan::DeclineBattleResolved | ChibiPlan::DeclineSettled) =>
@@ -572,6 +583,14 @@ impl Game {
                 }} else { "观察军令并集中火力截断盟军供给" },
                 if officer_alive { "存活" } else { "已败" }
             ));
+        }
+        if self.stage == Stage::Combat && self.difficulty.is_some()
+            && self.floor == 16 && self.hero == Hero::CaoCao
+            && self.battle.as_ref().is_some_and(|b|
+                b.foes.first().is_some_and(|f| f.id == "dongzhuo"))
+            && self.wuchao_plan == Some(WuchaoPlan::FortifyPending)
+        {
+            return Some("乌巢固守粮道：董卓暴政结算前保持12点护甲，可令本次军资掠夺减半；护甲仍承受其攻击。".into());
         }
         if self.stage == Stage::Combat && self.floor == 40
             && self.hero == Hero::ZhugeLiang
@@ -1058,6 +1077,39 @@ impl Game {
             if let Some((source, amount)) = effect {
                 self.combat_event(EventKind::PowerTriggered,
                     source, amount, Some("guandu".into()));
+            }
+        }
+        // Alternate act-II branch: the same paid choice changes the tyrant's
+        // actual combat entry without consuming its separate act-III settlement.
+        if self.difficulty.is_some() && self.hero == Hero::CaoCao
+            && self.floor == 16 && node == Node::Boss
+            && self.battle.as_ref().is_some_and(|b|
+                b.foes.first().is_some_and(|f| f.id == "dongzhuo"))
+        {
+            let effect = {
+                let b = self.battle.as_mut().expect("Dong Zhuo encounter");
+                match self.wuchao_plan {
+                    Some(WuchaoPlan::RaidPending) => {
+                        let front = &mut b.foes[0];
+                        let lost = (front.hp - 1).clamp(0, 8);
+                        front.hp -= lost;
+                        front.weak = front.weak.saturating_add(2);
+                        Some(("wuchao_tyrant_raid", lost))
+                    }
+                    Some(WuchaoPlan::FortifyPending) => {
+                        b.block += 10;
+                        Some(("wuchao_tyrant_fortified", 10))
+                    }
+                    Some(WuchaoPlan::DeclinePending) => {
+                        b.foes[0].strength += 2;
+                        b.foes[0].block += 8;
+                        Some(("wuchao_tyrant_unchecked", 8))
+                    }
+                    _ => None,
+                }
+            };
+            if let Some((source, amount)) = effect {
+                self.combat_event(EventKind::PowerTriggered, source, amount, Some("dongzhuo".into()));
             }
         }
         // Red Cliffs' optional act-III choice follows the fleet into the
@@ -1578,6 +1630,18 @@ impl Game {
                         Some(WuchaoPlan::RaidPending) => "；乌巢夜袭前线兑现：亲卫失去8点体力并虚弱2层",
                         Some(WuchaoPlan::FortifyPending) => "；乌巢守粮前线兑现：我军护甲+10",
                         Some(WuchaoPlan::DeclinePending) => "；乌巢放任前线代价：敌方亲卫武勇+2、护甲+8",
+                        _ => "",
+                    });
+                }
+                if self.difficulty.is_some() && self.floor == 16
+                    && self.hero == Hero::CaoCao && node == Node::Boss
+                    && self.battle.as_ref().is_some_and(|b|
+                        b.foes.first().is_some_and(|f| f.id == "dongzhuo"))
+                {
+                    msg.push_str(match self.wuchao_plan {
+                        Some(WuchaoPlan::RaidPending) => "；乌巢夜袭前线兑现：董卓损8体力并虚弱2层",
+                        Some(WuchaoPlan::FortifyPending) => "；乌巢固守粮道：我军护甲+10，12护甲可反制暴政掠金",
+                        Some(WuchaoPlan::DeclinePending) => "；乌巢失机：董卓武勇+2、护甲+8",
                         _ => "",
                     });
                 }
@@ -3023,12 +3087,24 @@ impl Game {
                 format!("虎袭连击{hits}段，损失{sum}生命")
             }
             BossMove::TyrantLevy(attack) => {
+                let supply_guarded = self.difficulty.is_some() && self.floor == 16
+                    && self.hero == Hero::CaoCao && id == "dongzhuo"
+                    && self.wuchao_plan == Some(WuchaoPlan::FortifyPending)
+                    && self.battle.as_ref().is_some_and(|b| b.block >= 12);
                 let damage = self.enemy_attack(idx,attack);
                 let caster_alive = self.battle.as_ref().is_some_and(|b| b.foes[idx].hp > 0);
-                let taken = if caster_alive { self.gold.min(10+5*i32::from(phase>0)) } else { 0 };
+                let levy = 10 + 5 * i32::from(phase > 0);
+                let limit = if supply_guarded { levy / 2 } else { levy };
+                let taken = if caster_alive { self.gold.min(limit) } else { 0 };
+                let saved = if caster_alive && supply_guarded { self.gold.min(levy) - taken } else { 0 };
                 self.gold -= taken;
+                if saved > 0 {
+                    self.combat_event(EventKind::PowerTriggered,
+                        "wuchao_tyrant_supply_saved", saved, Some("hero".into()));
+                }
                 if caster_alive {
-                    format!("暴政施压损失{damage}生命，军资被掠夺{taken}金")
+                    format!("暴政施压损失{damage}生命，军资被掠夺{taken}金{}",
+                        if saved > 0 { format!("；守粮反制保住{saved}金") } else { String::new() })
                 } else {
                     format!("暴政施压损失{damage}生命；施术者遭反击阵亡，掠夺中断")
                 }
@@ -3080,9 +3156,24 @@ impl Game {
                     if curses<4 {"并混入军心涣散"} else {""})
             }
             BossMove::FireCamp(layers) => {
-                let b = self.battle.as_mut().expect("battle");
-                b.wildfire = b.wildfire.saturating_add(layers).min(6);
-                format!("陆逊引燃连营，当前火势{}层；防御牌可逐层扑灭", b.wildfire)
+                // Prior experience with the Red Cliffs fire grants an extra
+                // counter only when the player commits cards and holds a shield.
+                let trained = self.difficulty.is_some() && self.floor == 32 && id == "luxun"
+                    && matches!(self.hero, Hero::ZhugeLiang | Hero::SunShangxiang)
+                    && self.chibi_plan == Some(ChibiPlan::FireSettled)
+                    && self.battle.as_ref().is_some_and(|b| b.played_this_turn > 0 && b.block >= 12);
+                let (current, prevented) = {
+                    let b = self.battle.as_mut().expect("battle");
+                    let full = b.wildfire.saturating_add(layers).min(6);
+                    b.wildfire = b.wildfire.saturating_add(layers.saturating_sub(u8::from(trained))).min(6);
+                    (b.wildfire, full - b.wildfire)
+                };
+                if prevented > 0 {
+                    self.combat_event(EventKind::PowerTriggered,
+                        "chibi_luxun_firebreak", i32::from(prevented), Some("hero".into()));
+                }
+                format!("陆逊引燃连营，当前火势{current}层；防御牌可逐层扑灭{}",
+                    if prevented > 0 { "；赤壁经验反制，少引燃1层" } else { "" })
             }
             BossMove::WhiteClothes => {
                 // The initial military-banner shield grants only 4 block;
@@ -7335,5 +7426,73 @@ mod historical_entry_boundary_regression {
                 _ => unreachable!(),
             }
         }
+    }
+}
+
+
+#[cfg(test)]
+mod alternate_historical_boss_regression {
+    use super::*;
+
+    // Controlled encounter checkpoint. Not evidence of natural campaign reachability.
+    #[test]
+    fn wuchao_choices_affect_dongzhuo_without_consuming_act_three_plan() {
+        for plan in [WuchaoPlan::RaidPending, WuchaoPlan::FortifyPending, WuchaoPlan::DeclinePending] {
+            let mut game = Game::new_with_campaign_difficulty(
+                Hero::CaoCao, 7, Difficulty::Warlords, "wuchao-dongzhuo".into(),
+            );
+            game.apply(Action::SetExpandedVariants { act1: 0, act2: 0, act3: 0, act4: 0, act5: 0 }).unwrap();
+            game.floor = 15;
+            game.wuchao_plan = Some(plan);
+            assert!(game.route_objective_hint(Node::Boss).is_some());
+            game.floor = 16;
+            game.start_battle(Node::Boss);
+            assert_eq!(game.wuchao_plan, Some(plan));
+            let b = game.battle.as_ref().unwrap();
+            assert_eq!(b.foes[0].id, "dongzhuo");
+            match plan {
+                WuchaoPlan::RaidPending => {
+                    assert_eq!(b.foes[0].max_hp - b.foes[0].hp, 8);
+                    assert_eq!(b.foes[0].weak, 2);
+                }
+                WuchaoPlan::FortifyPending => {
+                    assert_eq!(b.block, 14);
+                    let before = game.gold;
+                    game.boss_signature(0, BossMove::TyrantLevy(1));
+                    assert_eq!(game.gold, before - 5);
+                    assert!(game.battle.as_ref().unwrap().events.iter().any(|e|
+                        e.source == "wuchao_tyrant_supply_saved" && e.amount == 5));
+                    game.battle.as_mut().unwrap().block = 0;
+                    game.boss_signature(0, BossMove::TyrantLevy(1));
+                    assert_eq!(game.gold, before - 15);
+                }
+                WuchaoPlan::DeclinePending => {
+                    assert_eq!(b.foes[0].strength, 2);
+                    assert_eq!(b.foes[0].block, 8);
+                }
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    #[test]
+    fn chibi_fire_experience_requires_cards_and_armor_to_counter_luxun() {
+        let mut game = Game::new_with_campaign_difficulty(
+            Hero::ZhugeLiang, 7, Difficulty::Warlords, "chibi-luxun".into(),
+        );
+        game.apply(Action::SetExpandedVariants { act1: 0, act2: 0, act3: 0, act4: 0, act5: 0 }).unwrap();
+        game.floor = 32;
+        game.chibi_plan = Some(ChibiPlan::FireBattleResolved);
+        game.start_battle(Node::Boss);
+        assert_eq!(game.chibi_plan, Some(ChibiPlan::FireSettled));
+        assert_eq!(game.battle.as_ref().unwrap().foes[0].id, "luxun");
+        game.battle.as_mut().unwrap().block = 12;
+        game.boss_signature(0, BossMove::FireCamp(2));
+        assert_eq!(game.battle.as_ref().unwrap().wildfire, 2);
+        game.battle.as_mut().unwrap().played_this_turn = 1;
+        game.boss_signature(0, BossMove::FireCamp(2));
+        assert_eq!(game.battle.as_ref().unwrap().wildfire, 3);
+        assert!(game.battle.as_ref().unwrap().events.iter().any(|e|
+            e.source == "chibi_luxun_firebreak" && e.amount == 1));
     }
 }
