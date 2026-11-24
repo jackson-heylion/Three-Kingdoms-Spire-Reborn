@@ -7561,6 +7561,21 @@ mod historical_naval_and_lumeng_regression {
         game.start_battle(Node::Battle);
         assert_eq!(game.wuchao_naval_raid_reduction(game.battle.as_ref().unwrap()), 2);
         assert!(game.tactical_objective().unwrap().contains("夜袭牵制-2"));
+        let mut turn = game.clone();
+        let living = {
+            let battle = turn.battle.as_mut().unwrap();
+            battle.troops_hp = 0;
+            battle.troops_attack = 0;
+            for foe in &mut battle.foes {
+                foe.intent = Intent::Guard(0);
+            }
+            battle.foes.len() as u8
+        };
+        let message = turn.end_turn().unwrap();
+        assert!(message.contains("保住2点船体"), "{message}");
+        assert_eq!(turn.battle.as_ref().unwrap().convoy_hp, Some(12 - (living * 4 - 2)));
+        assert!(turn.event_history.as_ref().unwrap().iter().any(|e|
+            e.event.source == "wuchao_naval_raid_countered" && e.event.amount == 2));
         game.battle.as_mut().unwrap().foes[0].weak = 0;
         assert_eq!(game.wuchao_naval_raid_reduction(game.battle.as_ref().unwrap()), 0);
         game.battle.as_mut().unwrap().foes[0].weak = 2;
