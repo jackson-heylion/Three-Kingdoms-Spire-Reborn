@@ -2348,12 +2348,12 @@ impl Game {
                 && self.difficulty.is_some() && self.floor == 3
                 && self.last_node == Some(Node::Battle)
                 && !b.ambush_armor_broken;
-            if first_ambush_break { b.ambush_armor_broken = true; }
-            // The historic first shield break still qualifies for the old
-            // counter-bounty. The new enemy-weakening tactical advantage,
-            // however, belongs only to a paid player attack, never to
-            // troop, potion, or other automatic damage sources.
+            // The advertised player-led ambush counter requires an actual
+            // player attack for both the tactical effect and the bounty.
+            // Automatic troops or potions may break armor but cannot
+            // manufacture the player's historical counterattack reward.
             let ambush_shattered = first_ambush_break && source == "hero";
+            if ambush_shattered { b.ambush_armor_broken = true; }
             let actual = foe.hp.min(incoming.saturating_sub(blocked));
             foe.hp -= actual;
             (actual, actual > 0 && foe.hp == 0, ambush_shattered && foe.hp > 0)
@@ -3399,9 +3399,22 @@ impl Game {
                         && self.jieting_plan == Some(JietingPlan::WaterSettled)
                         && b.turn == 1
                     {
-                        10 + b.events.iter().filter(|event|
-                            event.source == "jieting_late_water_settlement")
-                            .map(|event| event.amount).sum::<i32>()
+                        // The recent-event ring can evict the opening receipt
+                        // during a long first-turn combo. Prefer the durable
+                        // encounter archive; older snapshots without it retain
+                        // their existing ring-based fallback.
+                        let late_grant = if let Some(history) = &self.event_history {
+                            let encounter = self.telemetry.totals.battles_started;
+                            history.iter().filter(|record|
+                                record.encounter == encounter
+                                && record.event.source == "jieting_late_water_settlement")
+                                .map(|record| record.event.amount).sum::<i32>()
+                        } else {
+                            b.events.iter().filter(|event|
+                                event.source == "jieting_late_water_settlement")
+                                .map(|event| event.amount).sum::<i32>()
+                        };
+                        10 + late_grant
                     } else { 0 };
                     b.block >= 10 + 2 * i32::from(phase) + free_water_cover
                 });
@@ -4203,6 +4216,14 @@ impl Game {
         if self.deck.len() <= 1 { return Err("至少保留一张卡牌".into()); }
         let idx = index.checked_sub(1).ok_or("卡牌编号从1开始")?;
         if idx >= self.deck.len() { return Err("无效卡牌编号".into()); }
+        // Prevent an expanded campaign from paying to remove its last
+        // playable permanent card and being left with only curses.
+        if self.difficulty.is_some() && !self.deck.iter().enumerate().any(|(i, card)|
+            i != idx && card_spec(&card.id).is_some_and(|spec|
+                !matches!(spec.effect, Effect::Unplayable)))
+        {
+            return Err("移牌后须至少保留一张可打出的牌".into());
+        }
         if self.gold < 75 { return Err("移牌需要75金".into()); }
         self.gold -= 75;
         let card = self.deck.remove(idx);
@@ -7939,5 +7960,65 @@ mod jieting_elite_objective_regression {
             assert_eq!(b.convoy_cover, Some(cover));
             assert!(game.tactical_objective().unwrap().contains("街亭水源"));
         }
+    }
+}
+
+
+#[cfg(test)]
+mod expanded_active_rule_regression {
+    use super::*;
+
+    #[test]
+    fn automatic_ambush_break_does_not_award_player_counter_bounty() {
+        let mut game = Game::new_with_campaign_difficulty(
+            Hero::CaoCao, 7, Difficulty::Warlords, "ambush-auto-break".into(),
+        );
+        game.floor = 3;
+        game.last_node = Some(Node::Battle);
+        game.start_battle(Node::Battle);
+        game.battle.as_mut().unwrap().foes[0].block = 1;
+        game.deal_enemy_damage(0, 1, "troops");
+        assert_eq!(game.battle.as_ref().unwrap().foes[0].block, 0);
+        assert!(!game.battle.as_ref().unwrap().ambush_armor_broken);
+        assert!(!game.win_battle().contains("伏击反制成功"));
+    }
+
+    #[test]
+    fn expanded_market_cannot_remove_last_playable_card_or_charge_for_failure() {
+        let mut game = Game::new_with_campaign_difficulty(
+            Hero::CaoCao, 7, Difficulty::Warlords, "market-last-playable".into(),
+        );
+        game.stage = Stage::Market;
+        game.gold = 150;
+        game.deck = vec![Card::new("strike"), Card::new("cursed")];
+        let before = game.deck.clone();
+        assert!(game.remove_card(1).is_err());
+        assert_eq!(game.gold, 150);
+        assert_eq!(game.deck, before);
+        game.remove_card(2).unwrap();
+        assert_eq!(game.gold, 75);
+        assert_eq!(game.deck.len(), 1);
+    }
+
+    #[test]
+    fn yinping_late_water_shield_remains_excluded_after_recent_ring_eviction() {
+        let mut game = Game::new_with_campaign_difficulty(
+            Hero::ZhugeLiang, 7, Difficulty::Warlords, "yinping-ring".into(),
+        );
+        game.apply(Action::SetExpandedVariants {
+            act1: 0, act2: 0, act3: 0, act4: 0, act5: 1,
+        }).unwrap();
+        game.floor = 40;
+        game.last_node = Some(Node::Boss);
+        game.jieting_plan = Some(JietingPlan::WaterResolved);
+        game.start_battle(Node::Boss);
+        for _ in 0..(MAX_RECENT_EVENTS + 1) {
+            game.combat_event(EventKind::PowerTriggered, "controlled_ring_probe", 1, None);
+        }
+        let battle = game.battle.as_ref().unwrap();
+        assert!(!battle.events.iter().any(|e| e.source == "jieting_late_water_settlement"));
+        assert!(game.event_history.as_ref().unwrap().iter().any(|record|
+            record.event.source == "jieting_late_water_settlement"));
+        assert!(!game.boss_signature(0, BossMove::YinpingFlank(0)).contains("阴平偷渡被截击"));
     }
 }
