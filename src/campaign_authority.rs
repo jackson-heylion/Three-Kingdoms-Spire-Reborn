@@ -315,6 +315,10 @@ pub struct HistoricalInteraction {
     pub map_receipts: usize,
     #[serde(default)]
     pub first_map_effect_floor: Option<u8>,
+    /// For independent tactical interactions (choice == 0), the exact
+    /// replay-verified positive effect, rather than an invented story choice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub battle_source: Option<String>,
 }
 
 /// Compare the committed map options with the original seeded topology.
@@ -402,6 +406,54 @@ fn historical_effect_site(source: &str) -> Option<(&'static str, &'static str)> 
     }
 }
 
+/// Explicitly historical battle counterplay that needs no literary flag.
+/// Generic attacks, poison ticks, routine victories, and displays are not
+/// historical interactions. Multiple effects of one site remain one record.
+fn standalone_counter_site(floor: u8, kind: &crate::EventKind, source: &str)
+    -> Option<(&'static str, &'static str)>
+{
+    use crate::EventKind;
+    match (floor, kind, source) {
+        (16, EventKind::PowerTriggered, "yuanshao_escort_severed") =>
+            Some(("battle:guandu_escort", "wuchao")),
+        (40, EventKind::DamageDealt, "yinping_interception")
+        | (40, EventKind::PowerTriggered, "yinping_vanguard_broken" | "yinping_escort_gold_recovered") =>
+            Some(("battle:yinping_counter", "jieting")),
+        _ => None,
+    }
+}
+
+fn standalone_battle_interactions(
+    trace: &[crate::replay::ActionEventTrace], decisions: &[HistoricalDecision],
+) -> Vec<HistoricalInteraction> {
+    let mut seen = HashSet::new();
+    let mut result = Vec::new();
+    for action in trace {
+        if !matches!(&action.action, crate::Action::Play { .. } | crate::Action::EndTurn
+            | crate::Action::PlaySelected { .. })
+        { continue; }
+        for record in &action.events {
+            if record.event.amount <= 0 { continue; }
+            let Some((site, council)) = standalone_counter_site(
+                record.floor, &record.event.kind, &record.event.source
+            ) else { continue; };
+            // Be conservative when a prior council already owns this
+            // historical episode. Do not count the same site twice.
+            if decisions.iter().any(|d| d.kind == council && d.revision < action.revision)
+                || !seen.insert(site)
+            { continue; }
+            result.push(HistoricalInteraction {
+                key: site.into(), revision: action.revision, floor: record.floor, choice: 0,
+                hp_delta: 0, max_hp_delta: 0, gold_delta: 0, deck_changed: false,
+                battlefield_receipts: 1, cross_act_receipts: 0,
+                map_receipts: 0, first_map_effect_floor: None,
+                battle_source: Some(record.event.source.clone()),
+            });
+        }
+    }
+    result
+}
+
 impl Game {
     /// Offline diagnostic. Replays the committed actions and checks the exact
     /// event stream and final snapshot before associating a real positive
@@ -410,14 +462,20 @@ impl Game {
     /// manufacture effect receipts. This deliberately covers only named sites.
     pub fn historical_effect_receipts(&self) -> Result<Vec<HistoricalEffectReceipt>, String> {
         if self.difficulty.is_none() { return Ok(Vec::new()); }
+        let trace = self.reconstruct_action_event_trace()?;
+        self.decision_effect_receipts(&trace)
+    }
+
+    fn decision_effect_receipts(
+        &self, trace: &[crate::replay::ActionEventTrace],
+    ) -> Result<Vec<HistoricalEffectReceipt>, String> {
         let history = self.campaign_history.as_ref()
             .ok_or("missing campaign journal for historical effect receipts")?;
         let decisions = historical_decisions(history)?;
-        let trace = self.reconstruct_action_event_trace()?;
         let mut seen = HashSet::new();
         let mut receipts = Vec::new();
         for action in trace {
-            for record in action.events {
+            for record in &action.events {
                 if record.event.amount <= 0
                     || !matches!(record.event.kind, crate::EventKind::PowerTriggered
                         | crate::EventKind::EnemyTechnique | crate::EventKind::DamageDealt
@@ -434,7 +492,7 @@ impl Game {
                     encounter: record.encounter,
                     event_seq: record.event.seq,
                     battlefield: battlefield.to_owned(),
-                    source: record.event.source,
+                    source: record.event.source.clone(),
                     amount: record.event.amount,
                 });
             }
@@ -447,12 +505,13 @@ impl Game {
     /// historical_effect_receipts verifies all the journals used below.
     pub fn historical_interactions(&self) -> Result<Vec<HistoricalInteraction>, String> {
         if self.difficulty.is_none() { return Ok(Vec::new()); }
-        let receipts = self.historical_effect_receipts()?;
-        self.interactions_from_verified_receipts(&receipts)
+        let trace = self.reconstruct_action_event_trace()?;
+        let receipts = self.decision_effect_receipts(&trace)?;
+        self.interactions_from_verified_receipts(&receipts, &trace)
     }
 
     fn interactions_from_verified_receipts(
-        &self, receipts: &[HistoricalEffectReceipt],
+        &self, receipts: &[HistoricalEffectReceipt], trace: &[crate::replay::ActionEventTrace],
     ) -> Result<Vec<HistoricalInteraction>, String> {
         use crate::{Action, resource_events::ResourceEvent, card_zone_events::CardZoneEvent};
         let history = self.campaign_history.as_ref().ok_or("missing campaign journal")?;
@@ -519,8 +578,11 @@ impl Game {
                 hp_delta: *hp_delta, max_hp_delta: *max_hp_delta, gold_delta: *gold_delta,
                 deck_changed, battlefield_receipts, cross_act_receipts,
                 map_receipts: map_floors.len(), first_map_effect_floor: map_floors.first().copied(),
+                battle_source: None,
             });
         }
+        interactions.extend(standalone_battle_interactions(trace, &decisions));
+        interactions.sort_by_key(|interaction| interaction.revision);
         Ok(interactions)
     }
 
@@ -531,12 +593,13 @@ impl Game {
         if self.difficulty.is_none() {
             return Ok("旧制战役保留原演义纪事；新制战史档案不适用。".into());
         }
-        let receipts = self.historical_effect_receipts()?;
+        let trace = self.reconstruct_action_event_trace()?;
+        let receipts = self.decision_effect_receipts(&trace)?;
         let history = self.campaign_history.as_ref().ok_or("缺少战役决策档案")?;
         let decisions = historical_decisions(history)?;
         let effective = receipts.iter().map(|r| r.decision_id.as_str())
             .collect::<HashSet<_>>().len();
-        let interactions = self.interactions_from_verified_receipts(&receipts)?;
+        let interactions = self.interactions_from_verified_receipts(&receipts, &trace)?;
         let immediate = interactions.iter().filter(|r|
             r.hp_delta != 0 || r.max_hp_delta != 0 || r.gold_delta != 0 || r.deck_changed).count();
         let battle = interactions.iter().filter(|r| r.battlefield_receipts > 0).count();
@@ -548,6 +611,14 @@ impl Game {
         ), "仅统计已覆盖的历史选择及战术；不等于完整12–18次有效触动指标。小说章回为文学背景，战术数值与反制属于游戏原创推演。".into()];
         lines.push(format!("有效历史触动保守下界：{}次；即时资源/牌组变化{}次、地图变化{}次、战场兑现{}次、跨幕兑现{}次（类别重叠，不相加）。", interactions.len(), immediate, map, battle, cross_act));
         for interaction in &interactions {
+            if let Some(source) = interaction.battle_source.as_ref() {
+                let (title, chapter) = if interaction.key == "battle:guandu_escort" {
+                    ("官渡断援", 30)
+                } else { ("阴平截击", 117) };
+                lines.push(format!("  【{title}】第{}层／动作{}；独立战场反制：{source}；文学背景：毛评演义第{chapter:03}回 {}；游戏原创推演，不是故事选项。",
+                    interaction.floor, interaction.revision, crate::lore::provenance_url(chapter)));
+                continue;
+            }
             lines.push(format!("  {} 第{}层／动作{}／选择{}；体力{:+}、上限{:+}、金币{:+}、牌组变化{}；战场兑现{}处",
                 interaction.key, interaction.floor, interaction.revision, interaction.choice,
                 interaction.hp_delta, interaction.max_hp_delta, interaction.gold_delta,
@@ -768,5 +839,26 @@ mod historical_map_effect_regression {
         assert_eq!(jieting_map_effect_floors(&journal, 2).unwrap(), vec![26]);
         map_state.route_lanes.swap(0, 1);
         assert!(!jieting_route_changed(&map_state), "unrelated lane permutation is not evidence");
+    }
+}
+
+
+#[cfg(test)]
+mod standalone_counter_projection_tests {
+    use super::*;
+    #[test]
+    fn only_named_positive_historical_counter_sites_are_eligible() {
+        use crate::EventKind;
+        assert_eq!(standalone_counter_site(16, &EventKind::PowerTriggered,
+            "yuanshao_escort_severed"), Some(("battle:guandu_escort", "wuchao")));
+        assert_eq!(standalone_counter_site(40, &EventKind::DamageDealt,
+            "yinping_interception"), Some(("battle:yinping_counter", "jieting")));
+        assert_eq!(standalone_counter_site(40, &EventKind::PowerTriggered,
+            "yinping_vanguard_broken"), Some(("battle:yinping_counter", "jieting")));
+        assert_eq!(standalone_counter_site(15, &EventKind::PowerTriggered,
+            "yuanshao_escort_severed"), None);
+        assert_eq!(standalone_counter_site(40, &EventKind::DamageDealt, "hero"), None);
+        assert_eq!(standalone_counter_site(40, &EventKind::EnemyTechnique,
+            "yinping_interception"), None);
     }
 }
