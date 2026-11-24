@@ -894,8 +894,182 @@ fn build_blueprint_report(samples:usize)->Result<BuildBlueprintReport,String> {
 mod natural_plan_report;
 use natural_plan_report::{NaturalBossEvidence, NaturalBossStart};
 
+
+// Fixed paired cohort for the expanded campaign. Every cell shares the same
+// seed set and uses the normal starter deck. This is an observational report,
+// not a claim of human balance or an assertion that every cell wins.
+#[derive(Debug, Serialize)]
+struct ExpandedFloorSample {
+    floor: u8,
+    stage: Stage,
+    hp: i32,
+    max_hp: i32,
+    gold: i32,
+    cards: usize,
+    relics: usize,
+    potions: usize,
+    turns_completed: u64,
+}
+
+impl ExpandedFloorSample {
+    fn capture(game: &Game) -> Self {
+        Self {
+            floor: game.floor, stage: game.stage, hp: game.hp, max_hp: game.max_hp,
+            gold: game.gold, cards: game.deck.len(), relics: game.relics.len(),
+            potions: game.potion_bag.len(),
+            turns_completed: game.telemetry.totals.turns_completed,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct ExpandedMatrixRun {
+    hero: Hero,
+    difficulty: three_kingdoms_spire_reborn::Difficulty,
+    seed: u64,
+    policy: &'static str,
+    terminal: Stage,
+    actions: u32,
+    error: Option<String>,
+    replay_verified: bool,
+    chronicle_verified: bool,
+    bosses_entered: Vec<(u8, String)>,
+    floors: Vec<ExpandedFloorSample>,
+    final_sample: ExpandedFloorSample,
+    telemetry: CombatCounters,
+}
+
+fn expanded_matrix_action(game: &Game, policy: Policy) -> Result<Action, String> {
+    // A siege has a genuine extra player action. Old 21-floor autoplay does
+    // not know it. Use it only when it can legally spend two energy.
+    if matches!(policy, Policy::Tactical)
+        && game.stage == Stage::Combat
+        && game.battle.as_ref().is_some_and(|b| b.siege_gate_hp.is_some_and(|hp| hp > 0)
+            && b.energy >= 2)
+    {
+        return Ok(Action::AssaultGate);
+    }
+    preferred_action_policy(game, policy)
+}
+
+fn expanded_matrix_run(
+    hero: Hero, difficulty: three_kingdoms_spire_reborn::Difficulty, seed: u64,
+    policy: Policy,
+) -> ExpandedMatrixRun {
+    use three_kingdoms_spire_reborn::progression::Profile;
+    let policy_id = match policy {
+        Policy::FirstPlayable => "first_playable",
+        Policy::Tactical => "tactical",
+    };
+    let run_id = format!("expanded-matrix-{hero:?}-{}-{seed}-{policy_id}", difficulty.id());
+    let mut game = Game::new_with_campaign_difficulty(hero, seed, difficulty, run_id.clone());
+    let mut floors = vec![ExpandedFloorSample::capture(&game)];
+    let mut bosses_entered = Vec::new();
+    let mut actions = 0;
+    let mut error = None;
+    while actions < MAX_ACTIONS && !matches!(game.stage, Stage::Won | Stage::Lost) {
+        let before = game.floor;
+        let action = match expanded_matrix_action(&game, policy) {
+            Ok(action) => action,
+            Err(message) => { error = Some(message); break; }
+        };
+        if let Err(message) = game.apply(action) {
+            error = Some(format!("floor {} stage {:?}: {message}", game.floor, game.stage));
+            break;
+        }
+        actions += 1;
+        if game.floor != before {
+            floors.push(ExpandedFloorSample::capture(&game));
+            if game.last_node == Some(Node::Boss)
+                && let Some(foe) = game.battle.as_ref().and_then(|b| b.foes.first())
+            {
+                bosses_entered.push((game.floor, foe.id.clone()));
+            }
+        }
+    }
+    if error.is_none() && !matches!(game.stage, Stage::Won | Stage::Lost) {
+        error = Some("action budget exceeded; incomplete run, not a defeat".into());
+    }
+    let mut replay_verified = false;
+    let mut chronicle_verified = false;
+    if error.is_none() {
+        let verify = (|| -> Result<(), String> {
+            let snapshot = game.to_json()?;
+            let restored = Game::from_json(&snapshot)?;
+            if restored.to_json()? != snapshot {
+                return Err("terminal JSON changed on restore".into());
+            }
+            game.audit_campaign_authority()?;
+            restored.verify_action_replay()?;
+            replay_verified = true;
+            if game.stage == Stage::Won
+                && (game.floor != 40
+                    || bosses_entered.iter().map(|(floor, _)| *floor)
+                        .collect::<Vec<_>>() != [8, 16, 24, 32, 40])
+            {
+                return Err("victory did not traverse all five real bosses".into());
+            }
+            let mut profile = Profile::new();
+            if !profile.record(&game, run_id.clone())? {
+                return Err("first settlement was not recorded".into());
+            }
+            let persisted = profile.to_json()?;
+            let mut restored_profile = Profile::from_json(&persisted)?;
+            if restored_profile.record(&restored, run_id)?
+                || restored_profile.to_json()? != persisted
+            {
+                return Err("terminal settlement duplicated after restore".into());
+            }
+            chronicle_verified = true;
+            Ok(())
+        })();
+        if let Err(message) = verify { error = Some(message); }
+    }
+    ExpandedMatrixRun {
+        hero, difficulty, seed, policy: policy_id, terminal: game.stage, actions, error,
+        replay_verified, chronicle_verified, bosses_entered, floors,
+        final_sample: ExpandedFloorSample::capture(&game), telemetry: game.telemetry.totals,
+    }
+}
+
+fn expanded_matrix_report(samples: usize, output: Option<&str>) -> Result<(), String> {
+    use three_kingdoms_spire_reborn::Difficulty;
+    let mut runs = Vec::new();
+    for hero in HEROES {
+        for difficulty in Difficulty::ALL {
+            for trial in 0..samples {
+                // Same seed in all 15 cells, paired across both policies.
+                let seed = 247_510 + trial as u64;
+                for policy in [Policy::FirstPlayable, Policy::Tactical] {
+                    runs.push(expanded_matrix_run(hero, difficulty, seed, policy));
+                }
+            }
+        }
+    }
+    let report = serde_json::to_string_pretty(&serde_json::json!({
+        "schema_version": 1,
+        "samples_per_cell_per_policy": samples,
+        "seed_formula": "247510 + trial",
+        "normal_starter_deck": true,
+        "runs": runs,
+    })).map_err(|e| e.to_string())?;
+    if let Some(path) = output {
+        fs::write(path, report).map_err(|e| format!("write {path}: {e}"))?;
+    } else {
+        println!("{report}");
+    }
+    Ok(())
+}
+
 fn main() {
     let arguments=std::env::args().collect::<Vec<_>>();
+    if arguments.get(1).is_some_and(|arg| arg == "--expanded-matrix") {
+        let samples = arguments.get(2).and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(2).clamp(1, 16);
+        expanded_matrix_report(samples, arguments.get(3).map(String::as_str))
+            .unwrap_or_else(|e| panic!("expanded matrix report failed: {e}"));
+        return;
+    }
     if arguments.get(1).is_some_and(|arg|arg=="--natural-builds") {
         let samples=arguments.get(2).and_then(|s|s.parse::<usize>().ok())
             .unwrap_or(1).clamp(1,20);
