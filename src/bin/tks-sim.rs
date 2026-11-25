@@ -141,12 +141,38 @@ fn next_enemy_damage(game: &Game) -> i32 {
             _ => 0,
         }).sum())
 }
+fn combat_defense_need(game: &Game) -> i32 {
+    let mut need = next_enemy_damage(game);
+    if let Some(battle) = game.battle.as_ref() {
+        for f in battle.foes.iter().filter(|f| f.hp > 0) {
+            if let Intent::Boss(ref move_id) = f.intent {
+                use three_kingdoms_spire_reborn::BossMove;
+                let threshold = match move_id {
+                    BossMove::FireCamp(stacks) if *stacks > 0 => 12,
+                    BossMove::WhiteClothes => 8,
+                    BossMove::NorthernExpedition(n) => 8 + 2 * i32::from(*n),
+                    BossMove::StarOmen(phase) => 9 + 2 * i32::from(*phase),
+                    BossMove::YinpingFlank(phase) => 10 + 2 * i32::from(*phase),
+                    _ => 0,
+                };
+                need = need.max(threshold);
+            }
+        }
+        if let (Some(hp), Some(loss)) = (battle.convoy_hp, game.projected_cargo_loss())
+            && loss > 0
+        {
+            need += if loss >= hp { 18 } else { 8 };
+        }
+    }
+    need
+}
 fn tactical_card_value(game:&Game,card:&Card,threat:i32)->i32 {
     let spec=match card_spec(&card.id){Some(s)=>s,None=>return -999};
     // Outside combat, estimate reward value against a standard 3-energy turn.
     let available=game.battle.as_ref().map_or(3,|b|b.energy);
     let cost=card_energy(card,available).unwrap_or(999);
     if cost>available {return -999;}
+    let convoy_risk = game.projected_cargo_loss().unwrap_or(0);
     let upfront=match spec.effect {
         Effect::Hit(n) | Effect::All(n) | Effect::Leech(n) | Effect::Pierce(n)
         | Effect::DiscardStrike(n) => n*2,
@@ -154,8 +180,8 @@ fn tactical_card_value(game:&Game,card:&Card,threat:i32)->i32 {
         Effect::HitDraw(n,draw) => n*2 + draw as i32*9,
         Effect::HitWeak(n,_) | Effect::HitVulnerable(n,_) => n*2+9,
         Effect::HitPoison(n,poison) => n*2+poison*2,
-        Effect::Guard(n) => (n*2).min((threat+5)*2),
-        Effect::GuardEnergy(n) => (n*2).min((threat+5)*2)+10,
+        Effect::Guard(n) => (n*2).min((threat+5)*2) + if convoy_risk > 0 { 16 } else { 0 },
+        Effect::GuardEnergy(n) => (n*2).min((threat+5)*2)+10 + if convoy_risk > 0 { 16 } else { 0 },
         Effect::Poison(n) => n*3,
         Effect::Draw(n) => n as i32*10,
         Effect::Strength(n) => n*19,
@@ -170,11 +196,11 @@ fn tactical_card_value(game:&Game,card:&Card,threat:i32)->i32 {
         Effect::Thorns(n) => n*9,
         Effect::DrawEnergy(n,energy) => n as i32*10 + energy*13,
         Effect::Energy(n) => n*12,
-        Effect::Companion(n) => n*3,
+        Effect::Companion(n) => n*3 + if convoy_risk > 0 { 12 } else { 0 },
         Effect::Tactics(n) => n*8,
         Effect::Power(_,_) => 38,
         Effect::XHit(n) => n*cost*2,
-        Effect::XGuard(n) => (n*cost*2).min((threat+5)*2),
+        Effect::XGuard(n) => (n*cost*2).min((threat+5)*2) + if convoy_risk > 0 { 14 } else { 0 },
         Effect::TutorAttack => 21,
         Effect::CopyDiscard => 14,
         Effect::Generate(_,n) => 8*n as i32,
@@ -187,14 +213,14 @@ fn tactical_card_value(game:&Game,card:&Card,threat:i32)->i32 {
         Effect::ComboStrike(_) | Effect::CommandStrike(_) | Effect::FuryStrike(_) |
         Effect::BloodPrice(_,_) | Effect::Leech(_) | Effect::HitPoison(_,_) |
         Effect::Pierce(_) | Effect::DiscardStrike(_) | Effect::XHit(_));
-    upfront + if attack {5} else {0}
+    upfront + if attack {5 + if convoy_risk > 0 { 8 } else { 0 }} else {0}
         + i32::from(card.upgraded)*5
         - cost*3
         - i32::from(matches!(spec.effect,Effect::XHit(_) | Effect::XGuard(_))
             && cost==0)*20
 }
 fn tactical_reward(game:&Game)->usize {
-    game.rewards.iter().enumerate()
+    let best = game.rewards.iter().enumerate()
         .max_by_key(|(idx,card)| {
             let novelty= if game.deck.iter().any(|owned|owned.id==card.id){-10}else{10};
             let is_power=card_spec(&card.id)
@@ -208,8 +234,20 @@ fn tactical_reward(game:&Game)->usize {
                 {20}else{0};
             (novelty+if is_power{14}else{0}+sun_synergy+focus_synergy
                 +tactical_card_value(game,card,14),-(*idx as i32))
-        })
-        .map_or(0,|(i,card)|if card_spec(&card.id).is_some_and(|s|matches!(s.effect,Effect::Unplayable)){0}else{i+1})
+        });
+    let Some((i, card)) = best else { return 0; };
+    if card_spec(&card.id).is_some_and(|s| matches!(s.effect, Effect::Unplayable)) {
+        return 0;
+    }
+    let is_power = card_spec(&card.id).is_some_and(|s| matches!(s.effect, Effect::Power(_, _)));
+    let focus_synergy = game.doctrine.is_some_and(|focus| focus.contains(&card.id));
+    let score = tactical_card_value(game, card, 14);
+    if !is_power && !focus_synergy && !card.upgraded
+        && ((game.deck.len() >= 24 && score < 28) || (game.deck.len() >= 20 && score < 21))
+    {
+        return 0;
+    }
+    i + 1
 }
 fn tactical_action(game:&Game)->Result<Action,String> {
     match game.stage {
@@ -219,8 +257,10 @@ fn tactical_action(game:&Game)->Result<Action,String> {
                 let deficit=(game.max_hp-game.hp).max(0);
                 let score=match node {
                     Node::Camp => if deficit>=15 {45}else{22},
-                    Node::Market => if game.gold>=150 {32}else{5},
-                    Node::Story => 24,
+                    Node::Market => if (game.shop_relic.is_some() && game.gold>=155)
+                        || (game.deck.iter().any(|c| c.id == "cursed") && game.gold>=75)
+                        || (game.deck.len() >= 12 && game.gold >= 165) {36} else if game.gold >= 110 {25} else {5},
+                    Node::Story => 26,
                     Node::Battle => if deficit>25 {-5}else{17},
                     Node::Elite => if deficit>25 {-20}else{7},
                     Node::Boss => 50,
@@ -233,17 +273,91 @@ fn tactical_action(game:&Game)->Result<Action,String> {
         Stage::Ancient => Ok(Action::Choose{index:1}),
         Stage::Camp => {
             let deficit=game.max_hp-game.hp;
-            let can_upgrade=game.deck.iter().any(|card|!card.upgraded&&card.id!="cursed");
+            let can_upgrade=game.deck.iter().any(|card|!card.upgraded&&card.id!="cursed"
+                && card_spec(&card.id).is_some_and(|s| !matches!(s.effect, Effect::Unplayable)));
             Ok(Action::Choose {index:if deficit >= 12 {1}
                 else if can_upgrade {2} else {3}})
         }
         Stage::Market => {
-            let can_remove=game.deck.iter().any(|c|c.id=="cursed");
-            Ok(Action::Choose{index:if can_remove&&game.gold>=75 {6}
-                else if game.shop_relic.is_some()&&game.gold>=155 {5}
-                else {0}})
+            let can_remove_cursed = game.deck.iter().any(|c| c.id == "cursed");
+            if can_remove_cursed && game.gold >= 75 {
+                return Ok(Action::Choose { index: 6 });
+            }
+            if game.shop_relic.is_some() && game.gold >= 155 {
+                return Ok(Action::Choose { index: 5 });
+            }
+            if !game.market_upgraded && game.market_upgrade_price().is_some_and(|price| game.gold >= price)
+                && game.gold >= 160
+                && game.deck.iter().any(|c| !c.upgraded
+                    && !matches!(c.id.as_str(), "cursed" | "quest_tulu")
+                    && card_spec(&c.id).is_some_and(|s| !matches!(s.effect, Effect::Unplayable)))
+                && game.deck.iter().filter(|c| c.upgraded).count() < 12
+            {
+                return Ok(Action::Choose { index: 7 });
+            }
+            if game.deck.len() < 23
+                && let Some((idx, _)) = game.market.iter().enumerate()
+                    .filter(|(idx, card)| {
+                        let Some(cost) = Game::market_card_price(*idx + 1) else { return false; };
+                        cost <= game.gold
+                            && ((game.gold - cost) >= 75 || game.deck.len() < 16)
+                            && card_spec(&card.id).is_some_and(|s| matches!(s.effect, Effect::Power(_, _))
+                                || game.doctrine.is_some_and(|focus| focus.contains(&card.id))
+                                || tactical_card_value(game, card, 14) >= 28)
+                    })
+                    .max_by_key(|(idx, card)| (tactical_card_value(game, card, 14), -(*idx as i32)))
+            {
+                return Ok(Action::Choose { index: idx + 1 });
+            }
+            if game.deck.len() >= 12 && game.gold >= 160
+                && game.deck.iter().any(|c| c.id == "strike"
+                    || (game.difficulty.is_some() && c.id == "defend"))
+                && game.deck.iter().filter(|c| matches!(c.id.as_str(), "strike" | "defend")).count() >= 4
+            {
+                return Ok(Action::Choose { index: 6 });
+            }
+            if game.potions < 2 && game.gold >= 170 {
+                return Ok(Action::Choose { index: 4 });
+            }
+            Ok(Action::Choose { index: 0 })
         }
-        Stage::Story => Ok(Action::Choose{index:if game.lore_current.is_some(){1}else{3}}),
+        Stage::Story => {
+            if game.in_council() {
+                let is_late = game.xiapi_plan == Some(three_kingdoms_spire_reborn::XiapiPlan::Council)
+                    || game.xiangfan_plan == Some(three_kingdoms_spire_reborn::XiangfanPlan::Council);
+                let (gold_cost, hp_cost) = if is_late { (16, 6) } else { (20, 8) };
+                return Ok(Action::Choose {
+                    index: if game.gold >= gold_cost && game.hp * 2 >= game.max_hp { 1 }
+                        else if game.hp > hp_cost + 12 { 2 }
+                        else { 3 },
+                });
+            }
+            if game.lore_current.is_some() {
+                return Ok(Action::Choose { index: 1 });
+            }
+            if game.story_fourth_option().is_some() {
+                return Ok(Action::Choose { index: 4 });
+            }
+            let upgradeable = game.deck.iter().any(|c| !c.upgraded && c.id != "cursed"
+                && card_spec(&c.id).is_some_and(|s| !matches!(s.effect, Effect::Unplayable)));
+            let choice = match game.event_id {
+                0 => if game.gold >= 15 && game.hp < game.max_hp { 1 } else if game.hp > 18 { 3 } else { 2 },
+                1 => if game.hp + 12 <= game.max_hp { 2 } else if game.hp > game.max_hp / 2 { 1 } else { 3 },
+                2 => if game.gold >= 25 && game.hp < game.max_hp { 1 } else { 3 },
+                3 => if game.gold >= 30 && game.potions < 3 && game.hp * 2 < game.max_hp { 1 }
+                    else if game.deck.len() < 18 { 3 } else { 2 },
+                4 | 9 => if game.gold >= 40 && upgradeable { 1 }
+                    else if game.event_id == 9 && game.deck.len() < 18 { 2 } else { 3 },
+                5 => if game.hp * 2 > game.max_hp + 20 { 1 } else { 3 },
+                6 => if game.hp + 10 <= game.max_hp { 1 } else { 3 },
+                7 => if upgradeable { 1 } else { 3 },
+                8 => if game.gold >= 20 && game.hp < game.max_hp { 1 }
+                    else if game.potions < 3 { 3 } else if game.hp > 18 { 2 } else { 3 },
+                10 => if game.hp + 10 <= game.max_hp { 1 } else { 2 },
+                _ => if game.hp + 10 <= game.max_hp { 3 } else { 2 },
+            };
+            Ok(Action::Choose { index: choice })
+        }
         Stage::Combat => {
             let b=game.battle.as_ref().ok_or("missing tactical battle")?;
             // Build-focused draw/energy cycles can yield unbounded optional plays.
@@ -252,7 +366,7 @@ fn tactical_action(game:&Game)->Result<Action,String> {
             if b.played_this_turn >= 36 {
                 return Ok(Action::EndTurn);
             }
-            let threat=next_enemy_damage(game);
+            let threat=combat_defense_need(game);
             // Discard is a separately-paid action and matters especially for
             // Sun Shangxiang's combo. A no-discard bot badly understates her
             // power when it rewards cards granting discard tokens.
@@ -268,7 +382,10 @@ fn tactical_action(game:&Game)->Result<Action,String> {
                 }
             }
             let target=b.foes.iter().enumerate().filter(|(_,f)|f.hp>0)
-                .min_by_key(|(_,f)|f.hp+f.block)
+                .min_by_key(|(_,f)| {
+                    let priority = if matches!(f.id.as_str(), "officer" | "reinforcement" | "banner") { -24 } else { 0 };
+                    (priority + f.hp + f.block, f.hp)
+                })
                 .map_or(1,|(idx,_)|idx+1);
             if let Some((slot,_))=game.potion_bag.iter().enumerate().find(|(_,id)|
                 matches!(id.as_str(),"healing"|"cleanse") &&
@@ -927,6 +1044,35 @@ impl ExpandedFloorSample {
     }
 }
 
+#[derive(Debug, Default, Serialize)]
+struct ExpandedHistoricalDensity {
+    covered_lower_bound: usize,
+    resource_or_deck: usize,
+    map_effect: usize,
+    battle_effect: usize,
+    cross_act_effect: usize,
+    untriggered_count: usize,
+    untriggered_categories: BTreeMap<String, usize>,
+}
+
+impl ExpandedHistoricalDensity {
+    fn from_report(report: &three_kingdoms_spire_reborn::campaign_authority::HistoricalDensityReport) -> Self {
+        let mut untriggered_categories = BTreeMap::new();
+        for reason in &report.untriggered_reasons {
+            *untriggered_categories.entry(reason.category.to_string()).or_insert(0) += 1;
+        }
+        Self {
+            covered_lower_bound: report.covered_lower_bound,
+            resource_or_deck: report.resource_or_deck,
+            map_effect: report.map_effect,
+            battle_effect: report.battle_effect,
+            cross_act_effect: report.cross_act_effect,
+            untriggered_count: report.untriggered_reasons.len(),
+            untriggered_categories,
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 struct ExpandedMatrixRun {
     hero: Hero,
@@ -942,6 +1088,7 @@ struct ExpandedMatrixRun {
     floors: Vec<ExpandedFloorSample>,
     final_sample: ExpandedFloorSample,
     telemetry: CombatCounters,
+    historical_density: ExpandedHistoricalDensity,
 }
 
 impl ExpandedMatrixRun {
@@ -963,6 +1110,11 @@ struct ExpandedPolicyTotals {
     terminal_deck_size_sum: usize,
     terminal_relic_count_sum: usize,
     terminal_turns_sum: u64,
+    density_covered_sum: usize,
+    density_covered_min: usize,
+    density_covered_max: usize,
+    density_battle_sum: usize,
+    density_cross_act_sum: usize,
 }
 
 impl ExpandedPolicyTotals {
@@ -972,6 +1124,7 @@ impl ExpandedPolicyTotals {
             self.incomplete += 1;
             return;
         }
+        let settled = self.wins + self.losses;
         if run.terminal == Stage::Won {
             self.wins += 1;
         } else {
@@ -982,6 +1135,12 @@ impl ExpandedPolicyTotals {
         self.terminal_deck_size_sum += run.final_sample.cards;
         self.terminal_relic_count_sum += run.final_sample.relics;
         self.terminal_turns_sum += run.final_sample.turns_completed;
+        let covered = run.historical_density.covered_lower_bound;
+        self.density_covered_sum += covered;
+        self.density_covered_min = if settled == 0 { covered } else { self.density_covered_min.min(covered) };
+        self.density_covered_max = self.density_covered_max.max(covered);
+        self.density_battle_sum += run.historical_density.battle_effect;
+        self.density_cross_act_sum += run.historical_density.cross_act_effect;
     }
 }
 
@@ -1076,6 +1235,7 @@ fn expanded_matrix_run(
     }
     let mut replay_verified = false;
     let mut chronicle_verified = false;
+    let mut historical_density = ExpandedHistoricalDensity::default();
     if error.is_none() {
         let verify = (|| -> Result<(), String> {
             let snapshot = game.to_json()?;
@@ -1085,6 +1245,7 @@ fn expanded_matrix_run(
             }
             game.audit_campaign_authority()?;
             restored.verify_action_replay()?;
+            historical_density = ExpandedHistoricalDensity::from_report(&restored.historical_density_report()?);
             replay_verified = true;
             if game.stage == Stage::Won
                 && (game.floor != 40
@@ -1113,6 +1274,7 @@ fn expanded_matrix_run(
         hero, difficulty, seed, policy: policy_id, terminal: game.stage, actions, error,
         replay_verified, chronicle_verified, bosses_entered, floors,
         final_sample: ExpandedFloorSample::capture(&game), telemetry: game.telemetry.totals,
+        historical_density,
     }
 }
 
@@ -1167,17 +1329,44 @@ fn expanded_matrix_fixed_seed_all_cells_settle_and_replay() {
         assert_eq!(totals.both_won + totals.first_only_won + totals.tactical_only_won + totals.both_lost, 1);
         assert_eq!(totals.first_playable.wins, usize::from(pair[0].terminal == Stage::Won));
         assert_eq!(totals.tactical.wins, usize::from(pair[1].terminal == Stage::Won));
+        assert_eq!(totals.first_playable.density_covered_sum, pair[0].historical_density.covered_lower_bound);
+        assert_eq!(totals.tactical.density_covered_sum, pair[1].historical_density.covered_lower_bound);
         for run in pair {
             assert!(run.floors.windows(2).all(|samples| samples[0].floor < samples[1].floor));
+            assert!(run.historical_density.covered_lower_bound >= run.historical_density.battle_effect);
+            assert!(run.historical_density.cross_act_effect <= run.historical_density.battle_effect);
         }
     }
+}
+
+#[cfg(test)]
+#[test]
+fn tactical_policy_protects_convoy_skips_bloat_and_spends_market_gold() {
+    let mut bloated = Game::new_with_campaign_difficulty(
+        Hero::CaoCao, 7, three_kingdoms_spire_reborn::Difficulty::Warlords, "tactical-bloat".into(),
+    );
+    while bloated.deck.len() < 26 {
+        bloated.deck.push(Card::new("strike"));
+    }
+    bloated.stage = Stage::Reward;
+    bloated.rewards = vec![Card::new("strike"), Card::new("defend"), Card::new("slash")];
+    assert_eq!(tactical_reward(&bloated), 0, "bloated starter deck should skip weak common cards");
+
+    let mut market = Game::new_with_campaign_difficulty(
+        Hero::CaoCao, 7, three_kingdoms_spire_reborn::Difficulty::Warlords, "tactical-market".into(),
+    );
+    market.stage = Stage::Market;
+    market.gold = 260;
+    market.shop_relic = None;
+    let first = tactical_action(&market).unwrap();
+    assert!(matches!(first, Action::Choose { index: 7 | 5 | 6 | 1..=3 }), "expected active Market purchase/upgrade/trim, got {first:?}");
 }
 
 fn expanded_matrix_report(samples: usize, output: Option<&str>) -> Result<(), String> {
     let (runs, cells) = collect_expanded_matrix(samples);
     let integrity = expanded_matrix_integrity(&runs);
     let report = serde_json::to_string_pretty(&serde_json::json!({
-        "schema_version": 2,
+        "schema_version": 3,
         "samples_per_cell_per_policy": samples,
         "seed_formula": "247510 + trial",
         "normal_starter_deck": true,

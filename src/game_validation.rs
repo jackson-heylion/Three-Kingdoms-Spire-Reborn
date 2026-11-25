@@ -115,6 +115,31 @@ impl Game {
         {
             return Err("街亭军议只能在新制第四幕诸葛亮奇遇中决策".into());
         }
+        if self.xiapi_plan.is_some()
+            && (!self.has_expanded_history_rules() || self.hero != Hero::LuBu || self.floor < 17)
+        {
+            return Err("下邳军议状态仅属于新制规则吕布第三幕及后续战役".into());
+        }
+        if self.xiapi_plan == Some(crate::XiapiPlan::Council)
+            && (self.stage != Stage::Story || self.hero != Hero::LuBu
+                || !(17..=31).contains(&self.floor))
+        {
+            return Err("下邳破围军议只能在新制吕布第三至四幕奇遇中决策".into());
+        }
+        if self.xiangfan_plan.is_some()
+            && (!self.has_expanded_history_rules() || self.hero != Hero::GuanYu || self.floor < 25)
+        {
+            return Err("襄樊水防军议状态仅属于新制规则关羽第四幕及后续战役".into());
+        }
+        if self.xiangfan_plan == Some(crate::XiangfanPlan::Council)
+            && (self.stage != Stage::Story || self.hero != Hero::GuanYu
+                || !(25..=31).contains(&self.floor))
+        {
+            return Err("襄樊水防军议只能在新制关羽第四幕奇遇中决策".into());
+        }
+        if self.market_upgraded && (!self.has_expanded_history_rules() || self.stage != Stage::Market) {
+            return Err("军市整训状态无效".into());
+        }
         for boon in self.boons.iter().chain(self.boon_choices.iter()) {
             if !items::BOONS.iter().any(|(id,_)| id == boon) { return Err(format!("未知赐福: {boon}")); }
         }

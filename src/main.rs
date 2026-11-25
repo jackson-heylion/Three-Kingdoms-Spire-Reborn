@@ -374,12 +374,17 @@ impl App {
                 Stage::Market => {
                     println!(" 【军市】金：{}（购买卡牌将永久加入牌组）", g.gold);
                     for (i, card) in g.market.iter().enumerate() {
-                        println!("   {}. {} / {}金", i + 1, card_label(card), 45 + i * 15);
+                        let price = Game::market_card_price(i + 1).unwrap_or(0);
+                        println!("   {}. {} / {price}金", i + 1, card_label(card));
                     }
                     println!("   4. 随机药剂 / 55金");
                     println!("   5. 遗物 {} / 155金",
                         g.shop_relic.as_deref().unwrap_or("已售罄"));
-                    println!("   6. 移除诅咒或普通突刺 / 75金");
+                    println!("   6. 移除诅咒或基础{} / 75金",
+                        if g.market_upgrade_price().is_some() { "突刺・防牌" } else { "突刺" });
+                    if let Some(upgrade_cost) = g.market_upgrade_price().filter(|_| !g.market_upgraded) {
+                        println!("   7. 整训升级首张可升级卡牌 / {upgrade_cost}金");
+                    }
                     println!(" 输入 choose <编号> 购买，remove <牌组序号> 定向移牌，choose 0 离开");
                 }
                 Stage::Camp => {
@@ -400,14 +405,14 @@ impl App {
                     }
                     println!(" 输入 choose <编号>");
                 }
-                Stage::Won => println!(" 【胜利】{}，江山已平！输入 new 开始新征程。",
+                Stage::Won => println!(" 【胜利】{}，江山已平！输入 campaign [武将] [种子|auto] [warlords|conqueror|destiny]（或旧制 new）开始新征程。",
                     if g.difficulty.is_some() { "五幕皆定" } else { "三幕皆定" }),
-                Stage::Lost => println!(" 【败北】胜败乃兵家常事。输入 new 开始新征程。"),
+                Stage::Lost => println!(" 【败北】胜败乃兵家常事。输入 campaign [武将] [种子|auto] [warlords|conqueror|destiny]（或旧制 new）开始新征程。"),
             }
             println!("────────────────────────────────────────────────────");
             for msg in g.log.iter().rev().take(3).rev() { println!(" > {msg}"); }
         } else {
-            println!(" 尚无存档。输入 new [guanyu|zhuge|sun|cao|lubu] [随机种子] [飞升0-10] 开始。");
+            println!(" 尚无存档。输入 campaign [guanyu|zhuge|sun|cao|lubu] [随机种子|auto] [warlords|conqueror|destiny] 开始五幕新制征程（旧制可用 new [武将] [种子] [0-10]）。");
         }
         if !self.message.is_empty() { println!(" 提示：{}", self.message); }
         if self.use_ansi { print!("\x1b[0m"); }
@@ -1472,10 +1477,11 @@ mod historical_archive_cli_regression {
         assert_eq!(fs::read_to_string(save_path(&directory)).unwrap(), saved);
         assert!(app.command("history-audit json"));
         let report: serde_json::Value = serde_json::from_str(&app.message).unwrap();
-        assert_eq!(report["schema_version"], 1);
+        assert_eq!(report["schema_version"], 2);
         assert_eq!(report["covered_lower_bound"], 0);
         assert_eq!(report["complete_campaign"], false);
         assert_eq!(report["interactions"].as_array().unwrap().len(), 0);
+        assert!(report["untriggered_reasons"].as_array().unwrap().is_empty());
         assert!(report.get("run_id").is_none());
         assert_eq!(app.game.as_ref().unwrap().to_json().unwrap(), before);
         assert_eq!(fs::read_to_string(save_path(&directory)).unwrap(), saved);

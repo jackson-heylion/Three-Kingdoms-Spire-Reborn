@@ -95,6 +95,33 @@ pub fn next_beat(hero: Hero, act: u8, flags: &[String], seen: &[String]) -> Opti
     })
 }
 
+/// Deterministic scene ordering for expanded five-act campaigns (acts 0..=4).
+/// Preserves native-act hero ordering first, then catches up eligible missed
+/// lower-act hero scenes (crucial for heroes whose authored arcs cluster early),
+/// and finally surfaces eligible shared archival beats instead of falling back
+/// exclusively to generic tavern events in acts IV and V. Legacy 21-floor runs
+/// continue to invoke next_beat unchanged.
+pub fn next_expanded_beat(hero: Hero, act: u8, flags: &[String], seen: &[String]) -> Option<&'static Beat> {
+    if act <= 2 {
+        return next_beat(hero, act, flags, seen);
+    }
+    let eligible = |b: &&Beat| {
+        !seen.iter().any(|id| id == b.id)
+            && b.prerequisite.is_none_or(|key| flags.iter().any(|flag| flag == key))
+    };
+    for candidate_act in (0..=2).rev() {
+        if let Some(beat) = BEATS.iter()
+            .filter(|b| eligible(b) && b.act == candidate_act && b.hero == Some(hero))
+            .min_by_key(|b| (u8::from(b.prerequisite.is_none()), b.chapter))
+        {
+            return Some(beat);
+        }
+    }
+    BEATS.iter()
+        .filter(|b| eligible(b) && b.hero.is_none())
+        .min_by_key(|b| (2_u8.saturating_sub(b.act), u8::from(b.prerequisite.is_none()), b.chapter))
+}
+
 
 #[cfg(test)]
 mod compatibility_tests {

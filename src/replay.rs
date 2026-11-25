@@ -42,6 +42,16 @@ impl Game {
         if revision > self.revision {
             return Err("请求的历史修订号超过当前存档".into());
         }
+        let mut replayed = self.init_replay_harness(true);
+        let count = usize::try_from(revision).map_err(|_| "历史修订号超出平台范围")?;
+        for (index, action) in actions.iter().take(count).enumerate() {
+            replayed.apply(action.clone()).map_err(|error|
+                format!("重放第{}步失败：{error}", index + 1))?;
+        }
+        Ok(replayed)
+    }
+
+    fn init_replay_harness(&self, preserve_absent_events: bool) -> Game {
         let mut replayed = if let Some(difficulty) = self.difficulty {
             Game::new_with_campaign_rules_revision(
                 self.hero, self.seed, difficulty, self.run_id.clone(), self.expanded_rules_revision,
@@ -53,7 +63,7 @@ impl Game {
         };
         // Old V2 saves may omit individual authority streams. Preserve that
         // absence instead of fabricating a complete historical journal.
-        if self.event_history.is_none() { replayed.event_history = None; }
+        if preserve_absent_events && self.event_history.is_none() { replayed.event_history = None; }
         if self.resource_history.is_none() { replayed.resource_history = None; }
         if self.rng_history.is_none() { replayed.rng_history = None; }
         if self.battle_resource_history.is_none() { replayed.battle_resource_history = None; }
@@ -71,12 +81,7 @@ impl Game {
         // External chronicle bookkeeping is not an action. Preserve its
         // durable receipt without claiming to reconstruct the chronicle.
         replayed.profile_start_receipt = self.profile_start_receipt;
-        let count = usize::try_from(revision).map_err(|_| "历史修订号超出平台范围")?;
-        for (index, action) in actions.iter().take(count).enumerate() {
-            replayed.apply(action.clone()).map_err(|error|
-                format!("重放第{}步失败：{error}", index + 1))?;
-        }
-        Ok(replayed)
+        replayed
     }
 
     /// Rebuild the complete current Game from its seed and committed actions
@@ -147,28 +152,7 @@ impl Game {
         let actions=self.action_history.as_ref().ok_or(
             "legacy save has no complete action journal")?;
         if actions.len()>50_000 {return Err("action replay limit exceeded".into());}
-        let mut replay = if let Some(difficulty) = self.difficulty {
-            Game::new_with_campaign_rules_revision(
-                self.hero, self.seed, difficulty, self.run_id.clone(), self.expanded_rules_revision,
-            )
-        } else {
-            Game::new_with_identity(
-                self.hero, self.seed, self.ascension, self.mode, self.run_id.clone(),
-            )
-        };
-        replay.profile_start_receipt=self.profile_start_receipt;
-        if self.resource_history.is_none() { replay.resource_history=None; }
-        if self.rng_history.is_none() { replay.rng_history=None; }
-        if self.battle_resource_history.is_none() { replay.battle_resource_history=None; }
-        if self.foe_board_history.is_none() { replay.foe_board_history=None; }
-        if self.card_zone_history.is_none() { replay.card_zone_history=None; }
-        if self.combat_effect_history.is_none() { replay.combat_effect_history=None; }
-        if self.battle_runtime_history.is_none() { replay.battle_runtime_history=None; }
-        if self.campaign_history.is_none() { replay.campaign_history=None; }
-        if self.telemetry_history.is_none() { replay.telemetry_history=None; }
-        if let Some(start) = self.telemetry_history.as_ref().and_then(|events| events.first()) {
-            replay.telemetry_history = Some(vec![start.clone()]);
-        }
+        let mut replay = self.init_replay_harness(false);
         for (i,action) in actions.iter().enumerate() {
             replay.apply(action.clone()).map_err(|e|format!("replay step {}: {e}",i+1))?;
         }
