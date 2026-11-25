@@ -252,15 +252,18 @@ fn tactical_reward(game:&Game)->usize {
 fn tactical_action(game:&Game)->Result<Action,String> {
     match game.stage {
         Stage::Map => {
+            let council_pending = game.uncommitted_council_hint().is_some();
             let mut best=(i32::MIN,1);
             for (i,node) in game.route.iter().enumerate() {
                 let deficit=(game.max_hp-game.hp).max(0);
                 let score=match node {
-                    Node::Camp => if deficit>=15 {45}else{22},
+                    Node::Camp => if deficit>=15 {
+                        if council_pending && game.hp * 3 > game.max_hp {44} else {52}
+                    }else{22},
                     Node::Market => if (game.shop_relic.is_some() && game.gold>=155)
                         || (game.deck.iter().any(|c| c.id == "cursed") && game.gold>=75)
                         || (game.deck.len() >= 12 && game.gold >= 165) {36} else if game.gold >= 110 {25} else {5},
-                    Node::Story => 26,
+                    Node::Story => if council_pending {48} else {26},
                     Node::Battle => if deficit>25 {-5}else{17},
                     Node::Elite => if deficit>25 {-20}else{7},
                     Node::Boss => 50,
@@ -330,6 +333,11 @@ fn tactical_action(game:&Game)->Result<Action,String> {
                     index: if game.gold >= gold_cost && game.hp * 2 >= game.max_hp { 1 }
                         else if game.hp > hp_cost + 12 { 2 }
                         else { 3 },
+                });
+            }
+            if game.can_open_expanded_council() {
+                return Ok(Action::Choose {
+                    index: if game.story_fifth_option().is_some() { 5 } else { 4 },
                 });
             }
             if game.lore_current.is_some() {
@@ -1106,10 +1114,14 @@ struct ExpandedPolicyTotals {
     incomplete: usize,
     // Only verified terminal runs contribute to these sums.
     terminal_floor_sum: u64,
+    terminal_max_hp_sum: i64,
     terminal_gold_sum: i64,
     terminal_deck_size_sum: usize,
     terminal_relic_count_sum: usize,
+    terminal_potions_sum: usize,
     terminal_turns_sum: u64,
+    battles_won_sum: u64,
+    battles_lost_sum: u64,
     density_covered_sum: usize,
     density_covered_min: usize,
     density_covered_max: usize,
@@ -1131,10 +1143,14 @@ impl ExpandedPolicyTotals {
             self.losses += 1;
         }
         self.terminal_floor_sum += u64::from(run.final_sample.floor);
+        self.terminal_max_hp_sum += i64::from(run.final_sample.max_hp);
         self.terminal_gold_sum += i64::from(run.final_sample.gold);
         self.terminal_deck_size_sum += run.final_sample.cards;
         self.terminal_relic_count_sum += run.final_sample.relics;
+        self.terminal_potions_sum += run.final_sample.potions;
         self.terminal_turns_sum += run.final_sample.turns_completed;
+        self.battles_won_sum += run.telemetry.battles_won;
+        self.battles_lost_sum += run.telemetry.battles_lost;
         let covered = run.historical_density.covered_lower_bound;
         self.density_covered_sum += covered;
         self.density_covered_min = if settled == 0 { covered } else { self.density_covered_min.min(covered) };
@@ -1331,12 +1347,54 @@ fn expanded_matrix_fixed_seed_all_cells_settle_and_replay() {
         assert_eq!(totals.tactical.wins, usize::from(pair[1].terminal == Stage::Won));
         assert_eq!(totals.first_playable.density_covered_sum, pair[0].historical_density.covered_lower_bound);
         assert_eq!(totals.tactical.density_covered_sum, pair[1].historical_density.covered_lower_bound);
+        assert_eq!(totals.tactical.terminal_max_hp_sum, i64::from(pair[1].final_sample.max_hp));
+        assert_eq!(totals.tactical.terminal_potions_sum, pair[1].final_sample.potions);
+        assert_eq!(totals.tactical.battles_won_sum, pair[1].telemetry.battles_won);
+        assert_eq!(totals.tactical.battles_lost_sum, pair[1].telemetry.battles_lost);
         for run in pair {
             assert!(run.floors.windows(2).all(|samples| samples[0].floor < samples[1].floor));
             assert!(run.historical_density.covered_lower_bound >= run.historical_density.battle_effect);
             assert!(run.historical_density.cross_act_effect <= run.historical_density.battle_effect);
         }
     }
+    let tactical_with_density = runs.iter()
+        .filter(|r| r.policy == "tactical" && r.historical_density.covered_lower_bound > 0)
+        .map(|r| r.hero.name())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(tactical_with_density.len(), HEROES.len(), "all 5 heroes must record historical density");
+}
+
+#[cfg(test)]
+#[test]
+fn expanded_campaign_supports_both_variants_across_all_ten_bosses_and_echo_density() {
+    use three_kingdoms_spire_reborn::Difficulty;
+    let mut seen_bosses = std::collections::BTreeSet::new();
+    for (act, expected) in [
+        (0u8, ["zhangjiao", "sunjian"]),
+        (1u8, ["dongzhuo", "yuanshao"]),
+        (2u8, ["simayi", "zuoci"]),
+        (3u8, ["luxun", "lumeng"]),
+        (4u8, ["jiangwei", "dengai"]),
+    ] {
+        for (branch, boss_id) in expected.iter().enumerate() {
+            let mut g = Game::new_with_campaign_difficulty(
+                Hero::CaoCao, 77, Difficulty::Warlords, format!("boss-variant-{act}-{branch}"),
+            );
+            let b = branch as u8;
+            let [a1, a2, a3, a4, a5] = [b; 5];
+            g.apply(Action::SetExpandedVariants { act1: a1, act2: a2, act3: a3, act4: a4, act5: a5 }).unwrap();
+            g.floor = act * 8 + 7;
+            g.stage = Stage::Map;
+            g.map_lane = None;
+            g.route = vec![Node::Boss];
+            g.route_lanes = vec![0];
+            g.apply(Action::Choose { index: 1 }).unwrap();
+            let actual_id = g.battle.as_ref().and_then(|bt| bt.foes.first()).map(|f| f.id.clone()).unwrap();
+            assert_eq!(actual_id, *boss_id);
+            seen_bosses.insert(actual_id);
+        }
+    }
+    assert_eq!(seen_bosses.len(), 10);
 }
 
 #[cfg(test)]
@@ -1366,7 +1424,7 @@ fn expanded_matrix_report(samples: usize, output: Option<&str>) -> Result<(), St
     let (runs, cells) = collect_expanded_matrix(samples);
     let integrity = expanded_matrix_integrity(&runs);
     let report = serde_json::to_string_pretty(&serde_json::json!({
-        "schema_version": 3,
+        "schema_version": 4,
         "samples_per_cell_per_policy": samples,
         "seed_formula": "247510 + trial",
         "normal_starter_deck": true,

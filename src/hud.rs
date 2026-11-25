@@ -261,6 +261,12 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
                 Stage::Combat => "战斗中",
             };
             line(&mut out, app, scene, columns, Tone::Accent);
+            if g.stage == Stage::Lost
+                && let Some(diagnosis) = g.defeat_diagnosis()
+            {
+                let budget = if details { 4 } else { 2 };
+                wrap_prefixed_lines(&mut out, app, "败因诊断：", &diagnosis, columns, Tone::Warning, budget);
+            }
             if g.stage == Stage::Story {
                 if g.in_council() {
                     if let Some(header) = g.lore_hint().lines().next() {
