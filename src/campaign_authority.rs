@@ -1,7 +1,7 @@
 //! Action-boundary authority for noncombat campaign state. No action replay.
 //! Each successful revision is recorded; unchanged revisions carry no snapshot.
 //! This covers map, route, narrative and inventory, but not full Game sourcing.
-use crate::{Game, Stage, Node, Card, WuchaoPlan, ChibiPlan, JietingPlan, RunMode, MAX_FLOOR, EXPANDED_MAX_FLOOR, map, archetypes, challenges, difficulty::Difficulty, content::Hero};
+use crate::{Game, Stage, Node, Card, WuchaoPlan, ChibiPlan, JietingPlan, XiapiPlan, XiangfanPlan, RunMode, MAX_FLOOR, EXPANDED_MAX_FLOOR, map, archetypes, challenges, difficulty::Difficulty, content::Hero};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -52,6 +52,12 @@ pub struct CampaignState {
     pub chibi_plan: Option<ChibiPlan>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub jieting_plan: Option<JietingPlan>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub xiapi_plan: Option<XiapiPlan>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub xiangfan_plan: Option<XiangfanPlan>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub market_upgraded: bool,
     pub easter_unlocked: Vec<String>,
     pub event_id: u8,
     pub victories: u32,
@@ -79,7 +85,8 @@ impl CampaignState {
             market: game.market.clone(), lore_flags: game.lore_flags.clone(),
             lore_seen: game.lore_seen.clone(), lore_current: game.lore_current.clone(),
             wuchao_plan: game.wuchao_plan, chibi_plan: game.chibi_plan,
-            jieting_plan: game.jieting_plan,
+            jieting_plan: game.jieting_plan, xiapi_plan: game.xiapi_plan,
+            xiangfan_plan: game.xiangfan_plan, market_upgraded: game.market_upgraded,
             easter_unlocked: game.easter_unlocked.clone(), event_id: game.event_id,
             victories: game.victories, variants: game.variants,
             doctrine: game.doctrine, modifiers: game.modifiers.clone(),
@@ -119,6 +126,26 @@ impl CampaignState {
                     && (plan != JietingPlan::Council
                         || (self.stage == Stage::Story && (25..=31).contains(&self.floor)))
             })
+            && self.xiapi_plan.is_none_or(|plan| {
+                self.identity.as_ref().is_some_and(|identity| identity.difficulty.is_some()
+                    && identity.expanded_rules_revision == crate::EXPANDED_RULES_REVISION
+                    && identity.hero == Hero::LuBu)
+                    && self.floor >= 17
+                    && (plan != XiapiPlan::Council
+                        || (self.stage == Stage::Story && (17..=31).contains(&self.floor)))
+            })
+            && self.xiangfan_plan.is_none_or(|plan| {
+                self.identity.as_ref().is_some_and(|identity| identity.difficulty.is_some()
+                    && identity.expanded_rules_revision == crate::EXPANDED_RULES_REVISION
+                    && identity.hero == Hero::GuanYu)
+                    && self.floor >= 25
+                    && (plan != XiangfanPlan::Council
+                        || (self.stage == Stage::Story && (25..=31).contains(&self.floor)))
+            })
+            && (!self.market_upgraded
+                || (self.stage == Stage::Market
+                    && self.identity.as_ref().is_some_and(|identity| identity.difficulty.is_some()
+                        && identity.expanded_rules_revision == crate::EXPANDED_RULES_REVISION)))
             && self.potions <= 3 && self.potion_bag.len() == usize::from(self.potions)
             && self.rewards.iter().chain(&self.market).all(|card| !card.temporary)
     }
@@ -194,8 +221,15 @@ pub fn project(events: &[CampaignEvent]) -> Result<(CampaignState, u64), String>
 }
 
 
+struct HistoricalAuditBundle {
+    decisions: Vec<HistoricalDecision>,
+    receipts: Vec<HistoricalEffectReceipt>,
+    interactions: Vec<HistoricalInteraction>,
+    untriggered: Vec<UntriggeredHistoryReason>,
+}
+
 /**
- * Stable committed decision candidates, including the three councils and
+ * Stable committed decision candidates, including the councils and
  * selected literary decisions with named tactical consequences. A candidate
  * alone is not proof of an actual downstream effect. Narrative displays,
  * revisits and unchanged revisions never create another candidate.
@@ -246,6 +280,12 @@ pub fn historical_decisions(events: &[CampaignEvent]) -> Result<Vec<HistoricalDe
             ("jieting", council_commit && identity.hero == Hero::ZhugeLiang
                 && (25..=30).contains(&before.floor) && before.jieting_plan == Some(JietingPlan::Council)
                 && matches!(after.jieting_plan, Some(JietingPlan::WaterPending | JietingPlan::HillPending | JietingPlan::RetreatPending))),
+            ("xiapi", council_commit && identity.hero == Hero::LuBu
+                && (17..=31).contains(&before.floor) && before.xiapi_plan == Some(XiapiPlan::Council)
+                && matches!(after.xiapi_plan, Some(XiapiPlan::SplitPending | XiapiPlan::DefensePending | XiapiPlan::ChargePending))),
+            ("xiangfan", council_commit && identity.hero == Hero::GuanYu
+                && (25..=31).contains(&before.floor) && before.xiangfan_plan == Some(XiangfanPlan::Council)
+                && matches!(after.xiangfan_plan, Some(XiangfanPlan::FloodPending | XiangfanPlan::DikePending | XiangfanPlan::HoldPending))),
         ];
         for (kind, changed) in changes {
             if changed && recorded.insert(kind) {
@@ -321,6 +361,16 @@ pub struct HistoricalInteraction {
     pub battle_source: Option<String>,
 }
 
+/// Explicit explanation when a historical scene or tactical decision is
+/// missing, declined, or unexercised along a branch.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UntriggeredHistoryReason {
+    pub key: String,
+    pub category: &'static str,
+    pub floor: u8,
+    pub reason: &'static str,
+}
+
 /// Replay-derived measurement for one expanded journey. A partial or lost
 /// journey remains visible, but is not a completed forty-floor sample.
 /// Counts describe the covered subset only; they do not certify SPEC density.
@@ -339,12 +389,18 @@ pub struct HistoricalDensityReport {
     pub battle_effect: usize,
     pub cross_act_effect: usize,
     pub interactions: Vec<HistoricalInteraction>,
+    pub untriggered_reasons: Vec<UntriggeredHistoryReason>,
 }
 
 impl HistoricalDensityReport {
-    fn from_verified(game: &Game, difficulty: Difficulty, interactions: Vec<HistoricalInteraction>) -> Self {
+    fn from_verified(
+        game: &Game,
+        difficulty: Difficulty,
+        interactions: Vec<HistoricalInteraction>,
+        untriggered_reasons: Vec<UntriggeredHistoryReason>,
+    ) -> Self {
         Self {
-            schema_version: 1,
+            schema_version: 2,
             hero: game.hero,
             difficulty,
             seed: game.seed,
@@ -358,6 +414,7 @@ impl HistoricalDensityReport {
             battle_effect: interactions.iter().filter(|r| r.battlefield_receipts > 0).count(),
             cross_act_effect: interactions.iter().filter(|r| r.cross_act_receipts > 0).count(),
             interactions,
+            untriggered_reasons,
         }
     }
 }
@@ -416,6 +473,14 @@ fn historical_effect_site(source: &str) -> Option<(&'static str, &'static str)> 
             Some(("jieting", "fourth_act_settlement")),
         "jieting_act_five_water" | "jieting_act_five_debt" | "jieting_act_five_recovery" =>
             Some(("jieting", "fifth_act_settlement")),
+        "xiapi_split_battle" | "xiapi_camp_defense" | "xiapi_lone_charge" =>
+            Some(("xiapi", "field_skirmish")),
+        "xiapi_split_boss" | "xiapi_camp_boss" | "xiapi_charge_boss" =>
+            Some(("xiapi", "act_boss")),
+        "xiangfan_flood_battle" | "xiangfan_dike_battle" | "xiangfan_hold_battle" =>
+            Some(("xiangfan", "field_skirmish")),
+        "xiangfan_flood_boss" | "xiangfan_dike_boss" | "xiangfan_hold_boss" =>
+            Some(("xiangfan", "fourth_act_boss")),
         "wuchao_coalition_raid" | "wuchao_coalition_fortified" | "wuchao_coalition_unchecked" =>
             Some(("wuchao", "guandu")),
         "wuchao_tyrant_raid" | "wuchao_tyrant_fortified" | "wuchao_tyrant_unchecked"
@@ -507,16 +572,23 @@ impl Game {
     /// manufacture effect receipts. This deliberately covers only named sites.
     pub fn historical_effect_receipts(&self) -> Result<Vec<HistoricalEffectReceipt>, String> {
         if self.difficulty.is_none() { return Ok(Vec::new()); }
-        let trace = self.reconstruct_action_event_trace()?;
-        self.decision_effect_receipts(&trace)
+        Ok(self.collect_historical_audit()?.receipts)
     }
 
-    fn decision_effect_receipts(
-        &self, trace: &[crate::replay::ActionEventTrace],
-    ) -> Result<Vec<HistoricalEffectReceipt>, String> {
+    fn collect_historical_audit(&self) -> Result<HistoricalAuditBundle, String> {
+        let trace = self.reconstruct_action_event_trace()?;
         let history = self.campaign_history.as_ref()
             .ok_or("missing campaign journal for historical effect receipts")?;
         let decisions = historical_decisions(history)?;
+        let receipts = self.decision_effect_receipts(&decisions, &trace);
+        let interactions = self.interactions_from_verified_receipts(&decisions, &receipts, &trace)?;
+        let untriggered = self.collect_untriggered_reasons(&decisions, &receipts, history)?;
+        Ok(HistoricalAuditBundle { decisions, receipts, interactions, untriggered })
+    }
+
+    fn decision_effect_receipts(
+        &self, decisions: &[HistoricalDecision], trace: &[crate::replay::ActionEventTrace],
+    ) -> Vec<HistoricalEffectReceipt> {
         let mut seen = HashSet::new();
         let mut receipts = Vec::new();
         for action in trace {
@@ -542,7 +614,140 @@ impl Game {
                 });
             }
         }
-        Ok(receipts)
+        receipts
+    }
+
+    fn collect_untriggered_reasons(
+        &self,
+        decisions: &[HistoricalDecision],
+        receipts: &[HistoricalEffectReceipt],
+        history: &[CampaignEvent],
+    ) -> Result<Vec<UntriggeredHistoryReason>, String> {
+        let mut reasons = Vec::new();
+        let mut seen_keys = HashSet::new();
+        let mut visited_battles = HashSet::new();
+        let mut projector = CampaignProjector::default();
+        for event in history {
+            let previous = projector.state.as_ref().cloned();
+            projector.push(event)?;
+            let Some(before) = previous else { continue; };
+            let Some(after) = projector.state.as_ref() else { continue; };
+            if after.last_node == Some(Node::Battle) {
+                visited_battles.insert(after.floor);
+            }
+            if before.stage == Stage::Story
+                && let Some(beat) = before.lore_current.as_deref().and_then(crate::lore::beat)
+                && !before.lore_seen.iter().any(|id| id == beat.id)
+                && after.lore_seen.iter().any(|id| id == beat.id)
+                && !after.lore_flags.iter().any(|flag| flag == beat.flag)
+                && !decisions.iter().any(|d| d.kind == beat.flag)
+                && seen_keys.insert(format!("scene:{}", beat.id))
+            {
+                reasons.push(UntriggeredHistoryReason {
+                    key: format!("scene:{}", beat.id),
+                    category: "declined_story",
+                    floor: before.floor,
+                    reason: "遇到文学事件但未采纳对应战术选项",
+                });
+            }
+        }
+        let councils = [
+            ("wuchao", self.hero == Hero::CaoCao, 9_u8, 16_u8),
+            ("chibi", matches!(self.hero, Hero::ZhugeLiang | Hero::SunShangxiang), 17, 24),
+            ("jieting", self.hero == Hero::ZhugeLiang, 25, 30),
+            ("xiapi", self.hero == Hero::LuBu, 17, 31),
+            ("xiangfan", self.hero == Hero::GuanYu, 25, 31),
+        ];
+        for (kind, eligible, start_floor, end_floor) in councils {
+            if !eligible || decisions.iter().any(|d| d.kind == kind) { continue; }
+            if self.floor > end_floor
+                || (matches!(self.stage, Stage::Won | Stage::Lost) && self.floor >= start_floor)
+            {
+                let key = format!("council:{kind}");
+                if seen_keys.insert(key.clone()) {
+                    reasons.push(UntriggeredHistoryReason {
+                        key,
+                        category: "missed_council",
+                        floor: self.floor.min(end_floor),
+                        reason: "经过军议章节窗口但未触发或完成该军议抉择",
+                    });
+                }
+            }
+        }
+        for decision in decisions {
+            if receipts.iter().any(|r| r.decision_id == decision.id) { continue; }
+            if decision.kind == "jieting" && !jieting_map_effect_floors(history, decision.revision)?.is_empty() {
+                continue;
+            }
+            let (category, reason) = match decision.kind.as_str() {
+                "empty_city" => {
+                    if self.floor >= 24 && self.act_variant(2) != 0 {
+                        ("alternate_boss_branch", "第三幕选用替代关底左慈，未对阵司马懿")
+                    } else if self.floor < 24 {
+                        ("target_not_reached", "尚未推进至第24层司马懿关底")
+                    } else {
+                        ("counter_condition_unmet", "对阵司马懿时未满足出牌1–2张且保持10护甲条件")
+                    }
+                }
+                "mist_arrows" => {
+                    if self.floor < 19 {
+                        ("target_not_reached", "尚未推进至第19层水陆阵战")
+                    } else if !visited_battles.contains(&19) {
+                        ("route_avoided_site", "行军路线未进入第19层水陆阵战节点")
+                    } else {
+                        ("counter_condition_unmet", "第19层水陆阵战偶数回合未满足出牌且至少4点掩护条件")
+                    }
+                }
+                "fancheng_flood_record" => {
+                    if self.floor < 27 {
+                        ("target_not_reached", "尚未推进至第27层樊城水势战场")
+                    } else if !visited_battles.contains(&27) {
+                        ("route_avoided_site", "行军路线未进入第27层樊城野战节点")
+                    } else {
+                        ("counter_condition_unmet", "第27层偶数回合未触发或未满足8护甲水势反制条件")
+                    }
+                }
+                "jingzhou_warning" => {
+                    if self.floor >= 32 && self.act_variant(3) != 1 {
+                        ("alternate_boss_branch", "第四幕选用替代关底陆逊，未对阵吕蒙")
+                    } else if self.floor < 32 {
+                        ("target_not_reached", "尚未推进至第32层吕蒙关底")
+                    } else {
+                        ("counter_condition_unmet", "对阵吕蒙时未满足出牌且至少8护甲条件")
+                    }
+                }
+                "star_lantern" => {
+                    if self.floor >= 40 && self.act_variant(4) != 0 {
+                        ("alternate_boss_branch", "第五幕选用替代关底邓艾，未对阵姜维")
+                    } else if self.floor < 40 {
+                        ("target_not_reached", "尚未推进至第40层姜维关底")
+                    } else {
+                        ("counter_condition_unmet", "对阵姜维首回合未满足出牌至少2张并守住断粮")
+                    }
+                }
+                kind => {
+                    let min_site_floor = match kind {
+                        "wuchao" => 16,
+                        "chibi" => 19,
+                        "jieting" => 26,
+                        "xiapi" | "xiangfan" => decision.floor.saturating_add(1),
+                        _ => decision.floor.saturating_add(1),
+                    };
+                    if self.floor < min_site_floor {
+                        ("target_not_reached", "作出军议后尚未推进至对应的兑现战场或关底")
+                    } else {
+                        ("counter_condition_unmet", "已到达军议生效窗口但未触发已核验的正面兑现事件")
+                    }
+                }
+            };
+            reasons.push(UntriggeredHistoryReason {
+                key: format!("decision:{}", decision.kind),
+                category,
+                floor: self.floor.max(decision.floor),
+                reason,
+            });
+        }
+        Ok(reasons)
     }
 
     /// A lower bound on meaningful history interactions, not a claim that
@@ -550,9 +755,7 @@ impl Game {
     /// historical_effect_receipts verifies all the journals used below.
     pub fn historical_interactions(&self) -> Result<Vec<HistoricalInteraction>, String> {
         if self.difficulty.is_none() { return Ok(Vec::new()); }
-        let trace = self.reconstruct_action_event_trace()?;
-        let receipts = self.decision_effect_receipts(&trace)?;
-        self.interactions_from_verified_receipts(&receipts, &trace)
+        Ok(self.collect_historical_audit()?.interactions)
     }
 
     /// Structured, anonymous observation for offline aggregation. Fail closed
@@ -560,19 +763,21 @@ impl Game {
     /// density measurement for a legacy campaign.
     pub fn historical_density_report(&self) -> Result<HistoricalDensityReport, String> {
         let difficulty = self.difficulty.ok_or("旧制战役不适用新制历史触动统计")?;
-        let interactions = self.historical_interactions()?;
-        Ok(HistoricalDensityReport::from_verified(self, difficulty, interactions))
+        let audit = self.collect_historical_audit()?;
+        Ok(HistoricalDensityReport::from_verified(self, difficulty, audit.interactions, audit.untriggered))
     }
 
     fn interactions_from_verified_receipts(
-        &self, receipts: &[HistoricalEffectReceipt], trace: &[crate::replay::ActionEventTrace],
+        &self,
+        decisions: &[HistoricalDecision],
+        receipts: &[HistoricalEffectReceipt],
+        trace: &[crate::replay::ActionEventTrace],
     ) -> Result<Vec<HistoricalInteraction>, String> {
         use crate::{Action, resource_events::ResourceEvent, card_zone_events::CardZoneEvent};
         let history = self.campaign_history.as_ref().ok_or("missing campaign journal")?;
         let resources = self.resource_history.as_ref().ok_or("missing resource journal")?;
         let cards = self.card_zone_history.as_ref().ok_or("missing permanent card journal")?;
         let actions = self.action_history.as_ref().ok_or("missing action journal")?;
-        let decisions = historical_decisions(history)?;
         let jieting_maps = if let Some(decision) = decisions.iter().find(|d| d.kind == "jieting") {
             jieting_map_effect_floors(history, decision.revision)?
         } else { Vec::new() };
@@ -592,7 +797,8 @@ impl Game {
             let decision = decisions.iter().find(|d| d.revision == revision);
             // Council subchoices own the action, even when opening the
             // council did not clear a literary scene from the live snapshot.
-            let council = decision.filter(|d| matches!(d.kind.as_str(), "wuchao" | "chibi" | "jieting"));
+            let council = decision.filter(|d| matches!(d.kind.as_str(),
+                "wuchao" | "chibi" | "jieting" | "xiapi" | "xiangfan"));
             let key = if let Some(d) = council {
                 format!("council:{}", d.kind)
             } else if let Some(beat) = before.lore_current.as_deref().and_then(crate::lore::beat) {
@@ -635,7 +841,7 @@ impl Game {
                 battle_source: None,
             });
         }
-        interactions.extend(standalone_battle_interactions(trace, &decisions));
+        interactions.extend(standalone_battle_interactions(trace, decisions));
         interactions.sort_by_key(|interaction| interaction.revision);
         Ok(interactions)
     }
@@ -647,15 +853,18 @@ impl Game {
         if self.difficulty.is_none() {
             return Ok("旧制战役保留原演义纪事；新制战史档案不适用。".into());
         }
-        let trace = self.reconstruct_action_event_trace()?;
-        let receipts = self.decision_effect_receipts(&trace)?;
-        let history = self.campaign_history.as_ref().ok_or("缺少战役决策档案")?;
-        let decisions = historical_decisions(history)?;
-        let effective = receipts.iter().map(|r| r.decision_id.as_str())
+        let audit = self.collect_historical_audit()?;
+        let effective = audit.receipts.iter().map(|r| r.decision_id.as_str())
             .collect::<HashSet<_>>().len();
-        let interactions = self.interactions_from_verified_receipts(&receipts, &trace)?;
-        let density = HistoricalDensityReport::from_verified(self, self.difficulty.expect("expanded campaign"), interactions);
+        let density = HistoricalDensityReport::from_verified(
+            self,
+            self.difficulty.expect("expanded campaign"),
+            audit.interactions,
+            audit.untriggered,
+        );
         let interactions = &density.interactions;
+        let decisions = &audit.decisions;
+        let receipts = &audit.receipts;
         let (immediate, battle, cross_act, map) =
             (density.resource_or_deck, density.battle_effect, density.cross_act_effect, density.map_effect);
         let mut lines = vec![format!(
@@ -685,11 +894,13 @@ impl Game {
                     interaction.map_receipts));
             }
         }
-        for decision in &decisions {
+        for decision in decisions {
             let (chapter, title) = match decision.kind.as_str() {
                 "wuchao" => (30, "官渡乌巢"),
                 "chibi" => (49, "赤壁东风"),
                 "jieting" => (95, "街亭军议"),
+                "xiapi" => (19, "下邳破围"),
+                "xiangfan" => (74, "襄樊水防"),
                 flag => interactions.iter().find(|r| r.revision == decision.revision)
                     .and_then(|r| r.key.strip_prefix("scene:"))
                     .and_then(crate::lore::beat)
@@ -707,6 +918,10 @@ impl Game {
                     receipt.source, receipt.amount));
             }
             if !affected { lines.push("  尚无已核验的实际战场兑现。".into()); }
+        }
+        for reason in &density.untriggered_reasons {
+            lines.push(format!("  未触发原因核对：{} [{}]（第{}层）：{}",
+                reason.key, reason.category, reason.floor, reason.reason));
         }
         if decisions.is_empty() { lines.push("尚无已覆盖的历史战术选择。".into()); }
         Ok(lines.join("\n"))
@@ -940,5 +1155,91 @@ mod standalone_counter_projection_tests {
         }
         assert_eq!(historical_effect_site("chibi_luxun_firebreak"),
             historical_effect_site("chibi_lumeng_counterattack"));
+    }
+}
+
+#[cfg(test)]
+mod untriggered_density_reason_tests {
+    use super::*;
+
+    #[test]
+    fn density_report_explains_declined_story_missed_council_and_alternate_boss_reasons() {
+        // Real replayed Story decline -> Switch -> Verify density report.
+        let mut decliner = Game::new_with_campaign_difficulty(
+            Hero::ZhugeLiang, 7, Difficulty::Warlords, "untriggered-decline".into(),
+        );
+        let mut saw_declined_story = false;
+        for _ in 0..80 {
+            if matches!(decliner.stage, Stage::Won | Stage::Lost) { break; }
+            let action = match decliner.stage {
+                Stage::Map => {
+                    let pick = decliner.route.iter().position(|n| *n == Node::Story)
+                        .map_or(1, |i| i + 1);
+                    crate::Action::Choose { index: pick }
+                }
+                Stage::Story => {
+                    if decliner.lore_current.is_some() { saw_declined_story = true; }
+                    crate::Action::Choose { index: 3 }
+                }
+                Stage::Reward => crate::Action::Choose { index: 0 },
+                Stage::Camp => crate::Action::Choose { index: 1 },
+                Stage::Market => crate::Action::Choose { index: 0 },
+                Stage::Ancient => crate::Action::Choose { index: 1 },
+                Stage::Combat => {
+                    let b = decliner.battle.as_ref().unwrap();
+                    if let Some(i) = b.hand.iter().position(|c|
+                        crate::content::card_spec(&c.id).is_some_and(|s|
+                            !matches!(s.effect, crate::content::Effect::Unplayable) && s.cost <= b.energy))
+                    {
+                        crate::Action::Play { index: i + 1, target: 1 }
+                    } else {
+                        crate::Action::EndTurn
+                    }
+                }
+                Stage::Won | Stage::Lost => break,
+            };
+            decliner.apply(action).unwrap();
+            if saw_declined_story && decliner.stage == Stage::Map { break; }
+        }
+        assert!(saw_declined_story, "ZhugeLiang seed 7 should encounter a Story scene");
+        let declined_report = decliner.historical_density_report().unwrap();
+        assert!(declined_report.untriggered_reasons.iter().any(|r| r.category == "declined_story"),
+            "declined report: {:?}", declined_report.untriggered_reasons);
+
+        // Unit verification for alternate boss branch, target not reached, and missed council.
+        let mut branch_game = Game::new_with_campaign_difficulty(
+            Hero::ZhugeLiang, 7, Difficulty::Warlords, "untriggered-branches".into(),
+        );
+        branch_game.apply(crate::Action::SetExpandedVariants {
+            act1: 0, act2: 1, act3: 1, act4: 0, act5: 1,
+        }).unwrap();
+        branch_game.floor = 40;
+        branch_game.stage = Stage::Lost;
+        let decisions = vec![
+            HistoricalDecision { id: "d1".into(), revision: 2, floor: 17, kind: "empty_city".into() },
+            HistoricalDecision { id: "d2".into(), revision: 3, floor: 33, kind: "star_lantern".into() },
+            HistoricalDecision { id: "d3".into(), revision: 4, floor: 10, kind: "mist_arrows".into() },
+        ];
+        let reasons = branch_game.collect_untriggered_reasons(&decisions, &[], &[]).unwrap();
+        assert!(reasons.iter().any(|r| r.key == "council:chibi" && r.category == "missed_council"));
+        assert!(reasons.iter().any(|r| r.key == "council:jieting" && r.category == "missed_council"));
+        assert!(reasons.iter().any(|r| r.key == "decision:empty_city" && r.category == "alternate_boss_branch"));
+        assert!(reasons.iter().any(|r| r.key == "decision:star_lantern" && r.category == "alternate_boss_branch"));
+        assert!(reasons.iter().any(|r| r.key == "decision:mist_arrows" && r.category == "route_avoided_site"));
+
+        // When history visited floor-19 Battle, mist_arrows explains counter_condition_unmet.
+        let mut s0 = CampaignState::current(&branch_game);
+        s0.floor = 0;
+        s0.stage = Stage::Map;
+        let mut s19 = s0.clone();
+        s19.floor = 19;
+        s19.stage = Stage::Combat;
+        s19.last_node = Some(Node::Battle);
+        let hist = vec![
+            CampaignEvent::Started { state: s0 },
+            CampaignEvent::Changed { revision: 1, state: Some(s19) },
+        ];
+        let visited_reasons = branch_game.collect_untriggered_reasons(&decisions, &[], &hist).unwrap();
+        assert!(visited_reasons.iter().any(|r| r.key == "decision:mist_arrows" && r.category == "counter_condition_unmet"));
     }
 }

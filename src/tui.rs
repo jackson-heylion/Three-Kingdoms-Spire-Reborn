@@ -1,7 +1,7 @@
 //! Optional full-keyboard terminal menu for macOS/Linux without platform crates.
 //! Raw mode is scoped by RAII, and the existing plain line CLI remains supported.
 use super::{App, Stage, Card, card_label, card_spec, hud, potion_name};
-use three_kingdoms_spire_reborn::{ChibiPlan, WuchaoPlan, JietingPlan, Difficulty, challenges::ChallengeModifier, content::{Effect, Hero}};
+use three_kingdoms_spire_reborn::{Game, ChibiPlan, WuchaoPlan, JietingPlan, XiapiPlan, XiangfanPlan, Difficulty, challenges::ChallengeModifier, content::{Effect, Hero}};
 use unicode_width::UnicodeWidthChar;
 #[cfg(test)] use unicode_width::UnicodeWidthStr;
 use std::{fs::File,io::{self, Read, Write, IsTerminal},process::{Command,Stdio}};
@@ -124,14 +124,22 @@ pub(super) fn choices(app:&App,target:usize)->Vec<(String,String)> {
         },
         Stage::Market=> {
             let mut offers=game.market.iter().enumerate()
-                .map(|(index,card)|(format!("购入牌组 {} / {} 金",card_label(card),45+15*index),
-                    format!("choose {}",index+1))).collect::<Vec<_>>();
+                .map(|(index,card)| {
+                    let price = Game::market_card_price(index + 1).unwrap_or(0);
+                    (format!("购入牌组 {} / {price} 金", card_label(card)),
+                        format!("choose {}", index + 1))
+                }).collect::<Vec<_>>();
             offers.extend([
                 ("随机药剂 / 55 金".into(),"choose 4".into()),
                 ("遗物 / 155 金".into(),"choose 5".into()),
-                ("移除基础牌 / 75 金".into(),"choose 6".into()),
-                ("离开军市".into(),"choose 0".into()),
+                (if game.market_upgrade_price().is_some() {
+                    "移除诅咒/突刺/防牌 / 75 金".into()
+                } else { "移除基础牌 / 75 金".into() }, "choose 6".into()),
             ]);
+            if let Some(upgrade_cost) = game.market_upgrade_price().filter(|_| !game.market_upgraded) {
+                offers.push((format!("整训升级首张可升级牌 / {upgrade_cost} 金"), "choose 7".into()));
+            }
+            offers.push(("离开军市".into(),"choose 0".into()));
             offers
         }
         Stage::Story=>{
@@ -153,12 +161,30 @@ pub(super) fn choices(app:&App,target:usize)->Vec<(String,String)> {
                     ("固守粮道 · 耗8体力 / 下幕首战护甲+12".into(), "choose 2".into()),
                     ("不介入 · 下幕首战敌前锋护甲+12".into(), "choose 3".into()),
                 ]
-            } else {
+            } else if game.xiapi_plan == Some(XiapiPlan::Council) {
                 vec![
-                    ("选择奇遇结果1".into(), "choose 1".into()),
-                    ("选择奇遇结果2".into(), "choose 2".into()),
-                    ("选择奇遇结果3".into(), "choose 3".into()),
+                    ("分兵夹击 · 耗16金 / 削弱敌锋损血并增怒，暴露易伤".into(), "choose 1".into()),
+                    ("陷阵死守 · 耗6体力 / 下战与关底获护甲+武勇".into(), "choose 2".into()),
+                    ("赤兔孤骑 · 增怒多抽1牌 / 敌军全军获护甲".into(), "choose 3".into()),
                 ]
+            } else if game.xiangfan_plan == Some(XiangfanPlan::Council) {
+                vec![
+                    ("乘汛决堤 · 耗16金 / 淹损敌前锋并虚弱，后继耗至多10金".into(), "choose 1".into()),
+                    ("筑堰护民 · 耗6体力 / 下战与关底护甲+12/+14及反击".into(), "choose 2".into()),
+                    ("按兵守渡 · 保留资源 / 下战与关底敌前锋获甲增攻".into(), "choose 3".into()),
+                ]
+            } else if let Some(beat) = game.lore_current.as_deref()
+                .and_then(three_kingdoms_spire_reborn::lore::beat)
+            {
+                vec![
+                    (format!("结缘：{}", beat.vow), "choose 1".into()),
+                    (format!("取利：{}", beat.bargain), "choose 2".into()),
+                    ("不介入（保留原状）".into(), "choose 3".into()),
+                ]
+            } else {
+                game.story_choice_labels().into_iter().enumerate()
+                    .map(|(i, label)| (label.to_owned(), format!("choose {}", i + 1)))
+                    .collect()
             };
             if let Some(label) = game.story_fourth_option() {
                 options.push((label.into(), "choose 4".into()));
@@ -243,6 +269,38 @@ fn terminal_size()->(usize,usize) {
             Some((cols.next()?.parse::<usize>().ok()?,cols.next()?.parse::<usize>().ok()?))
         }).map_or((24,80),|(rows,width)|(rows.max(16),width.max(28)))
 }
+enum EscapeKey {
+    Bare,
+    Up,
+    Down,
+    Other,
+}
+
+fn read_escape_key() -> io::Result<EscapeKey> {
+    let _ = RawTerminal::stty(&["-icanon", "-echo", "min", "0", "time", "1"]);
+    let mut second = [0_u8; 1];
+    let n2 = io::stdin().read(&mut second)?;
+    let key = if n2 == 0 {
+        EscapeKey::Bare
+    } else if second[0] == b'[' {
+        let mut third = [0_u8; 1];
+        let n3 = io::stdin().read(&mut third)?;
+        if n3 == 0 {
+            EscapeKey::Other
+        } else {
+            match third[0] {
+                b'A' => EscapeKey::Up,
+                b'B' => EscapeKey::Down,
+                _ => EscapeKey::Other,
+            }
+        }
+    } else {
+        EscapeKey::Other
+    };
+    let _ = RawTerminal::stty(&["-icanon", "-echo", "min", "1", "time", "0"]);
+    Ok(key)
+}
+
 fn read_byte()->io::Result<u8> {
     let mut byte=[0_u8;1];
     io::stdin().read_exact(&mut byte)?;
@@ -316,13 +374,12 @@ pub(super) fn run(app:&mut App)->Result<(),String> {
                 b'k' => report_offset = report_offset.saturating_sub(1),
                 b'f' | b' ' => report_offset = report_offset.saturating_add(page).min(last),
                 b'b' => report_offset = report_offset.saturating_sub(page),
-                27 if read_byte().map_err(|e| e.to_string())? == b'[' => {
-                    match read_byte().map_err(|e| e.to_string())? {
-                        b'A' => report_offset = report_offset.saturating_sub(1),
-                        b'B' => report_offset = report_offset.saturating_add(1).min(last),
-                        _ => {}
-                    }
-                }
+                27 => match read_escape_key().map_err(|e| e.to_string())? {
+                    EscapeKey::Bare => { report = None; report_offset = 0; }
+                    EscapeKey::Up => report_offset = report_offset.saturating_sub(1),
+                    EscapeKey::Down => report_offset = report_offset.saturating_add(1).min(last),
+                    EscapeKey::Other => {}
+                },
                 _ => {}
             }
             continue;
@@ -363,11 +420,14 @@ pub(super) fn run(app:&mut App)->Result<(),String> {
                 if command.is_empty(){None}else{Some(command)}
             }
             27=>{
-                let second=read_byte().map_err(|e|e.to_string())?;
-                if second==b'[' {
-                    let third=read_byte().map_err(|e|e.to_string())?;
-                    if third==b'A' {cursor=cursor.saturating_sub(1);}
-                    if third==b'B' {cursor=cursor.saturating_add(1).min(options.len().saturating_sub(1));}
+                match read_escape_key().map_err(|e| e.to_string())? {
+                    EscapeKey::Up => cursor = cursor.saturating_sub(1),
+                    EscapeKey::Down => cursor = cursor.saturating_add(1).min(options.len().saturating_sub(1)),
+                    EscapeKey::Bare => {
+                        selecting_card = None;
+                        selecting_campaign = None;
+                    }
+                    EscapeKey::Other => {}
                 }
                 None
             }
@@ -601,5 +661,29 @@ mod expanded_keyboard_regressions {
         assert_eq!(live_target(Some(&game), 1), 2);
         assert_eq!(live_target(Some(&game), 2), 2);
         assert_eq!(game.to_json().unwrap(), before);
+    }
+
+    #[test]
+    fn story_keyboard_menu_uses_real_literary_and_generic_event_choices() {
+        let mut literary = Game::new_with_campaign_difficulty(
+            Hero::GuanYu, 7, Difficulty::Warlords, "tui-literary".into(),
+        );
+        literary.stage = Stage::Story;
+        literary.lore_current = Some("taoyuan".into());
+        let menu = choices(&app(Some(literary)), 1);
+        assert!(menu.iter().any(|(label, cmd)| cmd == "choose 1" && label.starts_with("结缘：")), "{menu:?}");
+        assert!(menu.iter().any(|(label, cmd)| cmd == "choose 2" && label.starts_with("取利：")), "{menu:?}");
+        assert!(menu.iter().any(|(label, cmd)| cmd == "choose 3" && label.contains("不介入")), "{menu:?}");
+        assert!(!menu.iter().any(|(label, _)| label.contains("选择奇遇结果")));
+
+        let mut generic = Game::new_with_campaign_difficulty(
+            Hero::CaoCao, 7, Difficulty::Warlords, "tui-generic-story".into(),
+        );
+        generic.stage = Stage::Story;
+        generic.lore_current = None;
+        generic.event_id = 0;
+        let menu = choices(&app(Some(generic)), 1);
+        assert!(menu.iter().any(|(label, cmd)| cmd == "choose 1" && label.contains("购粮")), "{menu:?}");
+        assert!(!menu.iter().any(|(label, _)| label.contains("选择奇遇结果")));
     }
 }

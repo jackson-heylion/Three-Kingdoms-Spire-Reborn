@@ -70,6 +70,20 @@ fn heading(out: &mut Vec<String>, app: &App, title: &str, columns: usize) {
     line(out, app, &line_text, columns, Tone::Muted);
 }
 
+fn wrap_prefixed_lines(
+    out: &mut Vec<String>, app: &App, prefix: &str, text: &str, columns: usize, tone: Tone, max_lines: usize,
+) {
+    let wrapped = report_lines(&format!("{prefix}{text}"), columns);
+    let shown = wrapped.len().min(max_lines.max(1));
+    for (idx, chunk) in wrapped.iter().take(shown).enumerate() {
+        let mut rendered = chunk.clone();
+        if idx + 1 == shown && wrapped.len() > shown {
+            rendered = fit(&format!("{rendered}…"), columns);
+        }
+        line(out, app, &rendered, columns, tone);
+    }
+}
+
 /// Wrap Unicode text without dropping the rest of a long archive line.
 pub(super) fn report_lines(text: &str, columns: usize) -> Vec<String> {
     let columns = columns.clamp(28, 120);
@@ -111,7 +125,7 @@ pub(super) fn render_report(app: &App, columns: usize, rows: usize,
     line(&mut out, app, &format!("{}–{} / {} 行",
         start + usize::from(!lines.is_empty()), end, lines.len()), columns, Tone::Muted);
     line(&mut out, app, "↑↓ / jk 滚动  fb 翻页  q/Enter 返回", columns, Tone::Accent);
-    format!("{}\n", out.join("\n"))
+    out.join("\n")
 }
 
 fn menu_label(label: &str, combat: bool, details: bool) -> &str {
@@ -164,9 +178,12 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
             ]);
         }
         if details && rows >= 26 {
-            line(&mut out, app, &format!("{:?} A{} · {} · 战法：{}",
-                g.mode, g.ascension, g.act_name(),
-                g.doctrine.map_or("自动", |d| d.label())), columns, Tone::Muted);
+            let mode_label = g.difficulty.map_or_else(
+                || format!("{:?} A{}", g.mode, g.ascension),
+                |tier| format!("新制【{}】", tier.name()),
+            );
+            line(&mut out, app, &format!("{mode_label} · {} · 战法：{}",
+                g.act_name(), g.doctrine.map_or("自动", |d| d.label())), columns, Tone::Muted);
             if let Some(cap) = g.victory_recovery_cap() {
                 line(&mut out, app, &format!("本幕战后被动回血上限 {cap}"), columns, Tone::Muted);
             }
@@ -181,7 +198,8 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
                     if b.weak > 0 || b.vulnerable > 0 { Tone::Warning } else { Tone::Muted }),
             ]);
             if let Some(objective) = g.tactical_objective() {
-                line(&mut out, app, &format!("关卡目标：{objective}"), columns, Tone::Warning);
+                let budget = if details { 6 } else if rows >= 28 { 3 } else { 1 };
+                wrap_prefixed_lines(&mut out, app, "关卡目标：", &objective, columns, Tone::Warning, budget);
             }
             heading(&mut out, app, "敌军（t 切换目标）", columns);
             for (i, enemy) in b.foes.iter().enumerate() {
@@ -243,13 +261,28 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
                 Stage::Combat => "战斗中",
             };
             line(&mut out, app, scene, columns, Tone::Accent);
+            if g.stage == Stage::Story {
+                if g.in_council() {
+                    if let Some(header) = g.lore_hint().lines().next() {
+                        wrap_prefixed_lines(&mut out, app, "", header, columns, Tone::Warning, 2);
+                    }
+                } else if let Some(beat) = g.lore_current.as_deref().and_then(three_kingdoms_spire_reborn::lore::beat) {
+                    let budget = if details { 8 } else if rows >= 24 { 4 } else { 2 };
+                    wrap_prefixed_lines(&mut out, app,
+                        &format!("第{:03}回·{}（{}）：", beat.chapter, beat.title, beat.character),
+                        beat.premise, columns, Tone::Normal, budget);
+                } else if let Some((title, _)) = g.story_options().split_once('：') {
+                    line(&mut out, app, &format!("当前事件：{title}"), columns, Tone::Normal);
+                }
+            }
             if g.stage == Stage::Map
                 && let Some(index) = options.get(cursor).and_then(|(_, command)|
                     command.strip_prefix("choose ")).and_then(|n| n.parse::<usize>().ok())
                 && let Some(node) = index.checked_sub(1).and_then(|i| g.route.get(i))
                 && let Some(hint) = g.route_objective_hint(*node)
             {
-                line(&mut out, app, &format!("所选路线风险：{hint}"), columns, Tone::Warning);
+                let budget = if details { 5 } else if rows >= 24 { 3 } else { 1 };
+                wrap_prefixed_lines(&mut out, app, "所选路线风险：", &hint, columns, Tone::Warning, budget);
             }
         }
     } else {
@@ -320,7 +353,7 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
         "↑↓/jk 选  Enter确认  1-9快捷  t目标  v详情  :命令  ?帮助  q退出"
     };
     line(&mut out, app, shortcuts, columns, Tone::Muted);
-    format!("{}\n", out.join("\n"))
+    out.join("\n")
 }
 
 #[cfg(test)]
@@ -519,6 +552,26 @@ mod report_view_tests {
         for screen in [first, last] {
             assert!(screen.lines().count() <= 16);
             assert!(screen.lines().all(|line| width(line) <= 28));
+            assert!(!screen.ends_with('\n'), "report must not scroll bottom row off");
         }
+    }
+
+    #[test]
+    fn story_and_details_hud_surface_literary_context_without_legacy_ascension() {
+        use crate::tui;
+        use three_kingdoms_spire_reborn::{Difficulty, Game, content::Hero};
+        let mut game = Game::new_with_campaign_difficulty(
+            Hero::GuanYu, 16, Difficulty::Conqueror, "hud-story-details".into(),
+        );
+        game.stage = Stage::Story;
+        game.lore_current = Some("taoyuan".into());
+        let app_story = App { game: Some(game), profile: Profile::new(), theme: Theme::Dark,
+            dir: std::path::PathBuf::new(), use_ansi: false, message: String::new() };
+        let menu = tui::choices(&app_story, 1);
+        let screen = render_mode(&app_story, 90, 32, 1, &menu, 0, true);
+        assert!(screen.contains("第001回·桃园残誓"), "{screen}");
+        assert!(screen.contains("新制【乱世枭雄】"), "{screen}");
+        assert!(!screen.contains("A0"), "{screen}");
+        assert!(!screen.ends_with('\n'));
     }
 }
