@@ -95,31 +95,108 @@ pub fn next_beat(hero: Hero, act: u8, flags: &[String], seen: &[String]) -> Opti
     })
 }
 
-/// Deterministic scene ordering for expanded five-act campaigns (acts 0..=4).
-/// Preserves native-act hero ordering first, then catches up eligible missed
-/// lower-act hero scenes (crucial for heroes whose authored arcs cluster early),
-/// and finally surfaces eligible shared archival beats instead of falling back
-/// exclusively to generic tavern events in acts IV and V. Legacy 21-floor runs
-/// continue to invoke next_beat unchanged.
-pub fn next_expanded_beat(hero: Hero, act: u8, flags: &[String], seen: &[String]) -> Option<&'static Beat> {
-    if act <= 2 {
-        return next_beat(hero, act, flags, seen);
+fn tactical_anchor_rank(id: &str) -> Option<u8> {
+    match id {
+        "taoyuan" | "sevenstar" | "sun_father_letter" | "longzhong" | "redhare" | "empty_city" => Some(0),
+        "baima" | "xudu" | "jiangdong_wedding" | "borrow_arrows" | "pavilion" | "south_wilds" => Some(1),
+        "anxi" | "guandu" | "river" | "redcliff" | "halberd" | "wooden_ox" => Some(2),
+        "wenjiu" | "huarong" | "liaodong" | "yiling_bridge" | "jiangwei" | "whitegate" => Some(3),
+        "jingzhou" | "yiling" | "wuzhang" => Some(4),
+        "maicheng" | "jieting_debt" => Some(5),
+        "fancheng_flood_witness" => Some(6),
+        "ma_chao_letter" => Some(7),
+        "lukou_terms_record" => Some(8),
+        "jingxiang_border_warning" => Some(9),
+        _ => None,
     }
+}
+
+fn anchor_max_act(id: &str) -> u8 {
+    match id {
+        "taoyuan" | "sevenstar" | "sun_father_letter" | "longzhong" | "redhare" => 0,
+        "baima" | "huarong" | "guandu" | "pavilion" => 1,
+        "xudu" | "wenjiu" | "anxi" | "empty_city" | "jiangdong_wedding" => 2,
+        "halberd" | "river" | "borrow_arrows" | "south_wilds" | "fancheng_flood_witness"
+        | "ma_chao_letter" | "lukou_terms_record" | "jingxiang_border_warning" => 3,
+        "jingzhou" | "maicheng" | "liaodong" | "yiling" | "yiling_bridge" | "wuzhang"
+        | "jiangwei" | "jieting_debt" | "whitegate" | "wooden_ox" => 4,
+        _ => 4,
+    }
+}
+
+/// Deterministic scene ordering for expanded five-act campaigns (acts 0..=4).
+/// Prioritizes core cross-act tactical anchors in acts I–III (recovering upcoming
+/// skipped hero anchors and shared tactical anchors ahead of generic filler in acts
+/// II–V) without modifying `BEATS` or legacy 21-floor `next_beat` semantics.
+pub fn next_expanded_beat(hero: Hero, act: u8, flags: &[String], seen: &[String]) -> Option<&'static Beat> {
     let eligible = |b: &&Beat| {
         !seen.iter().any(|id| id == b.id)
             && b.prerequisite.is_none_or(|key| flags.iter().any(|flag| flag == key))
     };
+    if act <= 2 {
+        if let Some(anchor) = BEATS.iter()
+            .filter(|b| eligible(b) && b.act <= act && tactical_anchor_rank(b.id).is_some()
+                && b.hero.is_none_or(|required| required == hero)
+                && (b.hero.is_some() || b.act == act))
+            .min_by_key(|b| {
+                let upcoming = anchor_max_act(b.id) >= act;
+                let tier = if b.hero == Some(hero) && b.act == act { 0 }
+                    else if b.hero == Some(hero) && upcoming { 1 }
+                    else if b.hero == Some(hero) { 2 }
+                    else { 3 };
+                (tier, act.saturating_sub(b.act), tactical_anchor_rank(b.id).unwrap_or(255), b.chapter)
+            })
+        {
+            return Some(anchor);
+        }
+        return next_beat(hero, act, flags, seen);
+    }
+    if let Some(anchor) = BEATS.iter()
+        .filter(|b| eligible(b) && b.act <= 2 && b.hero == Some(hero)
+            && tactical_anchor_rank(b.id).is_some())
+        .min_by_key(|b| (
+            u8::from(anchor_max_act(b.id) < act),
+            2_u8.saturating_sub(b.act),
+            tactical_anchor_rank(b.id).unwrap_or(255),
+            b.chapter,
+        ))
+    {
+        return Some(anchor);
+    }
+    if let Some(shared_anchor) = BEATS.iter()
+        .filter(|b| eligible(b) && b.act <= 2 && b.hero.is_none()
+            && tactical_anchor_rank(b.id).is_some() && anchor_max_act(b.id) >= act)
+        .min_by_key(|b| (
+            2_u8.saturating_sub(b.act),
+            tactical_anchor_rank(b.id).unwrap_or(255),
+            u8::from(b.prerequisite.is_none()),
+            b.chapter,
+        ))
+    {
+        return Some(shared_anchor);
+    }
     for candidate_act in (0..=2).rev() {
         if let Some(beat) = BEATS.iter()
             .filter(|b| eligible(b) && b.act == candidate_act && b.hero == Some(hero))
-            .min_by_key(|b| (u8::from(b.prerequisite.is_none()), b.chapter))
+            .min_by_key(|b| (
+                u8::from(tactical_anchor_rank(b.id).is_none()),
+                tactical_anchor_rank(b.id).unwrap_or(255),
+                u8::from(b.prerequisite.is_none()),
+                b.chapter,
+            ))
         {
             return Some(beat);
         }
     }
     BEATS.iter()
         .filter(|b| eligible(b) && b.hero.is_none())
-        .min_by_key(|b| (2_u8.saturating_sub(b.act), u8::from(b.prerequisite.is_none()), b.chapter))
+        .min_by_key(|b| (
+            u8::from(tactical_anchor_rank(b.id).is_none()),
+            2_u8.saturating_sub(b.act),
+            tactical_anchor_rank(b.id).unwrap_or(255),
+            u8::from(b.prerequisite.is_none()),
+            b.chapter,
+        ))
 }
 
 

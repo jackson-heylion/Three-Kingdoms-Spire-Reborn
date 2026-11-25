@@ -442,7 +442,7 @@ pub enum Action {
 struct ExpandedEchoRule {
     flag: &'static str,
     source: &'static str,
-    hero: Hero,
+    hero: Option<Hero>,
     floors: &'static [u8],
     node: Node,
     active: bool,
@@ -456,7 +456,7 @@ struct ExpandedEchoRule {
 }
 
 impl Game {
-    pub(crate) fn has_expanded_history_rules(&self) -> bool {
+    pub fn has_expanded_history_rules(&self) -> bool {
         self.difficulty.is_some() && self.expanded_rules_revision == EXPANDED_RULES_REVISION
     }
 
@@ -561,7 +561,7 @@ impl Game {
         vec![
             ExpandedEchoRule {
                 flag: "taoyuan_oath", source: "taoyuan_oath_wall",
-                hero: Hero::GuanYu, floors: &[8], node: Node::Boss,
+                hero: Some(Hero::GuanYu), floors: &[8], node: Node::Boss,
                 active: played >= 2 && block >= 6,
                 weak: 0, vuln: 0, pierce: 4, cover_gain: 0,
                 route_note: "史事回响·桃园旧誓：首回合实打2牌并守6甲，回合末穿透敌将4点",
@@ -570,7 +570,7 @@ impl Game {
             },
             ExpandedEchoRule {
                 flag: "longzhong_plan", source: "longzhong_plan_foresight",
-                hero: Hero::ZhugeLiang, floors: &[8], node: Node::Boss,
+                hero: Some(Hero::ZhugeLiang), floors: &[8], node: Node::Boss,
                 active: played >= 2 && block >= 6,
                 weak: 0, vuln: 2, pierce: 4, cover_gain: 0,
                 route_note: "史事回响·隆中对策：首回合实打2牌并守6甲，令敌易伤2层并穿透4点",
@@ -579,7 +579,7 @@ impl Game {
             },
             ExpandedEchoRule {
                 flag: "sun_father_dispatch", source: "sun_father_vanguard_echo",
-                hero: Hero::SunShangxiang, floors: &[8], node: Node::Boss,
+                hero: Some(Hero::SunShangxiang), floors: &[8], node: Node::Boss,
                 active: played >= 2 && block >= 6,
                 weak: 0, vuln: 0, pierce: 4, cover_gain: 0,
                 route_note: "史事回响·江东遣将：首回合实打2牌并守6甲，穿透敌将4点",
@@ -588,7 +588,7 @@ impl Game {
             },
             ExpandedEchoRule {
                 flag: "xu_capital", source: "xu_capital_court_command",
-                hero: Hero::CaoCao, floors: &[8], node: Node::Boss,
+                hero: Some(Hero::CaoCao), floors: &[8], node: Node::Boss,
                 active: played >= 2 && block >= 6,
                 weak: 2, vuln: 0, pierce: 4, cover_gain: 0,
                 route_note: "史事回响·许都号令：首回合实打2牌并守6甲，令敌虚弱2层并穿透4点",
@@ -597,7 +597,7 @@ impl Game {
             },
             ExpandedEchoRule {
                 flag: "red_hare", source: "red_hare_charge_impact",
-                hero: Hero::LuBu, floors: &[8], node: Node::Boss,
+                hero: Some(Hero::LuBu), floors: &[8], node: Node::Boss,
                 active: played >= 2,
                 weak: 0, vuln: 0, pierce: 4, cover_gain: 0,
                 route_note: "史事回响·赤兔飞将：首回合实打2牌，回合末穿透敌将4点",
@@ -606,7 +606,7 @@ impl Game {
             },
             ExpandedEchoRule {
                 flag: "sevenstar_vow", source: "sevenstar_assassination_strike",
-                hero: Hero::CaoCao, floors: &[16], node: Node::Boss,
+                hero: Some(Hero::CaoCao), floors: &[16], node: Node::Boss,
                 active: played >= 2,
                 weak: 0, vuln: 0, pierce: 5, cover_gain: 0,
                 route_note: "史事回响·七星宝刀：首回合实打2牌，可穿透敌首领5点",
@@ -615,7 +615,7 @@ impl Game {
             },
             ExpandedEchoRule {
                 flag: "guandu_grain", source: "guandu_grain_reserve_receipt",
-                hero: Hero::CaoCao, floors: &[16], node: Node::Boss,
+                hero: Some(Hero::CaoCao), floors: &[16], node: Node::Boss,
                 active: played >= 2,
                 weak: 2, vuln: 0, pierce: 4, cover_gain: 0,
                 route_note: "史事回响·官渡筹粮：首回合实打2牌，令敌首领虚弱2层并穿透4点",
@@ -624,7 +624,7 @@ impl Game {
             },
             ExpandedEchoRule {
                 flag: "huarong_mercy", source: "huarong_mercy_release",
-                hero: Hero::GuanYu, floors: &[16], node: Node::Boss,
+                hero: Some(Hero::GuanYu), floors: &[16], node: Node::Boss,
                 active: played >= 2 && block >= 8,
                 weak: 2, vuln: 0, pierce: 4, cover_gain: 0,
                 route_note: "史事回响·华容旧义：首回合实打2牌并守8甲，令敌首领虚弱2层并穿透4点",
@@ -633,7 +633,7 @@ impl Game {
             },
             ExpandedEchoRule {
                 flag: "phoenix_pavilion", source: "phoenix_pavilion_intrigue",
-                hero: Hero::LuBu, floors: &[16], node: Node::Boss,
+                hero: Some(Hero::LuBu), floors: &[16], node: Node::Boss,
                 active: played >= 2,
                 weak: 2, vuln: 0, pierce: 0, cover_gain: 0,
                 route_note: "史事回响·凤仪旧隙：首回合实打2牌，令敌首领虚弱2层",
@@ -642,7 +642,7 @@ impl Game {
             },
             ExpandedEchoRule {
                 flag: "jiangdong_covenant", source: "jiangdong_covenant_volleys",
-                hero: Hero::SunShangxiang, floors: &[19], node: Node::Battle,
+                hero: Some(Hero::SunShangxiang), floors: &[19], node: Node::Battle,
                 active: played >= 2 && (block >= 6 || cover >= 4),
                 weak: 0, vuln: 0, pierce: 5, cover_gain: 2,
                 route_note: "史事回响·江东盟约：首回合实打2牌且守6甲或4掩护，穿透前锋5点并额外稳固2掩护",
@@ -651,7 +651,7 @@ impl Game {
             },
             ExpandedEchoRule {
                 flag: "jiangdong_covenant", source: "jiangdong_covenant_volleys",
-                hero: Hero::SunShangxiang, floors: &[24], node: Node::Boss,
+                hero: Some(Hero::SunShangxiang), floors: &[24], node: Node::Boss,
                 active: played >= 2 && block >= 6,
                 weak: 0, vuln: 0, pierce: 5, cover_gain: 0,
                 route_note: "史事回响·江东盟约：首回合实打2牌并守6甲，穿透关底5点",
@@ -660,7 +660,7 @@ impl Game {
             },
             ExpandedEchoRule {
                 flag: "halberd_shot", source: "halberd_shot_deterrence",
-                hero: Hero::LuBu, floors: &[24, 32], node: Node::Boss,
+                hero: Some(Hero::LuBu), floors: &[24, 32], node: Node::Boss,
                 active: played >= 1 && (played >= 2 || fury >= 6),
                 weak: 0, vuln: 0, pierce: 6, cover_gain: 0,
                 route_note: "史事回响·辕门射戟：首回合实打2牌（或实打1牌且6怒气），穿透首领6点",
@@ -669,12 +669,111 @@ impl Game {
             },
             ExpandedEchoRule {
                 flag: "river_divide", source: "river_divide_interception",
-                hero: Hero::SunShangxiang, floors: &[32], node: Node::Boss,
+                hero: Some(Hero::SunShangxiang), floors: &[32], node: Node::Boss,
                 active: played >= 2 && block >= 8,
                 weak: 2, vuln: 0, pierce: 5, cover_gain: 0,
                 route_note: "史事回响·江淮分水：首回合实打2牌并守8甲，令关底虚弱2层并穿透5点",
                 combat_note: "史事回响·江淮分水：首回合实打2牌且保持8护甲，令关底虚弱2层并穿透5点",
                 trigger_msg: "江淮分水：守备8甲反制关底，虚弱2层并穿透5点",
+            },
+            ExpandedEchoRule {
+                flag: "anxi_seal", source: "anxi_seal_integrity",
+                hero: Some(Hero::GuanYu), floors: &[24], node: Node::Boss,
+                active: played >= 2 && block >= 6,
+                weak: 0, vuln: 2, pierce: 5, cover_gain: 0,
+                route_note: "史事回响·安喜断印：首回合实打2牌并守6甲，令关底易伤2层并穿透5点",
+                combat_note: "史事回响·安喜断印：首回合实打2牌且保持6护甲，令关底易伤2层并穿透5点",
+                trigger_msg: "安喜旧志：凛然守正，令敌首领易伤2层并穿透5点",
+            },
+            ExpandedEchoRule {
+                flag: "wenjiu_oath", source: "wenjiu_vanguard_strike",
+                hero: Some(Hero::GuanYu), floors: &[24], node: Node::Boss,
+                active: played >= 2,
+                weak: 0, vuln: 0, pierce: 5, cover_gain: 0,
+                route_note: "史事回响·温酒斩将：首回合实打2牌，穿透关底5点",
+                combat_note: "史事回响·温酒斩将：首回合实打2牌，回合末穿透关底5点",
+                trigger_msg: "温酒余威：趁势急袭，穿透敌首领5点",
+            },
+            ExpandedEchoRule {
+                flag: "maicheng_supply", source: "maicheng_supply_discipline",
+                hero: Some(Hero::GuanYu), floors: &[32, 40], node: Node::Boss,
+                active: played >= 2 && block >= 8,
+                weak: 2, vuln: 0, pierce: 6, cover_gain: 0,
+                route_note: "史事回响·麦城整备：首回合实打2牌并守8甲，令关底虚弱2层并穿透6点",
+                combat_note: "史事回响·麦城整备：首回合实打2牌且保持8护甲，令关底虚弱2层并穿透6点",
+                trigger_msg: "麦城警策：严整后勤军纪，令敌首领虚弱2层并穿透6点",
+            },
+            ExpandedEchoRule {
+                flag: "liaodong_letter", source: "liaodong_foresight_strike",
+                hero: Some(Hero::CaoCao), floors: &[32, 40], node: Node::Boss,
+                active: played >= 2 && block >= 6,
+                weak: 0, vuln: 2, pierce: 6, cover_gain: 0,
+                route_note: "史事回响·辽东遗策：首回合实打2牌并守6甲，令关底易伤2层并穿透6点",
+                combat_note: "史事回响·辽东遗策：首回合实打2牌且保持6护甲，令关底易伤2层并穿透6点",
+                trigger_msg: "郭嘉遗策：料敌机先，令敌首领易伤2层并穿透6点",
+            },
+            ExpandedEchoRule {
+                flag: "yiling_ashes", source: "yiling_ashes_counter",
+                hero: Some(Hero::SunShangxiang), floors: &[32, 40], node: Node::Boss,
+                active: played >= 2,
+                weak: 0, vuln: 2, pierce: 5, cover_gain: 0,
+                route_note: "史事回响·夷陵余烬：首回合实打2牌，令关底易伤2层并穿透5点",
+                combat_note: "史事回响·夷陵余烬：首回合实打2牌，令关底易伤2层并穿透5点",
+                trigger_msg: "夷陵借火：审时反击，令敌首领易伤2层并穿透5点",
+            },
+            ExpandedEchoRule {
+                flag: "yiling_bridge", source: "yiling_bridge_rescue",
+                hero: Some(Hero::SunShangxiang), floors: &[40], node: Node::Boss,
+                active: played >= 2 && block >= 6,
+                weak: 2, vuln: 0, pierce: 6, cover_gain: 0,
+                route_note: "史事回响·八阵渡火：首回合实打2牌并守6甲，令第五幕关底虚弱2层并穿透6点",
+                combat_note: "史事回响·八阵渡火：首回合实打2牌且保持6护甲，令关底虚弱2层并穿透6点",
+                trigger_msg: "八阵护渡：护持退路，令敌首领虚弱2层并穿透6点",
+            },
+            ExpandedEchoRule {
+                flag: "successor_scroll", source: "successor_scroll_command",
+                hero: Some(Hero::ZhugeLiang), floors: &[32], node: Node::Boss,
+                active: played >= 2 && block >= 6,
+                weak: 0, vuln: 2, pierce: 5, cover_gain: 0,
+                route_note: "史事回响·天水传书：首回合实打2牌并守6甲，令第四幕关底易伤2层并穿透5点",
+                combat_note: "史事回响·天水传书：首回合实打2牌且保持6护甲，令关底易伤2层并穿透5点",
+                trigger_msg: "天水传书：授策布阵，令敌首领易伤2层并穿透5点",
+            },
+            ExpandedEchoRule {
+                flag: "jieting_accountability", source: "jieting_accountability_guard",
+                hero: Some(Hero::ZhugeLiang), floors: &[40], node: Node::Boss,
+                active: played >= 2 && block >= 8,
+                weak: 2, vuln: 0, pierce: 6, cover_gain: 0,
+                route_note: "史事回响·街亭明法：首回合实打2牌并守8甲，令第五幕关底虚弱2层并穿透6点",
+                combat_note: "史事回响·街亭明法：首回合实打2牌且保持8护甲，令关底虚弱2层并穿透6点",
+                trigger_msg: "街亭明法：整肃军令，令敌首领虚弱2层并穿透6点",
+            },
+            ExpandedEchoRule {
+                flag: "white_gate", source: "white_gate_reckoning",
+                hero: Some(Hero::LuBu), floors: &[40], node: Node::Boss,
+                active: played >= 2,
+                weak: 0, vuln: 2, pierce: 7, cover_gain: 0,
+                route_note: "史事回响·白门余雪：首回合实打2牌，令第五幕关底易伤2层并穿透7点",
+                combat_note: "史事回响·白门余雪：首回合实打2牌，令关底易伤2层并穿透7点",
+                trigger_msg: "白门醒悟：奋威突阵，令敌首领易伤2层并穿透7点",
+            },
+            ExpandedEchoRule {
+                flag: "seven_captures", source: "seven_captures_pacification",
+                hero: None, floors: &[32], node: Node::Boss,
+                active: played >= 2 && block >= 6,
+                weak: 2, vuln: 0, pierce: 5, cover_gain: 0,
+                route_note: "史事回响·七擒安边：首回合实打2牌并守6甲，令第四幕关底虚弱2层并穿透5点",
+                combat_note: "史事回响·七擒安边：首回合实打2牌且保持6护甲，令关底虚弱2层并穿透5点",
+                trigger_msg: "南中安边：攻心折冲，令敌首领虚弱2层并穿透5点",
+            },
+            ExpandedEchoRule {
+                flag: "wooden_ox", source: "wooden_ox_logistics_surge",
+                hero: None, floors: &[40], node: Node::Boss,
+                active: played >= 2 && block >= 6,
+                weak: 0, vuln: 0, pierce: 6, cover_gain: 0,
+                route_note: "史事回响·木牛流马：首回合实打2牌并守6甲，穿透第五幕关底6点",
+                combat_note: "史事回响·木牛流马：首回合实打2牌且保持6护甲，穿透关底6点",
+                trigger_msg: "流马转运：后勤助战，穿透敌首领6点",
             },
         ]
     }
@@ -686,7 +785,7 @@ impl Game {
         let next_floor = self.floor.saturating_add(1);
         self.hero_echo_rules(0, 0, 0, 0)
             .into_iter()
-            .filter(|rule| rule.hero == self.hero
+            .filter(|rule| rule.hero.is_none_or(|required| required == self.hero)
                 && rule.node == node
                 && rule.floors.contains(&next_floor)
                 && self.lore_flags.iter().any(|entry| entry == rule.flag))
@@ -1087,7 +1186,7 @@ impl Game {
         let Some(node) = self.last_node else { return Vec::new(); };
         self.hero_echo_rules(0, 0, 0, 0)
             .into_iter()
-            .filter(|rule| rule.hero == self.hero
+            .filter(|rule| rule.hero.is_none_or(|required| required == self.hero)
                 && rule.node == node
                 && rule.floors.contains(&self.floor)
                 && self.lore_flags.iter().any(|entry| entry == rule.flag))
@@ -4527,7 +4626,7 @@ impl Game {
         let rules = self.hero_echo_rules(played, block, fury, cover);
         let mut messages = Vec::new();
         for spec in rules {
-            if spec.hero != self.hero
+            if !spec.hero.is_none_or(|required| required == self.hero)
                 || spec.node != current_node
                 || !spec.floors.contains(&self.floor)
                 || !spec.active
