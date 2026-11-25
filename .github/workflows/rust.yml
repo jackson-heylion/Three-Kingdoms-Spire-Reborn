@@ -619,6 +619,61 @@ jobs:
         run: cargo run --release --bin tks-sim -- 1000
       - name: Paired balance report by hero and ascension
         run: cargo run --release --bin tks-sim -- --balance 20 "$RUNNER_TEMP/tks-balance.json"
+      - name: Export and independently verify expanded campaign matrix
+        shell: bash
+        run: |
+          cargo run --release --bin tks-sim -- --expanded-matrix 2 "$RUNNER_TEMP/tks-expanded-matrix.json"
+          python3 - <<'PY'
+          import collections, json, os, pathlib
+          report = json.loads((pathlib.Path(os.environ['RUNNER_TEMP']) / 'tks-expanded-matrix.json').read_text())
+          assert report['schema_version'] == 2
+          assert report['samples_per_cell_per_policy'] == 2
+          assert report['normal_starter_deck'] is True and report['integrity_verified'] is True
+          rows = report['runs']
+          assert len(rows) == 60 and len(report['cells']) == 15
+          groups = collections.defaultdict(list)
+          for row in rows:
+              assert row['error'] is None and row['replay_verified'] and row['chronicle_verified']
+              assert row['terminal'] in ('Won', 'Lost')
+              assert row['actions'] > 0
+              assert row['seed'] in (247510, 247511)
+              assert row['policy'] in ('first_playable', 'tactical')
+              assert all(a['floor'] < b['floor'] for a, b in zip(row['floors'], row['floors'][1:]))
+              end = row['final_sample']
+              assert end['stage'] == row['terminal'] and 1 <= end['floor'] <= 40
+              if row['terminal'] == 'Won':
+                  assert end['floor'] == 40
+                  assert [floor for floor, _ in row['bosses_entered']] == [8, 16, 24, 32, 40]
+              groups[row['hero'], row['difficulty']].append(row)
+          assert len(groups) == 15
+          assert len({h for h, _ in groups}) == 5 and len({d for _, d in groups}) == 3
+          seen = set()
+          for cell in report['cells']:
+              key = cell['hero'], cell['difficulty']
+              assert key not in seen
+              seen.add(key)
+              group = groups[key]
+              assert len(group) == 4
+              assert {(r['seed'], r['policy']) for r in group} == {(s, p) for s in (247510, 247511) for p in ('first_playable', 'tactical')}
+              totals = cell['totals']
+              assert totals['incomplete_pairs'] == 0
+              outcomes = collections.Counter()
+              for seed in (247510, 247511):
+                  pair = {r['policy']: r['terminal'] == 'Won' for r in group if r['seed'] == seed}
+                  outcomes[('both_won' if pair['tactical'] else 'first_only_won') if pair['first_playable'] else ('tactical_only_won' if pair['tactical'] else 'both_lost')] += 1
+              for field in ('both_won', 'first_only_won', 'tactical_only_won', 'both_lost'):
+                  assert totals[field] == outcomes[field]
+              for policy in ('first_playable', 'tactical'):
+                  cohort = [r for r in group if r['policy'] == policy]
+                  t = totals[policy]
+                  wins = sum(r['terminal'] == 'Won' for r in cohort)
+                  assert t['observed'] == 2 and t['wins'] == wins and t['losses'] == 2 - wins and t['incomplete'] == 0
+                  for field, sample in [('terminal_floor_sum', 'floor'), ('terminal_gold_sum', 'gold'), ('terminal_deck_size_sum', 'cards'), ('terminal_relic_count_sum', 'relics'), ('terminal_turns_sum', 'turns_completed')]:
+                      assert t[field] == sum(r['final_sample'][sample] for r in cohort)
+                  print('EXPANDED_MATRIX', key, policy, 'wins', wins, 'losses', 2-wins, 'floors', [r['final_sample']['floor'] for r in cohort])
+          assert seen == set(groups)
+          print('60 fixed-seed natural outcomes, 15 paired cells, verified denominators; not human win rates')
+          PY
 
       - name: Validate balance report structure
         shell: bash
@@ -775,6 +830,7 @@ jobs:
           name: tks-balance-${{ matrix.os }}
           path: |
             ${{ runner.temp }}/tks-balance.json
+            ${{ runner.temp }}/tks-expanded-matrix.json
             ${{ runner.temp }}/tks-sun.json
             ${{ runner.temp }}/tks-natural.json
             ${{ runner.temp }}/tks-builds.json
@@ -836,5 +892,9 @@ jobs:
           policy_mac=base/'tks-balance-macos-15'/'tks-discard-policy.json'
           assert policy_linux.exists() and policy_mac.exists(), 'Missing discard policy report'
           assert policy_linux.read_bytes()==policy_mac.read_bytes(), 'OS-specific discard policy divergence'
+          expanded_linux=base/'tks-balance-ubuntu-latest'/'tks-expanded-matrix.json'
+          expanded_mac=base/'tks-balance-macos-15'/'tks-expanded-matrix.json'
+          assert expanded_linux.exists() and expanded_mac.exists(), 'Missing expanded campaign matrix'
+          assert expanded_linux.read_bytes()==expanded_mac.read_bytes(), 'OS-specific expanded campaign divergence'
           print('Balance, build, natural drafting and Boss duel reports match across OS')
           PY
