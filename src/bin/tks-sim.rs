@@ -88,6 +88,14 @@ impl CounterEncounterMetrics {
 enum Policy { FirstPlayable, Tactical }
 
 
+fn is_unplayable_blood_price(
+    game: &Game,
+    spec: &three_kingdoms_spire_reborn::content::CardSpec,
+) -> bool {
+    game.has_expanded_history_rules()
+        && matches!(spec.effect, Effect::BloodPrice(loss, _) if game.hp <= loss)
+}
+
 fn preferred_action(game: &Game) -> Result<Action, String> {
     match game.stage {
         Stage::Map => Ok(Action::Choose { index: 1 }),
@@ -106,7 +114,9 @@ fn preferred_action(game: &Game) -> Result<Action, String> {
                     else if card.enchantment.as_deref() == Some("迅捷") {
                         (spec.cost - 1).max(0)
                     } else { spec.cost };
-                    !matches!(spec.effect,Effect::Unplayable) && cost <= battle.energy
+                    !matches!(spec.effect,Effect::Unplayable)
+                        && !is_unplayable_blood_price(game, &spec)
+                        && cost <= battle.energy
                 })
             });
             if let Some((index,_)) = playable {
@@ -168,6 +178,9 @@ fn combat_defense_need(game: &Game) -> i32 {
 }
 fn tactical_card_value(game:&Game,card:&Card,threat:i32)->i32 {
     let spec=match card_spec(&card.id){Some(s)=>s,None=>return -999};
+    if game.battle.is_some() && is_unplayable_blood_price(game, &spec) {
+        return -999;
+    }
     // Outside combat, estimate reward value against a standard 3-energy turn.
     let available=game.battle.as_ref().map_or(3,|b|b.energy);
     let cost=card_energy(card,available).unwrap_or(999);
@@ -253,17 +266,31 @@ fn tactical_action(game:&Game)->Result<Action,String> {
     match game.stage {
         Stage::Map => {
             let council_pending = game.uncommitted_council_hint().is_some();
+            let story_priority = game.has_expanded_history_rules() && game.lore_seen.len() < 15;
             let mut best=(i32::MIN,1);
             for (i,node) in game.route.iter().enumerate() {
                 let deficit=(game.max_hp-game.hp).max(0);
+                let urgent_camp = story_priority && game.hp * 2 < game.max_hp;
                 let score=match node {
                     Node::Camp => if deficit>=15 {
-                        if council_pending && game.hp * 3 > game.max_hp {44} else {52}
+                        if council_pending && !urgent_camp && game.hp * 3 > game.max_hp {44}
+                        else if story_priority && !urgent_camp {38}
+                        else {52}
                     }else{22},
                     Node::Market => if (game.shop_relic.is_some() && game.gold>=155)
                         || (game.deck.iter().any(|c| c.id == "cursed") && game.gold>=75)
-                        || (game.deck.len() >= 12 && game.gold >= 165) {36} else if game.gold >= 110 {25} else {5},
-                    Node::Story => if council_pending {48} else {26},
+                    {
+                        if story_priority {45} else {36}
+                    } else if game.deck.len() >= 12 && game.gold >= 165 {
+                        36
+                    } else if game.gold >= 110 {25} else {5},
+                    Node::Story => if council_pending {
+                        48
+                    } else if story_priority {
+                        42
+                    } else {
+                        26
+                    },
                     Node::Battle => if deficit>25 {-5}else{17},
                     Node::Elite => if deficit>25 {-20}else{7},
                     Node::Boss => 50,
@@ -534,20 +561,11 @@ fn simulate_config_blueprint(hero:Hero,seed:u64,ascension:u8,policy:Policy,
                 // starting deck, RNG, map, market and reward rolls stay legal.
                 // Never pick an already-owned core/support card merely for
                 // the appearance of "formation".
-                let requested=|id:&str| {
-                    !game.deck.iter().any(|card|card.id==id)
-                        && (plan.core.contains(&id) || plan.support.contains(&id))
-                };
-                if game.rewards.iter().any(|c|requested(&c.id)) {
+                let (offered, picked) = pick_focus_reward(&game, plan);
+                if offered {
                     focus_offer_screens+=1;
                 }
-                if let Some((index,_))=game.rewards.iter().enumerate()
-                    .filter(|(_,card)|requested(&card.id))
-                    .max_by_key(|(index,card)| (
-                        i32::from(plan.core.contains(&card.id.as_str())),
-                        tactical_card_value(&game,card,14),
-                        -(*index as i32)
-                    )) {
+                if let Some(index) = picked {
                     action=Action::Choose{index:index+1};
                     focus_picks+=1;
                 }
@@ -1107,6 +1125,18 @@ impl ExpandedMatrixRun {
 }
 
 #[derive(Debug, Default, Serialize)]
+struct ExpandedActEconomy {
+    reached: usize,
+    hp_sum: i64,
+    max_hp_sum: i64,
+    gold_sum: i64,
+    cards_sum: usize,
+    relics_sum: usize,
+    potions_sum: usize,
+    turns_sum: u64,
+}
+
+#[derive(Debug, Default, Serialize)]
 struct ExpandedPolicyTotals {
     observed: usize,
     wins: usize,
@@ -1125,8 +1155,12 @@ struct ExpandedPolicyTotals {
     density_covered_sum: usize,
     density_covered_min: usize,
     density_covered_max: usize,
+    victory_density_sum: usize,
+    victory_density_min: Option<usize>,
+    victory_density_max: Option<usize>,
     density_battle_sum: usize,
     density_cross_act_sum: usize,
+    per_act_economy: [ExpandedActEconomy; 5],
 }
 
 impl ExpandedPolicyTotals {
@@ -1139,6 +1173,10 @@ impl ExpandedPolicyTotals {
         let settled = self.wins + self.losses;
         if run.terminal == Stage::Won {
             self.wins += 1;
+            let cov = run.historical_density.covered_lower_bound;
+            self.victory_density_sum += cov;
+            self.victory_density_min = Some(self.victory_density_min.map_or(cov, |m| m.min(cov)));
+            self.victory_density_max = Some(self.victory_density_max.map_or(cov, |m| m.max(cov)));
         } else {
             self.losses += 1;
         }
@@ -1157,6 +1195,20 @@ impl ExpandedPolicyTotals {
         self.density_covered_max = self.density_covered_max.max(covered);
         self.density_battle_sum += run.historical_density.battle_effect;
         self.density_cross_act_sum += run.historical_density.cross_act_effect;
+        for (act_idx, bucket) in self.per_act_economy.iter_mut().enumerate() {
+            let low = (act_idx as u8) * 8 + 1;
+            let high = low + 7;
+            if let Some(sample) = run.floors.iter().rev().find(|s| (low..=high).contains(&s.floor)) {
+                bucket.reached += 1;
+                bucket.hp_sum += i64::from(sample.hp);
+                bucket.max_hp_sum += i64::from(sample.max_hp);
+                bucket.gold_sum += i64::from(sample.gold);
+                bucket.cards_sum += sample.cards;
+                bucket.relics_sum += sample.relics;
+                bucket.potions_sum += sample.potions;
+                bucket.turns_sum += sample.turns_completed;
+            }
+        }
     }
 }
 
@@ -1198,14 +1250,22 @@ struct ExpandedMatrixCell {
 fn expanded_matrix_action(game: &Game, policy: Policy) -> Result<Action, String> {
     // Siege defenders can all be dead while the gate is still standing.
     // Both policies must use a legal action rather than target a dead foe.
-    // FirstPlayable still fights the defenders first; Tactical rushes the gate.
+    // FirstPlayable still fights defenders first; Tactical clears/blocks severe
+    // incoming hits before rushing the gate unless at Turn-4 deadline or breach.
     if game.stage == Stage::Combat
         && let Some(battle) = game.battle.as_ref()
         && battle.siege_gate_hp.is_some_and(|hp| hp > 0)
     {
         let defenders_gone = battle.foes.iter().all(|foe| foe.hp <= 0);
-        if defenders_gone || matches!(policy, Policy::Tactical) && battle.energy >= 2 {
+        if defenders_gone {
             return Ok(if battle.energy >= 2 { Action::AssaultGate } else { Action::EndTurn });
+        }
+        if matches!(policy, Policy::Tactical) && battle.energy >= 2
+            && (battle.turn >= 4
+                || battle.siege_gate_hp.is_some_and(|g| g <= 4)
+                || battle.block + 4 >= combat_defense_need(game))
+        {
+            return Ok(Action::AssaultGate);
         }
     }
     preferred_action_policy(game, policy)
@@ -1347,6 +1407,13 @@ fn expanded_matrix_fixed_seed_all_cells_settle_and_replay() {
         assert_eq!(totals.tactical.wins, usize::from(pair[1].terminal == Stage::Won));
         assert_eq!(totals.first_playable.density_covered_sum, pair[0].historical_density.covered_lower_bound);
         assert_eq!(totals.tactical.density_covered_sum, pair[1].historical_density.covered_lower_bound);
+        for (act_idx, bucket) in totals.tactical.per_act_economy.iter().enumerate() {
+            let low = (act_idx as u8) * 8 + 1;
+            let high = low + 7;
+            let reached = usize::from(pair[1].floors.iter().any(|s| (low..=high).contains(&s.floor)));
+            assert_eq!(bucket.reached, reached);
+        }
+        assert!(totals.tactical.per_act_economy.windows(2).all(|w| w[0].reached >= w[1].reached));
         assert_eq!(totals.tactical.terminal_max_hp_sum, i64::from(pair[1].final_sample.max_hp));
         assert_eq!(totals.tactical.terminal_potions_sum, pair[1].final_sample.potions);
         assert_eq!(totals.tactical.battles_won_sum, pair[1].telemetry.battles_won);
@@ -1362,6 +1429,233 @@ fn expanded_matrix_fixed_seed_all_cells_settle_and_replay() {
         .map(|r| r.hero.name())
         .collect::<std::collections::BTreeSet<_>>();
     assert_eq!(tactical_with_density.len(), HEROES.len(), "all 5 heroes must record historical density");
+}
+
+fn pick_focus_reward(game: &Game, plan: &BuildPlan) -> (bool, Option<usize>) {
+    let wanted = |id: &str| {
+        !game.deck.iter().any(|card| card.id == id)
+            && (plan.core.contains(&id) || plan.support.contains(&id))
+    };
+    let offered = game.rewards.iter().any(|card| wanted(&card.id));
+    let picked = game.rewards.iter().enumerate()
+        .filter(|(_, card)| wanted(&card.id))
+        .max_by_key(|(index, card)| (
+            i32::from(plan.core.contains(&card.id.as_str())),
+            tactical_card_value(game, card, 14),
+            -(*index as i32),
+        ))
+        .map(|(index, _)| index);
+    (offered, picked)
+}
+
+#[derive(Debug, Serialize)]
+struct ExpandedBuildCell {
+    id: &'static str,
+    hero: Hero,
+    difficulty: three_kingdoms_spire_reborn::Difficulty,
+    samples: usize,
+    standard_wins: usize,
+    focused_wins: usize,
+    standard_floor_sum: u64,
+    focused_floor_sum: u64,
+    core_distinct_sum: usize,
+    support_distinct_sum: usize,
+    complete_core: usize,
+    complete_support: usize,
+    boss_battles: usize,
+    boss_wins: usize,
+    boss_core_ready: usize,
+    counter_boss_battles: usize,
+    counter_boss_wins: usize,
+    replay_verified_runs: usize,
+    reward_screens: u64,
+    focus_offer_screens: u64,
+    focus_picks: u64,
+    max_deck_cards: usize,
+    max_actions: u32,
+}
+
+struct ExpandedBuildSimOutcome {
+    game: Game,
+    actions: u32,
+    reward_screens: u64,
+    focus_offer_screens: u64,
+    focus_picks: u64,
+    boss_battles: usize,
+    boss_wins: usize,
+    boss_core_ready: usize,
+    counter_boss_battles: usize,
+    counter_boss_wins: usize,
+}
+
+fn simulate_expanded_with_focus(
+    hero: Hero,
+    difficulty: three_kingdoms_spire_reborn::Difficulty,
+    seed: u64,
+    plan: Option<&BuildPlan>,
+) -> Result<ExpandedBuildSimOutcome, String> {
+    let tag = plan.map_or("std", |p| p.id);
+    let run_id = format!("exp-build-{tag}-{}-{seed}", difficulty.id());
+    let mut game = Game::new_with_campaign_difficulty(hero, seed, difficulty, run_id);
+    let mut actions = 0_u32;
+    let mut reward_screens = 0_u64;
+    let mut focus_offer_screens = 0_u64;
+    let mut focus_picks = 0_u64;
+    let mut boss_battles = 0_usize;
+    let mut boss_wins = 0_usize;
+    let mut boss_core_ready = 0_usize;
+    let mut counter_boss_battles = 0_usize;
+    let mut counter_boss_wins = 0_usize;
+    let mut in_boss_counter: Option<bool> = None;
+
+    while actions < MAX_ACTIONS && !matches!(game.stage, Stage::Won | Stage::Lost) {
+        let was_combat = game.stage == Stage::Combat;
+        let mut action = expanded_matrix_action(&game, Policy::Tactical)?;
+        if game.stage == Stage::Reward {
+            reward_screens += 1;
+            if let Some(p) = plan {
+                let (offered, picked) = pick_focus_reward(&game, p);
+                if offered {
+                    focus_offer_screens += 1;
+                }
+                if let Some(idx) = picked {
+                    focus_picks += 1;
+                    action = Action::Choose { index: idx + 1 };
+                }
+            }
+        }
+        game.apply(action)?;
+        actions += 1;
+        if !was_combat && game.stage == Stage::Combat && game.last_node == Some(Node::Boss) {
+            boss_battles += 1;
+            let ready = plan.is_some_and(|p| p.acquired(&game.deck) == p.core.len());
+            boss_core_ready += usize::from(ready);
+            let is_counter = plan.is_some_and(|p|
+                game.battle.as_ref().is_some_and(|b| b.foes.iter().any(|f| f.id == p.counter_enemy)));
+            counter_boss_battles += usize::from(is_counter);
+            in_boss_counter = Some(is_counter);
+        }
+        if was_combat && game.stage != Stage::Combat && let Some(was_counter) = in_boss_counter.take()
+            && game.stage != Stage::Lost
+        {
+            boss_wins += 1;
+            counter_boss_wins += usize::from(was_counter);
+        }
+    }
+    if !matches!(game.stage, Stage::Won | Stage::Lost) {
+        return Err(format!("expanded build sim exceeded budget on {:?} {}", hero, difficulty.id()));
+    }
+    game.audit_campaign_authority()?;
+    game.verify_action_replay()?;
+    Ok(ExpandedBuildSimOutcome {
+        game,
+        actions,
+        reward_screens,
+        focus_offer_screens,
+        focus_picks,
+        boss_battles,
+        boss_wins,
+        boss_core_ready,
+        counter_boss_battles,
+        counter_boss_wins,
+    })
+}
+
+fn collect_expanded_builds(samples: usize) -> Result<Vec<ExpandedBuildCell>, String> {
+    use three_kingdoms_spire_reborn::Difficulty;
+    let mut cells = Vec::with_capacity(PLANS.len() * Difficulty::ALL.len());
+    for (plan_idx, plan) in PLANS.iter().enumerate() {
+        for difficulty in Difficulty::ALL {
+            let mut cell = ExpandedBuildCell {
+                id: plan.id,
+                hero: plan.hero,
+                difficulty,
+                samples,
+                standard_wins: 0,
+                focused_wins: 0,
+                standard_floor_sum: 0,
+                focused_floor_sum: 0,
+                core_distinct_sum: 0,
+                support_distinct_sum: 0,
+                complete_core: 0,
+                complete_support: 0,
+                boss_battles: 0,
+                boss_wins: 0,
+                boss_core_ready: 0,
+                counter_boss_battles: 0,
+                counter_boss_wins: 0,
+                replay_verified_runs: 0,
+                reward_screens: 0,
+                focus_offer_screens: 0,
+                focus_picks: 0,
+                max_deck_cards: 0,
+                max_actions: 0,
+            };
+            for trial in 0..samples {
+                let seed = 700_000_u64 + (plan_idx as u64) * 1000 + trial as u64;
+                let std_out = simulate_expanded_with_focus(plan.hero, difficulty, seed, None)?;
+                let foc_out = simulate_expanded_with_focus(plan.hero, difficulty, seed, Some(plan))?;
+                let core_got = plan.acquired(&foc_out.game.deck);
+                let support_got = plan.support.iter()
+                    .filter(|id| foc_out.game.deck.iter().any(|c| c.id == **id))
+                    .count();
+                cell.standard_wins += usize::from(std_out.game.stage == Stage::Won);
+                cell.focused_wins += usize::from(foc_out.game.stage == Stage::Won);
+                cell.standard_floor_sum += u64::from(std_out.game.floor);
+                cell.focused_floor_sum += u64::from(foc_out.game.floor);
+                cell.core_distinct_sum += core_got;
+                cell.support_distinct_sum += support_got;
+                cell.complete_core += usize::from(core_got == plan.core.len());
+                cell.complete_support += usize::from(support_got == plan.support.len());
+                cell.boss_battles += foc_out.boss_battles;
+                cell.boss_wins += foc_out.boss_wins;
+                cell.boss_core_ready += foc_out.boss_core_ready;
+                cell.counter_boss_battles += foc_out.counter_boss_battles;
+                cell.counter_boss_wins += foc_out.counter_boss_wins;
+                cell.replay_verified_runs += 1;
+                cell.reward_screens += foc_out.reward_screens;
+                cell.focus_offer_screens += foc_out.focus_offer_screens;
+                cell.focus_picks += foc_out.focus_picks;
+                cell.max_deck_cards = cell.max_deck_cards
+                    .max(std_out.game.deck.len())
+                    .max(foc_out.game.deck.len());
+                cell.max_actions = cell.max_actions.max(std_out.actions).max(foc_out.actions);
+            }
+            cells.push(cell);
+        }
+    }
+    Ok(cells)
+}
+
+fn expanded_builds_report(samples: usize, output: Option<&str>) -> Result<(), String> {
+    let cells = collect_expanded_builds(samples)?;
+    let report = serde_json::to_string_pretty(&serde_json::json!({
+        "schema_version": 1,
+        "samples_per_cell": samples,
+        "cells": cells,
+    })).map_err(|e| e.to_string())?;
+    if let Some(path) = output {
+        fs::write(path, &report).map_err(|e| format!("write {path}: {e}"))?;
+    } else {
+        println!("{report}");
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+#[test]
+fn expanded_builds_and_per_act_economy_bounds() {
+    use three_kingdoms_spire_reborn::Difficulty;
+    for plan in PLANS {
+        let out = simulate_expanded_with_focus(plan.hero, Difficulty::Warlords, 700_000, Some(plan)).unwrap();
+        assert!(matches!(out.game.stage, Stage::Won | Stage::Lost));
+        assert!(out.actions < MAX_ACTIONS && out.game.deck.len() <= 55);
+        assert!(out.focus_picks <= out.focus_offer_screens && out.focus_offer_screens <= out.reward_screens);
+    }
+    for difficulty in Difficulty::ALL {
+        let out = simulate_expanded_with_focus(Hero::GuanYu, difficulty, 700_000, Some(&PLANS[0])).unwrap();
+        assert!(matches!(out.game.stage, Stage::Won | Stage::Lost));
+    }
 }
 
 #[cfg(test)]
@@ -1424,7 +1718,7 @@ fn expanded_matrix_report(samples: usize, output: Option<&str>) -> Result<(), St
     let (runs, cells) = collect_expanded_matrix(samples);
     let integrity = expanded_matrix_integrity(&runs);
     let report = serde_json::to_string_pretty(&serde_json::json!({
-        "schema_version": 4,
+        "schema_version": 5,
         "samples_per_cell_per_policy": samples,
         "seed_formula": "247510 + trial",
         "normal_starter_deck": true,
@@ -1448,6 +1742,13 @@ fn main() {
             .unwrap_or(2).clamp(1, 16);
         expanded_matrix_report(samples, arguments.get(3).map(String::as_str))
             .unwrap_or_else(|e| panic!("expanded matrix report failed: {e}"));
+        return;
+    }
+    if arguments.get(1).is_some_and(|arg| arg == "--expanded-builds") {
+        let samples = arguments.get(2).and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(1).clamp(1, 16);
+        expanded_builds_report(samples, arguments.get(3).map(String::as_str))
+            .unwrap_or_else(|e| panic!("expanded builds report failed: {e}"));
         return;
     }
     if arguments.get(1).is_some_and(|arg|arg=="--natural-builds") {

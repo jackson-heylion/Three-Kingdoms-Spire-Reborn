@@ -626,7 +626,7 @@ jobs:
           python3 - <<'PY'
           import collections, json, os, pathlib
           report = json.loads((pathlib.Path(os.environ['RUNNER_TEMP']) / 'tks-expanded-matrix.json').read_text())
-          assert report['schema_version'] == 4
+          assert report['schema_version'] == 5
           assert report['samples_per_cell_per_policy'] == 2
           assert report['normal_starter_deck'] is True and report['integrity_verified'] is True
           rows = report['runs']
@@ -693,6 +693,19 @@ jobs:
                   assert t['density_cross_act_sum'] == sum(d['cross_act_effect'] for d in densities)
                   assert t['density_covered_min'] == min(d['covered_lower_bound'] for d in densities)
                   assert t['density_covered_max'] == max(d['covered_lower_bound'] for d in densities)
+                  won_covs = [r['historical_density']['covered_lower_bound'] for r in cohort if r['terminal'] == 'won']
+                  assert t['victory_density_sum'] == sum(won_covs)
+                  if won_covs:
+                      assert t['victory_density_min'] == min(won_covs)
+                      assert t['victory_density_max'] == max(won_covs)
+                  else:
+                      assert t['victory_density_min'] is None and t['victory_density_max'] is None
+                  assert len(t['per_act_economy']) == 5
+                  assert all(a['reached'] >= b['reached'] for a, b in zip(t['per_act_economy'], t['per_act_economy'][1:]))
+                  assert all(
+                      e['reached'] == 0 or (e['cards_sum'] > 0 and e['hp_sum'] <= e['max_hp_sum'])
+                      for e in t['per_act_economy']
+                  )
                   print(
                       'EXPANDED_MATRIX', key, policy, 'wins', wins, 'losses', 2 - wins,
                       'floors', [r['final_sample']['floor'] for r in cohort],
@@ -700,6 +713,29 @@ jobs:
                   )
           assert seen == set(groups)
           print('60 fixed-seed natural outcomes, 15 paired cells, verified denominators; not human win rates')
+          PY
+
+      - name: Export and verify expanded 15-build formation matrix
+        shell: bash
+        run: |
+          cargo run --release --bin tks-sim -- --expanded-builds 1 "$RUNNER_TEMP/tks-expanded-builds.json"
+          python3 - <<'PY'
+          import json, os, pathlib
+          doc = json.loads((pathlib.Path(os.environ['RUNNER_TEMP']) / 'tks-expanded-builds.json').read_text())
+          assert doc['schema_version'] == 1 and doc['samples_per_cell'] == 1
+          assert len(doc['cells']) == 45
+          assert len({(c['id'], c['difficulty']) for c in doc['cells']}) == 45
+          for c in doc['cells']:
+              assert c['samples'] == 1 and c['replay_verified_runs'] == 1
+              assert 0 <= c['standard_wins'] <= 1 and 0 <= c['focused_wins'] <= 1
+              assert 0 <= c['complete_core'] <= 1 and 0 <= c['complete_support'] <= 1
+              assert c['focused_floor_sum'] <= 40 and c['standard_floor_sum'] <= 40
+              assert c['core_distinct_sum'] >= c['complete_core']
+              assert 0 <= c['focus_picks'] <= c['focus_offer_screens'] <= c['reward_screens']
+              assert c['boss_core_ready'] <= c['boss_battles'] and c['boss_wins'] <= c['boss_battles']
+              assert c['counter_boss_wins'] <= c['counter_boss_battles'] <= c['boss_battles']
+              assert c['max_deck_cards'] <= 55 and c['max_actions'] < 6000
+          print('45 expanded hero x tier x build cells verified cleanly')
           PY
 
       - name: Validate balance report structure
@@ -858,6 +894,7 @@ jobs:
           path: |
             ${{ runner.temp }}/tks-balance.json
             ${{ runner.temp }}/tks-expanded-matrix.json
+            ${{ runner.temp }}/tks-expanded-builds.json
             ${{ runner.temp }}/tks-sun.json
             ${{ runner.temp }}/tks-natural.json
             ${{ runner.temp }}/tks-builds.json
@@ -896,6 +933,7 @@ jobs:
               ('tks-sun-zuoci.json', 'OS-specific Sun/Zuoci focus divergence'),
               ('tks-discard-policy.json', 'OS-specific discard policy divergence'),
               ('tks-expanded-matrix.json', 'OS-specific expanded campaign divergence'),
+              ('tks-expanded-builds.json', 'OS-specific expanded builds divergence'),
           ]
           for filename, message in reports:
               linux = base / 'tks-balance-ubuntu-latest' / filename

@@ -243,9 +243,12 @@ pub struct HistoricalDecision {
 }
 
 const TACTICAL_LORE_FLAGS: &[&str] = &[
-    "taoyuan_oath", "huarong_mercy", "longzhong_plan", "sun_father_dispatch",
-    "jiangdong_covenant", "river_divide", "xu_capital", "sevenstar_vow",
-    "guandu_grain", "red_hare", "phoenix_pavilion", "halberd_shot",
+    "taoyuan_oath", "anxi_seal", "wenjiu_oath", "huarong_mercy",
+    "maicheng_supply", "longzhong_plan", "successor_scroll", "jieting_accountability",
+    "sun_father_dispatch", "jiangdong_covenant", "river_divide", "yiling_ashes", "yiling_bridge",
+    "xu_capital", "sevenstar_vow", "guandu_grain", "liaodong_letter",
+    "red_hare", "phoenix_pavilion", "halberd_shot", "white_gate",
+    "seven_captures", "wooden_ox",
     "mist_arrows", "empty_city", "jingzhou_warning", "fancheng_flood_record", "star_lantern",
 ];
 
@@ -524,6 +527,17 @@ fn historical_effect_site(source: &str) -> Option<(&'static str, &'static str)> 
         "jiangdong_covenant_volleys" => Some(("jiangdong_covenant", "third_act_crossing")),
         "halberd_shot_deterrence" => Some(("halberd_shot", "late_act_boss")),
         "river_divide_interception" => Some(("river_divide", "fourth_act_boss")),
+        "anxi_seal_integrity" => Some(("anxi_seal", "third_act_boss")),
+        "wenjiu_vanguard_strike" => Some(("wenjiu_oath", "third_act_boss")),
+        "maicheng_supply_discipline" => Some(("maicheng_supply", "late_act_boss")),
+        "liaodong_foresight_strike" => Some(("liaodong_letter", "late_act_boss")),
+        "yiling_ashes_counter" => Some(("yiling_ashes", "late_act_boss")),
+        "yiling_bridge_rescue" => Some(("yiling_bridge", "fifth_act_boss")),
+        "successor_scroll_command" => Some(("successor_scroll", "fourth_act_boss")),
+        "jieting_accountability_guard" => Some(("jieting_accountability", "fifth_act_boss")),
+        "white_gate_reckoning" => Some(("white_gate", "fifth_act_boss")),
+        "seven_captures_pacification" => Some(("seven_captures", "fourth_act_boss")),
+        "wooden_ox_logistics_surge" => Some(("wooden_ox", "fifth_act_boss")),
         _ => None,
     }
 }
@@ -686,23 +700,60 @@ impl Game {
                 }
             }
         }
+        fn tactical_lore_target_floors(kind: &str) -> &'static [u8] {
+            match kind {
+                "taoyuan_oath" | "longzhong_plan" | "sun_father_dispatch" | "xu_capital"
+                | "red_hare" => &[8],
+                "huarong_mercy" | "sevenstar_vow" | "guandu_grain" | "phoenix_pavilion" => &[16],
+                "mist_arrows" => &[19],
+                "empty_city" | "anxi_seal" | "wenjiu_oath" => &[24],
+                "jiangdong_covenant" => &[19, 24],
+                "fancheng_flood_record" => &[27],
+                "halberd_shot" => &[24, 32],
+                "jingzhou_warning" | "river_divide" | "successor_scroll"
+                | "seven_captures" => &[32],
+                "maicheng_supply" | "liaodong_letter" | "yiling_ashes" => &[32, 40],
+                "star_lantern" | "yiling_bridge" | "jieting_accountability"
+                | "white_gate" | "wooden_ox" => &[40],
+                _ => &[],
+            }
+        }
         for decision in decisions {
             if receipts.iter().any(|r| r.decision_id == decision.id) { continue; }
             if decision.kind == "jieting" && !jieting_map_effect_floors(history, decision.revision)?.is_empty() {
                 continue;
             }
-            let window_max = match decision.kind.as_str() {
-                "taoyuan_oath" | "longzhong_plan" | "sun_father_dispatch" | "xu_capital" | "red_hare" => Some(8),
-                "huarong_mercy" | "sevenstar_vow" | "guandu_grain" | "phoenix_pavilion" => Some(16),
-                "mist_arrows" => Some(19),
-                "empty_city" | "jiangdong_covenant" => Some(24),
-                "fancheng_flood_record" => Some(27),
-                "jingzhou_warning" | "halberd_shot" | "river_divide" => Some(32),
-                "star_lantern" => Some(40),
-                _ => None,
-            };
+            let target_floors = tactical_lore_target_floors(&decision.kind);
+            let window_max = target_floors.last().copied();
+            let any_reachable_floor_hit = target_floors.is_empty()
+                || target_floors.iter().any(|&f| f >= decision.floor && self.floor >= f);
             let (category, reason) = if window_max.is_some_and(|max_f| decision.floor > max_f) {
                 ("target_not_reached", "获得该史事时对应战场窗口已过")
+            } else if !any_reachable_floor_hit && decision.kind != "jiangdong_covenant" {
+                let target_msg = match decision.kind.as_str() {
+                    "empty_city" => "尚未推进至第24层司马懿关底",
+                    "mist_arrows" => "尚未推进至第19层水陆阵战",
+                    "fancheng_flood_record" => "尚未推进至第27层樊城水势战场",
+                    "jingzhou_warning" => "尚未推进至第32层吕蒙关底",
+                    "star_lantern" => "尚未推进至第40层姜维关底",
+                    "taoyuan_oath" | "longzhong_plan" | "sun_father_dispatch"
+                    | "xu_capital" | "red_hare" => "尚未推进至第8层第一幕关底",
+                    "huarong_mercy" | "sevenstar_vow" | "guandu_grain"
+                    | "phoenix_pavilion" => "尚未推进至第16层第二幕关底",
+                    "halberd_shot" => "尚未推进至第24层或第32层关底",
+                    "maicheng_supply" | "liaodong_letter" | "yiling_ashes" => {
+                        "尚未推进至第32层或第40层关底"
+                    }
+                    "river_divide" | "successor_scroll" | "seven_captures" => {
+                        "尚未推进至第32层第四幕关底"
+                    }
+                    "anxi_seal" | "wenjiu_oath" => "尚未推进至第24层第三幕关底",
+                    "yiling_bridge" | "jieting_accountability" | "white_gate" | "wooden_ox" => {
+                        "尚未推进至第40层第五幕关底"
+                    }
+                    _ => "尚未推进至对应战术回响战场",
+                };
+                ("target_not_reached", target_msg)
             } else {
                 match decision.kind.as_str() {
                     "empty_city" => {
@@ -776,17 +827,30 @@ impl Game {
                         }
                     }
                     "halberd_shot" => {
-                        if self.floor < 24 {
-                            ("target_not_reached", "尚未推进至第24层或第32层关底")
-                        } else {
-                            ("counter_condition_unmet", "第24层或第32层关底首回合未满足出牌或6怒气条件")
-                        }
+                        ("counter_condition_unmet", "第24层或第32层关底首回合未满足出牌或6怒气条件")
                     }
-                    "river_divide" => {
+                    "maicheng_supply" | "liaodong_letter" | "yiling_ashes" => {
+                        ("counter_condition_unmet", "第四或第五幕关底首回合未满足出牌或护甲条件")
+                    }
+                    "river_divide" | "successor_scroll" | "seven_captures" => {
                         if self.floor < 32 {
                             ("target_not_reached", "尚未推进至第32层第四幕关底")
                         } else {
-                            ("counter_condition_unmet", "第32层关底首回合未满足出牌2张且保持8护甲条件")
+                            ("counter_condition_unmet", "第32层关底首回合未满足出牌与护甲条件")
+                        }
+                    }
+                    "anxi_seal" | "wenjiu_oath" => {
+                        if self.floor < 24 {
+                            ("target_not_reached", "尚未推进至第24层第三幕关底")
+                        } else {
+                            ("counter_condition_unmet", "第24层关底首回合未满足出牌或护甲条件")
+                        }
+                    }
+                    "yiling_bridge" | "jieting_accountability" | "white_gate" | "wooden_ox" => {
+                        if self.floor < 40 {
+                            ("target_not_reached", "尚未推进至第40层第五幕关底")
+                        } else {
+                            ("counter_condition_unmet", "第40层关底首回合未满足出牌或护甲条件")
                         }
                     }
                     kind => {
