@@ -902,6 +902,9 @@ use natural_plan_report::{NaturalBossEvidence, NaturalBossStart};
 struct ExpandedFloorSample {
     floor: u8,
     stage: Stage,
+    node: Option<Node>,
+    // Foes present at this observation, not a full encounter denominator.
+    foes: Vec<String>,
     hp: i32,
     max_hp: i32,
     gold: i32,
@@ -914,7 +917,9 @@ struct ExpandedFloorSample {
 impl ExpandedFloorSample {
     fn capture(game: &Game) -> Self {
         Self {
-            floor: game.floor, stage: game.stage, hp: game.hp, max_hp: game.max_hp,
+            floor: game.floor, stage: game.stage, node: game.last_node,
+            foes: game.battle.as_ref().map(|battle| battle.foes.iter().map(|foe| foe.id.clone()).collect()).unwrap_or_default(),
+            hp: game.hp, max_hp: game.max_hp,
             gold: game.gold, cards: game.deck.len(), relics: game.relics.len(),
             potions: game.potion_bag.len(),
             turns_completed: game.telemetry.totals.turns_completed,
@@ -937,6 +942,82 @@ struct ExpandedMatrixRun {
     floors: Vec<ExpandedFloorSample>,
     final_sample: ExpandedFloorSample,
     telemetry: CombatCounters,
+}
+
+impl ExpandedMatrixRun {
+    fn verified_terminal(&self) -> bool {
+        self.error.is_none() && self.replay_verified && self.chronicle_verified
+            && matches!(self.terminal, Stage::Won | Stage::Lost)
+    }
+}
+
+#[derive(Debug, Default, Serialize)]
+struct ExpandedPolicyTotals {
+    observed: usize,
+    wins: usize,
+    losses: usize,
+    incomplete: usize,
+    // Only verified terminal runs contribute to these sums.
+    terminal_floor_sum: u64,
+    terminal_gold_sum: i64,
+    terminal_deck_size_sum: usize,
+    terminal_relic_count_sum: usize,
+    terminal_turns_sum: u64,
+}
+
+impl ExpandedPolicyTotals {
+    fn record(&mut self, run: &ExpandedMatrixRun) {
+        self.observed += 1;
+        if !run.verified_terminal() {
+            self.incomplete += 1;
+            return;
+        }
+        if run.terminal == Stage::Won {
+            self.wins += 1;
+        } else {
+            self.losses += 1;
+        }
+        self.terminal_floor_sum += u64::from(run.final_sample.floor);
+        self.terminal_gold_sum += i64::from(run.final_sample.gold);
+        self.terminal_deck_size_sum += run.final_sample.cards;
+        self.terminal_relic_count_sum += run.final_sample.relics;
+        self.terminal_turns_sum += run.final_sample.turns_completed;
+    }
+}
+
+#[derive(Debug, Default, Serialize)]
+struct ExpandedPairTotals {
+    first_playable: ExpandedPolicyTotals,
+    tactical: ExpandedPolicyTotals,
+    both_won: usize,
+    first_only_won: usize,
+    tactical_only_won: usize,
+    both_lost: usize,
+    incomplete_pairs: usize,
+}
+
+impl ExpandedPairTotals {
+    fn record(&mut self, first: &ExpandedMatrixRun, tactical: &ExpandedMatrixRun) {
+        self.first_playable.record(first);
+        self.tactical.record(tactical);
+        if !first.verified_terminal() || !tactical.verified_terminal() {
+            self.incomplete_pairs += 1;
+            return;
+        }
+        match (first.terminal == Stage::Won, tactical.terminal == Stage::Won) {
+            (true, true) => self.both_won += 1,
+            (true, false) => self.first_only_won += 1,
+            (false, true) => self.tactical_only_won += 1,
+            (false, false) => self.both_lost += 1,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct ExpandedMatrixCell {
+    hero: Hero,
+    difficulty: three_kingdoms_spire_reborn::Difficulty,
+    totals: ExpandedPairTotals,
 }
 
 fn expanded_matrix_action(game: &Game, policy: Policy) -> Result<Action, String> {
@@ -1035,60 +1116,82 @@ fn expanded_matrix_run(
     }
 }
 
-// The ordinary Rust CI already runs bin tests. Exercise a single fixed seed
-// in every paired cell there; the opt-in report command extends the sample
-// without changing, weakening or bypassing any existing workflow.
+// Both the executable report and the CI test use the same natural cohort.
+fn collect_expanded_matrix(samples: usize) -> (Vec<ExpandedMatrixRun>, Vec<ExpandedMatrixCell>) {
+    use three_kingdoms_spire_reborn::Difficulty;
+    let mut runs = Vec::new();
+    let mut cells = Vec::new();
+    for hero in HEROES {
+        for difficulty in Difficulty::ALL {
+            let mut totals = ExpandedPairTotals::default();
+            for trial in 0..samples {
+                let seed = 247_510 + trial as u64;
+                let first = expanded_matrix_run(hero, difficulty, seed, Policy::FirstPlayable);
+                let tactical = expanded_matrix_run(hero, difficulty, seed, Policy::Tactical);
+                totals.record(&first, &tactical);
+                runs.extend([first, tactical]);
+            }
+            cells.push(ExpandedMatrixCell { hero, difficulty, totals });
+        }
+    }
+    (runs, cells)
+}
+
+fn expanded_matrix_integrity(runs: &[ExpandedMatrixRun]) -> Result<(), String> {
+    let failures: Vec<_> = runs.iter().filter(|run| !run.verified_terminal())
+        .map(|run| format!("{:?} {:?} {} seed {} floor {}: {:?}",
+            run.hero, run.difficulty, run.policy, run.seed, run.final_sample.floor, run.error))
+        .collect();
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("incomplete natural matrix cells: {}", failures.join(" | ")))
+    }
+}
+
 #[cfg(test)]
 #[test]
 fn expanded_matrix_fixed_seed_all_cells_settle_and_replay() {
-    use three_kingdoms_spire_reborn::Difficulty;
-    let mut failures = Vec::new();
-    let mut count = 0;
-    for hero in HEROES {
-        for difficulty in Difficulty::ALL {
-            for policy in [Policy::FirstPlayable, Policy::Tactical] {
-                let run = expanded_matrix_run(hero, difficulty, 247_510, policy);
-                count += 1;
-                if run.error.is_some() || !run.replay_verified || !run.chronicle_verified
-                    || !matches!(run.terminal, Stage::Won | Stage::Lost)
-                {
-                    failures.push(format!("{:?} {:?} {} floor {}: {:?}",
-                        hero, difficulty, run.policy, run.final_sample.floor, run.error));
-                }
-            }
+    let (runs, cells) = collect_expanded_matrix(1);
+    assert_eq!(runs.len(), 30);
+    assert_eq!(cells.len(), 15);
+    expanded_matrix_integrity(&runs).expect("all natural runs must settle and replay");
+    let (pairs, remainder) = runs.as_chunks::<2>();
+    assert!(remainder.is_empty());
+    for (cell, pair) in cells.iter().zip(pairs) {
+        assert_eq!(pair[0].seed, pair[1].seed);
+        assert_eq!(pair[0].policy, "first_playable");
+        assert_eq!(pair[1].policy, "tactical");
+        let totals = &cell.totals;
+        assert_eq!(totals.incomplete_pairs, 0);
+        assert_eq!(totals.both_won + totals.first_only_won + totals.tactical_only_won + totals.both_lost, 1);
+        assert_eq!(totals.first_playable.wins, usize::from(pair[0].terminal == Stage::Won));
+        assert_eq!(totals.tactical.wins, usize::from(pair[1].terminal == Stage::Won));
+        for run in pair {
+            assert!(run.floors.windows(2).all(|samples| samples[0].floor < samples[1].floor));
         }
     }
-    assert_eq!(count, 30);
-    assert!(failures.is_empty(), "incomplete natural matrix cells: {}", failures.join(" | "));
 }
 
 fn expanded_matrix_report(samples: usize, output: Option<&str>) -> Result<(), String> {
-    use three_kingdoms_spire_reborn::Difficulty;
-    let mut runs = Vec::new();
-    for hero in HEROES {
-        for difficulty in Difficulty::ALL {
-            for trial in 0..samples {
-                // Same seed in all 15 cells, paired across both policies.
-                let seed = 247_510 + trial as u64;
-                for policy in [Policy::FirstPlayable, Policy::Tactical] {
-                    runs.push(expanded_matrix_run(hero, difficulty, seed, policy));
-                }
-            }
-        }
-    }
+    let (runs, cells) = collect_expanded_matrix(samples);
+    let integrity = expanded_matrix_integrity(&runs);
     let report = serde_json::to_string_pretty(&serde_json::json!({
-        "schema_version": 1,
+        "schema_version": 2,
         "samples_per_cell_per_policy": samples,
         "seed_formula": "247510 + trial",
         "normal_starter_deck": true,
+        "integrity_verified": integrity.is_ok(),
+        "cells": cells,
         "runs": runs,
     })).map_err(|e| e.to_string())?;
+    // Preserve diagnostic rows on failure, but never return success to automation.
     if let Some(path) = output {
         fs::write(path, report).map_err(|e| format!("write {path}: {e}"))?;
     } else {
         println!("{report}");
     }
-    Ok(())
+    integrity
 }
 
 fn main() {
