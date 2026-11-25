@@ -25,6 +25,8 @@ jobs:
         run: python3 tests/cli_journey_e2e.py target/debug/tks
       - name: Natural literary story reachability and deterministic CLI replay
         run: python3 tests/lore_natural_cli_e2e.py target/debug/tks
+      - name: Expanded 40-floor CLI natural causality, counterfactual, and backup recovery
+        run: python3 tests/campaign_natural_cli_e2e.py target/debug/tks
       - name: Six-journal real-process authority and tamper checks
         run: python3 tests/authority_cli_e2e.py target/debug/tks target/debug/tks-authority
       - name: Trusted revision checkpoint CLI E2E

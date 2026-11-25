@@ -17,36 +17,44 @@ impl Game {
         if self.revision == u64::MAX {
             return Err("action revision overflow: refusing an unversioned commit".into());
         }
-        // Do not clone the growing card journal on every action: that would
-        // make a long campaign quadratic in its recorded card snapshots.
-        // Restore the live journal before any fallible game operation.
+        // Do not clone the growing card and action journals on every action: that would
+        // make a long campaign quadratic in its recorded snapshots.
+        // Restore every taken live journal before any fallible game operation.
+        let action_history = self.action_history.take();
+        let resource_history = self.resource_history.take();
+        let rng_history = self.rng_history.take();
+        let battle_resource_history = self.battle_resource_history.take();
+        let foe_board_history = self.foe_board_history.take();
         let card_history = self.card_zone_history.take();
         let effect_history = self.combat_effect_history.take();
         let runtime_history = self.battle_runtime_history.take();
         let campaign_history = self.campaign_history.take();
         let telemetry_history = self.telemetry_history.take();
         let mut draft = self.clone();
+        self.action_history = action_history;
+        self.resource_history = resource_history;
+        self.rng_history = rng_history;
+        self.battle_resource_history = battle_resource_history;
+        self.foe_board_history = foe_board_history;
         self.card_zone_history = card_history;
         self.combat_effect_history = effect_history;
         self.battle_runtime_history = runtime_history;
         self.campaign_history = campaign_history;
         self.telemetry_history = telemetry_history;
         let messages = draft.apply_unchecked(action.clone())?;
-        if let Some(history) = draft.resource_history.as_mut() {
-            history.push(resource_events::ResourceEvent::Changed {
+        let resource_event = self.resource_history.is_some().then(|| {
+            resource_events::ResourceEvent::Changed {
                 revision: draft.revision,
                 hp_delta: i64::from(draft.hp) - i64::from(self.hp),
                 max_hp_delta: i64::from(draft.max_hp) - i64::from(self.max_hp),
                 gold_delta: i64::from(draft.gold) - i64::from(self.gold),
-            });
-        }
-        if let Some(history) = draft.rng_history.as_mut() {
-            history.push(rng_events::RngEvent::Committed {
-                revision: draft.revision,
-                state: draft.rng_state,
-            });
-        }
-        let combat_event = if draft.battle_resource_history.is_some() {
+            }
+        });
+        let rng_event = self.rng_history.is_some().then_some(rng_events::RngEvent::Committed {
+            revision: draft.revision,
+            state: draft.rng_state,
+        });
+        let combat_event = if self.battle_resource_history.is_some() {
             Some(combat_resource_events::transition(
                 combat_resource_events::BattleResources::current(self),
                 combat_resource_events::BattleResources::current(&draft),
@@ -55,10 +63,7 @@ impl Game {
         } else {
             None
         };
-        if let (Some(history), Some(event)) = (draft.battle_resource_history.as_mut(), combat_event) {
-            history.push(event);
-        }
-        let foe_event = if draft.foe_board_history.is_some() {
+        let foe_event = if self.foe_board_history.is_some() {
             Some(foe_board_events::transition(
                 foe_board_events::FoeBoard::current(self),
                 foe_board_events::FoeBoard::current(&draft),
@@ -67,9 +72,6 @@ impl Game {
         } else {
             None
         };
-        if let (Some(history), Some(event)) = (draft.foe_board_history.as_mut(), foe_event) {
-            history.push(event);
-        }
         let effect_event = if self.combat_effect_history.is_some() {
             Some(combat_effect_events::transition(
                 combat_effect_events::BattleEffects::current(self),
@@ -119,10 +121,30 @@ impl Game {
                 &self.telemetry, &draft.telemetry, draft.revision, archive_len,
             )?)
         } else { None };
-        if let Some(actions) = draft.action_history.as_mut() {
-            actions.push(action);
-        }
         draft.validate()?;
+        if self.action_history.as_ref().is_some_and(|actions| actions.len() >= 50_000) {
+            return Err("操作日志长度超限".into());
+        }
+        if rng_event.is_some()
+            && self.rng_history.as_ref().is_some_and(|history| history.len() >= 50_001)
+        {
+            return Err("rng journal exceeds action limit".into());
+        }
+        if resource_event.is_some()
+            && self.resource_history.as_ref().is_some_and(|history| history.len() >= 50_001)
+        {
+            return Err("resource journal exceeds action limit".into());
+        }
+        if combat_event.is_some()
+            && self.battle_resource_history.as_ref().is_some_and(|history| history.len() >= 50_001)
+        {
+            return Err("combat resource journal exceeds action limit".into());
+        }
+        if foe_event.is_some()
+            && self.foe_board_history.as_ref().is_some_and(|history| history.len() >= 50_001)
+        {
+            return Err("enemy board journal exceeds action limit".into());
+        }
         if card_event.is_some()
             && self.card_zone_history.as_ref().is_some_and(|history| history.len() >= 50_001)
         {
@@ -149,6 +171,30 @@ impl Game {
             return Err("telemetry journal exceeds action limit".into());
         }
         // Large histories move only after all fallible validation succeeds.
+        if let Some(mut actions) = self.action_history.take() {
+            actions.push(action);
+            draft.action_history = Some(actions);
+        }
+        if let Some(event) = resource_event {
+            let mut history = self.resource_history.take().expect("checked resource journal");
+            history.push(event);
+            draft.resource_history = Some(history);
+        }
+        if let Some(event) = rng_event {
+            let mut history = self.rng_history.take().expect("checked rng journal");
+            history.push(event);
+            draft.rng_history = Some(history);
+        }
+        if let Some(event) = combat_event {
+            let mut history = self.battle_resource_history.take().expect("checked combat journal");
+            history.push(event);
+            draft.battle_resource_history = Some(history);
+        }
+        if let Some(event) = foe_event {
+            let mut history = self.foe_board_history.take().expect("checked foe journal");
+            history.push(event);
+            draft.foe_board_history = Some(history);
+        }
         if let Some(event) = card_event {
             let mut history = self.card_zone_history.take().expect("checked card journal");
             history.push(event);

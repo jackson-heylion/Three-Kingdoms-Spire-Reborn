@@ -58,6 +58,10 @@ pub struct CampaignState {
     pub xiangfan_plan: Option<XiangfanPlan>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub market_upgraded: bool,
+    #[serde(default, skip_serializing_if = "crate::is_zero_u8")]
+    pub card_removals: u8,
+    #[serde(default, skip_serializing_if = "crate::is_zero_u8")]
+    pub camp_drills: u8,
     pub easter_unlocked: Vec<String>,
     pub event_id: u8,
     pub victories: u32,
@@ -87,6 +91,7 @@ impl CampaignState {
             wuchao_plan: game.wuchao_plan, chibi_plan: game.chibi_plan,
             jieting_plan: game.jieting_plan, xiapi_plan: game.xiapi_plan,
             xiangfan_plan: game.xiangfan_plan, market_upgraded: game.market_upgraded,
+            card_removals: game.card_removals, camp_drills: game.camp_drills,
             easter_unlocked: game.easter_unlocked.clone(), event_id: game.event_id,
             victories: game.victories, variants: game.variants,
             doctrine: game.doctrine, modifiers: game.modifiers.clone(),
@@ -146,6 +151,9 @@ impl CampaignState {
                 || (self.stage == Stage::Market
                     && self.identity.as_ref().is_some_and(|identity| identity.difficulty.is_some()
                         && identity.expanded_rules_revision == crate::EXPANDED_RULES_REVISION)))
+            && ((self.card_removals == 0 && self.camp_drills == 0)
+                || self.identity.as_ref().is_some_and(|identity| identity.difficulty.is_some()
+                    && identity.expanded_rules_revision == crate::EXPANDED_RULES_REVISION))
             && self.potions <= 3 && self.potion_bag.len() == usize::from(self.potions)
             && self.rewards.iter().chain(&self.market).all(|card| !card.temporary)
     }

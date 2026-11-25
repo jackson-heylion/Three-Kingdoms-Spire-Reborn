@@ -226,7 +226,23 @@ fn tactical_card_value(game:&Game,card:&Card,threat:i32)->i32 {
         Effect::ComboStrike(_) | Effect::CommandStrike(_) | Effect::FuryStrike(_) |
         Effect::BloodPrice(_,_) | Effect::Leech(_) | Effect::HitPoison(_,_) |
         Effect::Pierce(_) | Effect::DiscardStrike(_) | Effect::XHit(_));
-    upfront + if attack {5 + if convoy_risk > 0 { 8 } else { 0 }} else {0}
+    let echo_guard_bonus = if let Some(b) = game.battle.as_ref().filter(|b| {
+        game.has_expanded_history_rules()
+            && b.turn == 1
+            && game.last_node == Some(Node::Boss)
+            && game.tactical_objective().is_some_and(|s| s.contains("史事回响"))
+    }) {
+        let needs_armor = game.tactical_objective().is_some_and(|s| s.contains("甲"));
+        match spec.effect {
+            Effect::Guard(_) | Effect::GuardEnergy(_) | Effect::XGuard(_)
+                if needs_armor && b.block < 8 => 16,
+            _ if b.played_this_turn < 2 && cost <= 1 => 8,
+            _ => 0,
+        }
+    } else {
+        0
+    };
+    upfront + echo_guard_bonus + if attack {5 + if convoy_risk > 0 { 8 } else { 0 }} else {0}
         + i32::from(card.upgraded)*5
         - cost*3
         - i32::from(matches!(spec.effect,Effect::XHit(_) | Effect::XGuard(_))
@@ -278,10 +294,11 @@ fn tactical_action(game:&Game)->Result<Action,String> {
                         else {52}
                     }else{22},
                     Node::Market => if (game.shop_relic.is_some() && game.gold>=155)
-                        || (game.deck.iter().any(|c| c.id == "cursed") && game.gold>=75)
+                        || (game.deck.iter().any(|c| c.id == "cursed")
+                            && game.gold >= game.card_removal_price())
                     {
                         if story_priority {45} else {36}
-                    } else if game.deck.len() >= 12 && game.gold >= 165 {
+                    } else if game.deck.len() >= 12 && game.gold >= game.card_removal_price().max(165) {
                         36
                     } else if game.gold >= 110 {25} else {5},
                     Node::Story => if council_pending {
@@ -306,11 +323,11 @@ fn tactical_action(game:&Game)->Result<Action,String> {
             let can_upgrade=game.deck.iter().any(|card|!card.upgraded&&card.id!="cursed"
                 && card_spec(&card.id).is_some_and(|s| !matches!(s.effect, Effect::Unplayable)));
             Ok(Action::Choose {index:if deficit >= 12 {1}
-                else if can_upgrade {2} else {3}})
+                else if can_upgrade {2} else if game.camp_drill_hp_gain() > 0 {3} else {1}})
         }
         Stage::Market => {
             let can_remove_cursed = game.deck.iter().any(|c| c.id == "cursed");
-            if can_remove_cursed && game.gold >= 75 {
+            if can_remove_cursed && game.gold >= game.card_removal_price() && game.deck.len() > 1 {
                 return Ok(Action::Choose { index: 6 });
             }
             if game.shop_relic.is_some() && game.gold >= 155 {
@@ -339,7 +356,7 @@ fn tactical_action(game:&Game)->Result<Action,String> {
             {
                 return Ok(Action::Choose { index: idx + 1 });
             }
-            if game.deck.len() >= 12 && game.gold >= 160
+            if game.deck.len() >= 12 && game.gold >= game.card_removal_price().max(160)
                 && game.deck.iter().any(|c| c.id == "strike"
                     || (game.difficulty.is_some() && c.id == "defend"))
                 && game.deck.iter().filter(|c| matches!(c.id.as_str(), "strike" | "defend")).count() >= 4

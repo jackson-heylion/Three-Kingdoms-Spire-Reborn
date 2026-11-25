@@ -119,7 +119,11 @@ pub(super) fn choices(app:&App,target:usize)->Vec<(String,String)> {
                 options.push(("扎营休整".into(), "choose 1".into()));
             }
             options.push(("强化牌组首张可升级卡".into(), "choose 2".into()));
-            options.push(("操练体魄：生命上限+2".into(), "choose 3".into()));
+            let drill_label = match game.camp_drill_hp_gain() {
+                0 => "操练体魄：已臻饱和（+0 生命上限）".into(),
+                gain => format!("操练体魄：生命上限+{gain}"),
+            };
+            options.push((drill_label, "choose 3".into()));
             options
         },
         Stage::Market=> {
@@ -133,7 +137,7 @@ pub(super) fn choices(app:&App,target:usize)->Vec<(String,String)> {
                 ("随机药剂 / 55 金".into(),"choose 4".into()),
                 ("遗物 / 155 金".into(),"choose 5".into()),
                 (if game.market_upgrade_price().is_some() {
-                    "移除诅咒/突刺/防牌 / 75 金".into()
+                    format!("移除诅咒/突刺/防牌 / {} 金", game.card_removal_price())
                 } else { "移除基础牌 / 75 金".into() }, "choose 6".into()),
             ]);
             if let Some(upgrade_cost) = game.market_upgrade_price().filter(|_| !game.market_upgraded) {

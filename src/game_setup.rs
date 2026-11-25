@@ -79,6 +79,7 @@ impl Game {
             lore_flags: vec![], lore_seen: vec![], lore_current: None,
             wuchao_plan: None, chibi_plan: None, jieting_plan: None,
             xiapi_plan: None, xiangfan_plan: None, market_upgraded: false,
+            card_removals: 0, camp_drills: 0,
             easter_unlocked: Vec::new(),
         };
         game.refresh_route();

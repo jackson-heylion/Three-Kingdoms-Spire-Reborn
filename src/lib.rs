@@ -411,7 +411,15 @@ pub struct Game {
     pub xiangfan_plan: Option<XiangfanPlan>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub market_upgraded: bool,
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    pub card_removals: u8,
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    pub camp_drills: u8,
     #[serde(default)] pub easter_unlocked: Vec<String>,
+}
+
+pub(crate) fn is_zero_u8(value: &u8) -> bool {
+    *value == 0
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -462,6 +470,24 @@ impl Game {
 
     pub fn market_upgrade_price(&self) -> Option<i32> {
         self.has_expanded_history_rules().then_some(110)
+    }
+
+    pub fn card_removal_price(&self) -> i32 {
+        if self.has_expanded_history_rules() && self.card_removals >= 3 {
+            (75 + i32::from(self.card_removals - 2) * 25).min(175)
+        } else {
+            75
+        }
+    }
+
+    pub fn camp_drill_hp_gain(&self) -> i32 {
+        if !self.has_expanded_history_rules() || self.camp_drills < 5 {
+            2
+        } else if self.camp_drills < 8 {
+            1
+        } else {
+            0
+        }
     }
 
     pub fn market_card_price(index: usize) -> Option<i32> {
@@ -3249,6 +3275,11 @@ impl Game {
         self.battle = None;
         let payout = match node { Node::Boss => 100, Node::Elite => 60, _ => 24 + self.random(15) as i32 };
         let payout = payout.saturating_sub(self.difficulty.map_or(0, Difficulty::supply_toll));
+        let payout = if self.has_expanded_history_rules() && self.floor > 24 && self.gold >= 900 {
+            (payout / 2).max(10)
+        } else {
+            payout
+        };
         self.gold += payout;
         let convoy_note = if let Some(hp) = convoy_hp {
             let bonus = i32::from(hp) * 2; // Never more than 24, once per victory.
@@ -5153,10 +5184,14 @@ impl Game {
         {
             return Err("移牌后须至少保留一张可打出的牌".into());
         }
-        if self.gold < 75 { return Err("移牌需要75金".into()); }
-        self.gold -= 75;
+        let cost = self.card_removal_price();
+        if self.gold < cost { return Err(format!("移牌需要{cost}金")); }
+        self.gold -= cost;
+        if self.has_expanded_history_rules() {
+            self.card_removals = self.card_removals.saturating_add(1);
+        }
         let card = self.deck.remove(idx);
-        Ok(format!("消耗75金移除【{}】。", card.name()))
+        Ok(format!("消耗{cost}金移除【{}】。", card.name()))
     }
     fn choose_camp(&mut self, index: usize) -> Result<String, String> {
         let msg = match index {
@@ -5177,8 +5212,17 @@ impl Game {
                 return self.upgrade_card(index);
             }
             3 => {
-                self.max_hp += 2; self.hp += 2;
-                "操练兵卒：最大体力+2。".into()
+                let gain = self.camp_drill_hp_gain();
+                if self.has_expanded_history_rules() && gain > 0 {
+                    self.camp_drills = self.camp_drills.saturating_add(1);
+                }
+                if gain > 0 {
+                    self.max_hp += gain;
+                    self.hp += gain;
+                    format!("操练兵卒：最大体力+{gain}。")
+                } else {
+                    "操练军心已臻饱和：士气稳固，最大体力不再叠加。".into()
+                }
             }
             _ => return Err("营寨：choose 1 休整、choose 2 升级首张可升级牌、choose 3 操练；升级指定牌用 upgrade N".into()),
         };
