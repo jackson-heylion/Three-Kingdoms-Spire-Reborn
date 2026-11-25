@@ -391,9 +391,9 @@ fn jieting_retreat_evacuation_reduces_real_water_raid_and_survives_restore() {
     assert_eq!(game.jieting_plan, Some(JietingPlan::Council));
     game.apply(Action::Choose { index: 3 }).expect("choose evacuation");
     assert_eq!(game.jieting_plan, Some(JietingPlan::RetreatPending));
-    // The authoritative route now guarantees a battle only after a council
-    // decision; the generated map itself remains unchanged for other heroes.
-    assert!(game.route.iter().all(|node| *node == Node::Battle));
+    // A pending council guarantees an available water-defense encounter,
+    // not that every reachable lane is a battle under the new rules.
+    let _ = jieting_water_route(&game);
     game.act_map = Some(map::ActMap::generate_expanded(|_| 0, 0));
     game.map_lane = None;
     game.route = vec![Node::Battle];
@@ -445,8 +445,10 @@ fn jieting_guarded_wells_repair_only_after_survived_real_raid_and_restore() {
     game.apply(Action::Choose { index: 4 }).expect("open water council");
     game.apply(Action::Choose { index: 1 }).expect("pay for guarding wells");
     assert_eq!(game.jieting_plan, Some(JietingPlan::WaterPending));
-    assert!(game.route_objective_hint(Node::Battle).unwrap().contains("抢修至多2点"));
-    game.apply(Action::Choose { index: 1 }).expect("enter real water battle");
+    let (index, node) = jieting_water_route(&game);
+    assert!(game.route_objective_hint(node).unwrap().contains("抢修"));
+    game.apply(Action::Choose { index }).expect("enter real water battle");
+    assert_eq!(game.last_node, Some(node));
     assert_eq!(game.jieting_plan, Some(JietingPlan::WaterResolved));
     assert!(game.tactical_objective().unwrap().contains("劫水后抢修至多2点"));
 
@@ -485,6 +487,20 @@ fn jieting_guarded_wells_repair_only_after_survived_real_raid_and_restore() {
         e.event.source == "jieting_water_wells_repaired"));
 }
 
+// New rules preserve optional noncombat routes after the council. Select
+// an actual reachable water-defense lane rather than assuming choice 1.
+// Keep the seeded map intact and prefer the original ordinary battle when
+// offered; a reachable elite is also a legitimate water-defense encounter.
+fn jieting_water_route(game: &Game) -> (usize, Node) {
+    assert_eq!(game.stage, Stage::Map);
+    let index = game.route.iter().position(|node| *node == Node::Battle)
+        .or_else(|| game.route.iter().position(|node| *node == Node::Elite))
+        .expect("Jieting council must expose a reachable water-defense route");
+    let node = game.route[index];
+    assert!(game.route_objective_hint(node).expect("water objective forecast").contains("水源"));
+    (index + 1, node)
+}
+
 #[test]
 fn jieting_hill_sacrifices_water_at_real_battle_entry_and_survives_restore() {
     // A controlled floor-25 Story checkpoint, NOT natural 1->25 evidence.
@@ -498,10 +514,12 @@ fn jieting_hill_sacrifices_water_at_real_battle_entry_and_survives_restore() {
     game.apply(Action::Choose { index: 4 }).expect("open Jieting council");
     game.apply(Action::Choose { index: 2 }).expect("choose high ground");
     assert_eq!(game.jieting_plan, Some(JietingPlan::HillPending));
-    assert!(game.route.iter().all(|node| *node == Node::Battle));
-    assert!(game.route_objective_hint(Node::Battle).unwrap().contains("先损失4点水源"));
+    let (index, node) = jieting_water_route(&game);
+    let forecast = game.route_objective_hint(node).unwrap();
+    assert!(forecast.contains("4点") && forecast.contains("水源") && forecast.contains("损"), "{forecast}");
 
-    let entry = game.apply(Action::Choose { index: 1 }).expect("enter water battle");
+    let entry = game.apply(Action::Choose { index }).expect("enter water battle");
+    assert_eq!(game.last_node, Some(node));
     assert_eq!(game.floor, 26);
     assert_eq!(game.jieting_plan, Some(JietingPlan::HillResolved));
     assert_eq!(game.battle.as_ref().unwrap().convoy_hp, Some(8));
@@ -530,7 +548,9 @@ fn jieting_hill_real_attack_suppresses_raiders_and_replays_after_restore() {
     game.stage = Stage::Story;
     game.apply(Action::Choose { index: 4 }).expect("open Jieting council");
     game.apply(Action::Choose { index: 2 }).expect("take high ground");
-    game.apply(Action::Choose { index: 1 }).expect("enter water battle");
+    let (index, node) = jieting_water_route(&game);
+    game.apply(Action::Choose { index }).expect("enter water battle");
+    assert_eq!(game.last_node, Some(node));
     assert_eq!(game.jieting_plan, Some(JietingPlan::HillResolved));
     assert_eq!(game.battle.as_ref().unwrap().convoy_hp, Some(8));
 
@@ -578,7 +598,10 @@ fn jieting_hill_killing_raider_recaptures_real_water_without_new_save_state() {
     game.stage = Stage::Story;
     game.apply(Action::Choose { index: 4 }).expect("open Jieting council");
     game.apply(Action::Choose { index: 2 }).expect("choose high-ground risk");
-    game.apply(Action::Choose { index: 1 }).expect("enter water defense");
+    let (index, node) = jieting_water_route(&game);
+    game.apply(Action::Choose { index }).expect("enter water defense");
+    assert_eq!(game.last_node, Some(node));
+    assert_eq!(game.jieting_plan, Some(JietingPlan::HillResolved));
     assert_eq!(game.battle.as_ref().unwrap().convoy_hp, Some(8));
     {
         let b = game.battle.as_mut().unwrap();

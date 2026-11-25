@@ -4,13 +4,81 @@ use three_kingdoms_spire_reborn::{
     Action, ChibiPlan, Difficulty, Game, Node, Stage, WuchaoPlan, content::{Effect, Hero, card_spec}, progression::Profile,
 };
 
+// Only the alternate-boss probe opts into this supply-aware policy. Keep
+// previously verified natural journeys on their original player policy.
+// All observations are derived from the real action replay, not a seeded
+// checkpoint. Different receipts from one choice must never inflate density.
+fn verify_history_observation(game: &Game, restored: &Game) {
+    let snapshot = game.to_json().unwrap();
+    let density = game.historical_density_report().expect("verified historical interactions");
+    assert_eq!(density, restored.historical_density_report().unwrap());
+    assert_eq!(density.complete_campaign, game.stage == Stage::Won && game.floor == 40);
+    assert_eq!(density.covered_lower_bound, density.interactions.len());
+    let observations = density.interactions;
+    let keys: std::collections::HashSet<_> = observations.iter().map(|r| &r.key).collect();
+    assert_eq!(keys.len(), observations.len());
+    assert!(observations.iter().all(|r| r.revision > 0 && r.floor <= game.floor));
+    let report = game.historical_archive_report().unwrap();
+    assert!(report.contains(&format!("有效历史触动保守下界：{}次", observations.len())));
+    assert_eq!(report, restored.historical_archive_report().unwrap());
+    for observation in &observations {
+        if let Some(beat) = observation.key.strip_prefix("scene:")
+            .and_then(three_kingdoms_spire_reborn::lore::beat)
+        {
+            assert!(report.contains(&format!("【{}】文学背景：毛评演义第{:03}回", beat.title, beat.chapter)));
+        }
+    }
+    assert_eq!(game.to_json().unwrap(), snapshot);
+}
+
 fn fight(game: &mut Game) -> Result<(), String> {
+    fight_with_supplies(game, false)
+}
+
+fn use_available_supply(game: &mut Game) -> Result<(), String> {
+    let Some(battle) = game.battle.as_ref() else { return Ok(()); };
+    let Some(target) = battle.foes.iter().enumerate()
+        .filter(|(_, foe)| foe.hp > 0)
+        .min_by_key(|(_, foe)| foe.hp)
+        .map(|(index, _)| index + 1) else { return Ok(()); };
+    let missing_hp = game.max_hp - game.hp;
+    let incoming_attack = battle.foes.iter().any(|foe| foe.hp > 0 && matches!(
+        foe.intent, three_kingdoms_spire_reborn::Intent::Attack(_)
+            | three_kingdoms_spire_reborn::Intent::MultiAttack(_, _)
+    ));
+    let hard_battle = matches!(game.last_node, Some(Node::Boss | Node::Elite));
+    let use_combat_supply = hard_battle || game.potion_bag.len() >= 3;
+    // Use healing before damage; spend offensive supplies in hard battles or
+    // to free an inventory slot for future earned drops. Never pay blood HP
+    // near defeat, and never fabricate an inventory or spend an invalid slot.
+    let slot = game.potion_bag.iter().position(|id| match id.as_str() {
+        "healing" => missing_hp >= 16,
+        "cleanse" => missing_hp >= 8 || battle.weak > 0 || battle.vulnerable > 0,
+        "shield" => use_combat_supply && incoming_attack && battle.block < 12,
+        "strength" | "fire" | "poison" => use_combat_supply,
+        "energy" => use_combat_supply && battle.energy <= 3,
+        "insight" => use_combat_supply && battle.hand.len() <= 5,
+        "weak" => use_combat_supply && incoming_attack,
+        "blood" => hard_battle && game.hp > 24,
+        _ => false,
+    });
+    if let Some(index) = slot {
+        game.apply(Action::UsePotionAt { slot: index + 1, target })?;
+    }
+    Ok(())
+}
+
+fn fight_with_supplies(game: &mut Game, use_supplies: bool) -> Result<(), String> {
     // Preserve an actionable trace if a natural high-ground water-defense run
     // ends in defeat. This records READ-ONLY state before real player actions;
     // no hand, map, foe, historical flag or RNG is ever injected.
     let mut hill_water_trace: Vec<String> = Vec::new();
     for _ in 0..32 {
         if game.stage != Stage::Combat { return Ok(()); }
+        if use_supplies {
+            use_available_supply(game)?;
+            if game.stage != Stage::Combat { return Ok(()); }
+        }
         if game.battle.as_ref().is_some_and(|b| b.siege_gate_hp.is_some() && b.energy >= 2) {
             game.apply(Action::AssaultGate)?;
             continue;
@@ -31,7 +99,6 @@ fn fight(game: &mut Game) -> Result<(), String> {
                 // The water/convoy objective is independent of hero block.
                 // A guard card protects the objective even when the hero already
                 // has armor, and several guards can be necessary in one turn.
-                let raiders = b.foes.iter().filter(|foe| foe.hp > 0).count() as u8;
                 // Scope objective-first defense to the Jieting water battle.
                 // Applying it to the ordinary early-floor grain convoy changed
                 // card ordering and caused every fixed Zhuge Liang seed to die
@@ -39,14 +106,11 @@ fn fight(game: &mut Game) -> Result<(), String> {
                 let fleet_objective = game.floor == 19
                     && game.last_node == Some(Node::Battle)
                     && b.convoy_hp.is_some();
-                // Third-act tides add two raiding points every even turn;
-                // the driver observes the same posted objective as a player,
-                // rather than treating every escort as identical cargo.
-                let tide = if fleet_objective && b.turn.is_multiple_of(2) { 2 } else { 0 };
-                let incoming_water_loss = raiders.saturating_mul(4)
-                    .saturating_add(tide).saturating_sub(b.convoy_cover.unwrap_or(0));
+                // Use the actual read-only forecast rather than hardcoding
+                // Warlords tide or ignoring Wuchao disruption in other tiers.
+                let incoming_water_loss = game.projected_cargo_loss().unwrap_or(0);
                 let water_objective = game.hero == Hero::ZhugeLiang
-                    && (26..=31).contains(&game.floor)
+                    && (26..=32).contains(&game.floor)
                     && b.convoy_hp.is_some();
                 let threatened_objective = (water_objective || fleet_objective)
                     && b.convoy_hp.is_some_and(|hp| incoming_water_loss >= hp);
@@ -115,7 +179,7 @@ fn fight(game: &mut Game) -> Result<(), String> {
         }
         if game.stage == Stage::Combat {
             let trace_before = if game.hero == Hero::ZhugeLiang
-                && (26..=31).contains(&game.floor)
+                && (26..=32).contains(&game.floor)
                 && game.jieting_plan == Some(three_kingdoms_spire_reborn::JietingPlan::HillResolved)
             {
                 let battle = game.battle.as_ref().expect("real hill battle");
@@ -284,6 +348,7 @@ fn natural_fifth_act_requires_four_boss_victories_and_full_campaign_win() {
             let restored = Game::from_json(&json).expect("act-five restore");
             assert_eq!(restored.to_json().unwrap(), json);
             restored.verify_action_replay().expect("restored act-five replay");
+            verify_history_observation(&game, &restored);
             assert_eq!(game.floor, 40);
             assert_eq!(game.stage, Stage::Won);
             assert_eq!(game.last_node, Some(Node::Boss));
@@ -361,7 +426,14 @@ fn natural_fifth_act_deng_ai_entry_and_victory_survive_action_replay() {
         game.apply(Action::Choose { index: 1 }).expect("begin natural breakout");
         let mut error = None;
         let mut found_deng_ai = false;
+        let mut floor_trace = Vec::new();
+        let mut last_floor = 0;
         for _ in 0..900 {
+            if game.floor != last_floor {
+                last_floor = game.floor;
+                floor_trace.push(format!("{}:hp{}/{}:gold{}:cards{}:potions{}",
+                    game.floor, game.hp, game.max_hp, game.gold, game.deck.len(), game.potion_bag.len()));
+            }
             if game.stage == Stage::Combat && game.floor == 40
                 && game.last_node == Some(Node::Boss)
             {
@@ -369,12 +441,16 @@ fn natural_fifth_act_deng_ai_entry_and_victory_survive_action_replay() {
                 assert_eq!(foe.id, "dengai", "alternate fifth act must not reuse Zuoci");
                 found_deng_ai = true;
                 let saved = game.to_json().expect("natural final boss save");
+                let objective = game.tactical_objective().expect("Deng Ai objective for non-Zhuge hero");
+                assert!(objective.contains("护甲达10/12"), "{objective}");
+                assert_eq!(game.to_json().unwrap(), saved);
                 let mut restored = Game::from_json(&saved).expect("restore real boss encounter");
+                assert_eq!(restored.tactical_objective().as_deref(), Some(objective.as_str()));
                 assert_eq!(restored.to_json().unwrap(), saved);
                 restored.verify_action_replay().expect("replay natural Deng Ai entry");
                 // Prove that the same legal policy can resolve the new
                 // commander after a save/restart, not merely arrive at it.
-                if let Err(e) = fight(&mut restored) { error = Some(e); break; }
+                if let Err(e) = fight_with_supplies(&mut restored, true) { error = Some(e); break; }
                 if restored.stage == Stage::Reward {
                     restored.apply(Action::Choose { index: 0 })
                         .expect("claim natural final boss reward");
@@ -390,10 +466,15 @@ fn natural_fifth_act_deng_ai_entry_and_victory_survive_action_replay() {
                 break;
             }
             if matches!(game.stage, Stage::Won | Stage::Lost) { break; }
-            if let Err(e) = advance(&mut game) { error = Some(e); break; }
+            let result = if game.stage == Stage::Combat {
+                fight_with_supplies(&mut game, true)
+            } else {
+                advance(&mut game)
+            };
+            if let Err(e) = result { error = Some(e); break; }
         }
-        failures.push(format!("seed {seed}: floor {} stage {:?}, deng_ai={found_deng_ai}, error={error:?}",
-            game.floor, game.stage));
+        failures.push(format!("seed {seed}: floor {} stage {:?}, deng_ai={found_deng_ai}, error={error:?}, trace={}",
+            game.floor, game.stage, floor_trace.join(" -> ")));
     }
     panic!("no fully natural alternate-act Deng Ai win in fixed acceptance cohort: {}",
         failures.join(" | "));
@@ -505,6 +586,18 @@ fn verify_natural_wuchao_choice(choice: usize) {
                 let loaded = Game::from_json(&saved).expect("cross-act restore");
                 assert_eq!(loaded.to_json().unwrap(), saved);
                 loaded.verify_action_replay().expect("restored wuchao replay");
+                let receipts = game.historical_effect_receipts().expect("natural Wuchao receipts");
+                assert_eq!(receipts, loaded.historical_effect_receipts().unwrap());
+                verify_history_observation(&game, &loaded);
+                assert_eq!(game.historical_interactions().unwrap().iter().filter(|r| r.key == "council:wuchao").count(), 1);
+                let source = match choice {
+                    1 => "wuchao_act_three_raid",
+                    2 => "wuchao_act_three_fortify",
+                    _ => "wuchao_act_three_decline",
+                };
+                assert_eq!(receipts.iter().filter(|r|
+                    r.source == source && r.amount > 0 && r.floor == game.floor
+                    && r.decision_id.contains(":wuchao:")).count(), 1);
                 return;
             } else if game.stage == Stage::Lost || game.stage == Stage::Won {
                 break;
@@ -604,6 +697,30 @@ fn natural_chibi_east_wind_three_choices_replay_through_fourth_act() {
                     let restored = Game::from_json(&snapshot).expect("Chibi fourth-act restore");
                     assert_eq!(restored.to_json().unwrap(), snapshot);
                     restored.verify_action_replay().expect("restored Chibi action replay");
+                    verify_history_observation(&game, &restored);
+                    assert_eq!(game.historical_interactions().unwrap().iter().filter(|r| r.key == "council:chibi").count(), 1);
+                    let receipts = game.historical_effect_receipts().expect("natural Chibi receipts");
+                    assert_eq!(receipts, restored.historical_effect_receipts().unwrap());
+                    let first_source = match choice {
+                        1 => "chibi_act_three_fire",
+                        2 => "chibi_act_three_fleet",
+                        _ => "chibi_act_three_decline",
+                    };
+                    assert_eq!(receipts.iter().filter(|r|
+                        r.source == first_source && r.amount > 0
+                        && (17..=24).contains(&r.floor)
+                        && r.decision_id.contains(":chibi:")).count(), 1);
+                    let aftermath_source = match choice {
+                        1 => "chibi_act_four_debt",
+                        2 => "chibi_act_four_supply",
+                        _ => "chibi_act_four_setback",
+                    };
+                    let paid = receipts.iter().filter(|r|
+                        r.source == aftermath_source && r.amount > 0
+                        && (25..=32).contains(&r.floor)).count();
+                    // A fire debt at zero gold has no actual resource change.
+                    assert!(paid <= 1);
+                    if choice != 1 { assert_eq!(paid, 1); }
                     completed = true;
                     break;
                 } else if matches!(game.stage, Stage::Won | Stage::Lost) {
@@ -676,7 +793,7 @@ fn natural_jieting_three_choices_replay_into_fifth_act() {
                     game = restored;
                     planned = true;
                 } else if planned && !water_battle && game.stage == Stage::Combat
-                    && (26..=31).contains(&game.floor)
+                    && (26..=32).contains(&game.floor)
                 {
                     assert_eq!(game.jieting_plan, Some(match choice {
                         1 => JietingPlan::WaterResolved,
@@ -704,6 +821,30 @@ fn natural_jieting_three_choices_replay_into_fifth_act() {
                     let restored = Game::from_json(&saved).expect("fifth-act restore");
                     assert_eq!(restored.to_json().unwrap(), saved);
                     restored.verify_action_replay().expect("restored fifth-act replay");
+                    verify_history_observation(&game, &restored);
+                    assert_eq!(game.historical_interactions().unwrap().iter().filter(|r| r.key == "council:jieting").count(), 1);
+                    let receipts = game.historical_effect_receipts().expect("natural Jieting receipts");
+                    assert_eq!(receipts, restored.historical_effect_receipts().unwrap());
+                    let first_source = match choice {
+                        1 => "jieting_act_four_water",
+                        2 => "jieting_act_four_hill",
+                        _ => "jieting_act_four_retreat",
+                    };
+                    assert_eq!(receipts.iter().filter(|r|
+                        r.source == first_source && r.amount > 0
+                        && (26..=32).contains(&r.floor)
+                        && r.decision_id.contains(":jieting:")).count(), 1);
+                    let aftermath_source = match choice {
+                        1 => "jieting_act_five_water",
+                        2 => "jieting_act_five_debt",
+                        _ => "jieting_act_five_recovery",
+                    };
+                    let paid = receipts.iter().filter(|r|
+                        r.source == aftermath_source && r.amount > 0
+                        && (33..=40).contains(&r.floor)).count();
+                    // No receipt for a zero-gold debt or healing at full HP.
+                    assert!(paid <= 1);
+                    if choice == 1 { assert_eq!(paid, 1); }
                     completed = true;
                     break;
                 } else if matches!(game.stage, Stage::Lost | Stage::Won) {

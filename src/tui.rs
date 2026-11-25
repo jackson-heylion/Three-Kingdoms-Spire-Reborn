@@ -1,7 +1,7 @@
 //! Optional full-keyboard terminal menu for macOS/Linux without platform crates.
 //! Raw mode is scoped by RAII, and the existing plain line CLI remains supported.
 use super::{App, Stage, Card, card_label, card_spec, hud, potion_name};
-use three_kingdoms_spire_reborn::{ChibiPlan, WuchaoPlan, JietingPlan, challenges::ChallengeModifier, content::Effect};
+use three_kingdoms_spire_reborn::{ChibiPlan, WuchaoPlan, JietingPlan, Difficulty, challenges::ChallengeModifier, content::{Effect, Hero}};
 use unicode_width::UnicodeWidthChar;
 #[cfg(test)] use unicode_width::UnicodeWidthStr;
 use std::{fs::File,io::{self, Read, Write, IsTerminal},process::{Command,Stdio}};
@@ -26,23 +26,52 @@ impl RawTerminal {
 impl Drop for RawTerminal {
     fn drop(&mut self) {let _=Self::stty(&[self.original.as_str()]);}
 }
+fn campaign_hero_choices() -> Vec<(String, String)> {
+    [
+        ("关羽·青龙偃月", "guanyu"),
+        ("诸葛亮·八卦谋略", "zhuge"),
+        ("孙尚香·连弩追击", "sun"),
+        ("曹操·亲兵统御", "cao"),
+        ("吕布·无双战魂", "lubu"),
+    ].into_iter().map(|(label, hero)|
+        (label.to_owned(), format!("@campaign {hero}"))).collect()
+}
+
+fn campaign_tier_choices(hero: &str) -> Vec<(String, String)> {
+    let mut options = Difficulty::ALL.into_iter().map(|tier|
+        (format!("{} · {}", tier.name(), tier.rules_summary()),
+            format!("campaign {hero} auto {}", tier.id())))
+        .collect::<Vec<_>>();
+    options.push(("返回选将（不修改存档）".into(), "@cancel".into()));
+    options
+}
+
+fn live_target(game: Option<&three_kingdoms_spire_reborn::Game>, requested: usize) -> usize {
+    let Some(battle) = game.and_then(|g| g.battle.as_ref()) else { return 1; };
+    if requested.checked_sub(1).and_then(|i| battle.foes.get(i))
+        .is_some_and(|foe| foe.hp > 0)
+    { return requested; }
+    battle.foes.iter().position(|foe| foe.hp > 0).map_or(1, |index| index + 1)
+}
+
 pub(super) fn choices(app:&App,target:usize)->Vec<(String,String)> {
     let Some(game)=app.game.as_ref() else {
-        return vec![
-            ("关羽·青龙偃月".into(),"new guanyu".into()),
-            ("诸葛亮·八卦谋略".into(),"new zhuge".into()),
-            ("孙尚香·连弩追击".into(),"new sun".into()),
-            ("曹操·亲兵统御".into(),"new cao".into()),
-            ("吕布·无双战魂".into(),"new lubu".into()),
-        ];
+        return campaign_hero_choices();
     };
     match game.stage {
-        Stage::Map=>game.route.iter().enumerate()
-            .map(|(idx,node)|{
-                let label=format!("路线{} {}（道{}）",idx+1,node.name(),
-                    game.route_lanes.get(idx).copied().unwrap_or(idx as u8)+1);
-                (label,format!("choose {}",idx+1))
-            }).collect(),
+        Stage::Map=>{
+            let mut options=game.route.iter().enumerate()
+                .map(|(idx,node)|{
+                    let label=format!("路线{} {}（道{}）",idx+1,node.name(),
+                        game.route_lanes.get(idx).copied().unwrap_or(idx as u8)+1);
+                    (label,format!("choose {}",idx+1))
+                }).collect::<Vec<_>>();
+            if game.difficulty.is_some() {
+                options.push(("查看本幕完整地图".into(), "map".into()));
+                options.push(("查看战史档案（动作重放核验）".into(), "history-audit".into()));
+            }
+            options
+        },
         Stage::Combat=>{
             let mut options=game.battle.as_ref().map_or(vec![],|b|
                 b.hand.iter().enumerate()
@@ -54,6 +83,16 @@ pub(super) fn choices(app:&App,target:usize)->Vec<(String,String)> {
                         }
                         (label,format!("play {} {target}",index+1))
                     }).collect::<Vec<_>>());
+            if let Some(battle) = game.battle.as_ref() {
+                if battle.siege_gate_hp.is_some_and(|hp| hp > 0) && battle.energy >= 2 {
+                    options.push(("攻城破门（2军令）".into(), "assault".into()));
+                }
+                if battle.discard_tokens > 0 {
+                    options.extend(battle.hand.iter().enumerate().map(|(index, card)|
+                        (format!("弃换【{}】（剩{}次）", card.name(), battle.discard_tokens),
+                            format!("discard {}", index + 1))));
+                }
+            }
             options.push(("结束本回合".into(),"end".into()));
             for (index,potion) in game.potion_bag.iter().enumerate() {
                 let scope = match potion.as_str() {
@@ -132,10 +171,14 @@ pub(super) fn choices(app:&App,target:usize)->Vec<(String,String)> {
         Stage::Ancient=>game.boon_choices.iter().enumerate()
             .map(|(idx,id)|(format!("先贤赐福：{}",three_kingdoms_spire_reborn::items::boon_name(id)),
                 format!("choose {}",idx+1))).collect(),
-        Stage::Won|Stage::Lost=>vec![
-            ("用关羽开启新征程".into(),"new guanyu".into()),
-            ("打开战功簿".into(),"chronicle".into()),
-        ],
+        Stage::Won|Stage::Lost=>{
+            let mut options = campaign_hero_choices();
+            options.push(("打开战功簿".into(), "chronicle".into()));
+            if game.difficulty.is_some() {
+                options.push(("查看战史档案（动作重放核验）".into(), "history-audit".into()));
+            }
+            options
+        },
     }
 }
 /// Only keyboard menu selections open the picker. Explicit ':' commands keep their
@@ -253,9 +296,41 @@ pub(super) fn run(app:&mut App)->Result<(),String> {
     let mut cursor=0usize;
     let mut target=1usize;
     let mut selecting_card: Option<usize> = None;
+    let mut selecting_campaign: Option<String> = None;
+    let mut report: Option<String> = None;
+    let mut report_offset = 0usize;
     let mut details = false;
     loop {
-        let options = if let Some(index) = selecting_card {
+        if let Some(content) = report.as_deref() {
+            let (rows, columns) = terminal_size();
+            let lines = hud::report_lines(content, columns);
+            let page = hud::report_page_size(rows);
+            let last = lines.len().saturating_sub(page);
+            report_offset = report_offset.min(last);
+            print!("\x1b[2J\x1b[H{}{}\x1b[0m", app.theme.style(),
+                hud::render_report(app, columns, rows, &lines, report_offset));
+            io::stdout().flush().map_err(|e| e.to_string())?;
+            match read_byte().map_err(|e| e.to_string())? {
+                b'q' | b'\r' | b'\n' => { report = None; report_offset = 0; }
+                b'j' => report_offset = report_offset.saturating_add(1).min(last),
+                b'k' => report_offset = report_offset.saturating_sub(1),
+                b'f' | b' ' => report_offset = report_offset.saturating_add(page).min(last),
+                b'b' => report_offset = report_offset.saturating_sub(page),
+                27 if read_byte().map_err(|e| e.to_string())? == b'[' => {
+                    match read_byte().map_err(|e| e.to_string())? {
+                        b'A' => report_offset = report_offset.saturating_sub(1),
+                        b'B' => report_offset = report_offset.saturating_add(1).min(last),
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+            continue;
+        }
+        target = live_target(app.game.as_ref(), target);
+        let options = if let Some(hero) = selecting_campaign.as_deref() {
+            campaign_tier_choices(hero)
+        } else if let Some(index) = selecting_card {
             secondary_menu(app,index,target)
         } else {
             choices(app,target)
@@ -304,17 +379,35 @@ pub(super) fn run(app:&mut App)->Result<(),String> {
         if let Some(command)=decision {
             if command == "@cancel" {
                 selecting_card = None;
+                selecting_campaign = None;
                 cursor = 0;
                 continue;
             }
-            if selecting_card.is_none()
+            if let Some(hero) = command.strip_prefix("@campaign ")
+                && Hero::parse(hero).is_some()
+            {
+                selecting_campaign = Some(hero.to_owned());
+                selecting_card = None;
+                cursor = 0;
+                continue;
+            }
+            if selecting_campaign.is_none() && selecting_card.is_none()
                 && let Some(index) = selected_hand(app,&command) {
                 selecting_card = Some(index);
                 cursor = 0;
                 continue;
             }
             if !app.command(&command) {return Ok(());}
+            // A verified archive or full map can span many screens. Keep its
+            // already-computed output, rather than replaying on each scroll.
+            if matches!(command.as_str(), "history-audit" | "map")
+                && !app.message.starts_with("错误：")
+            {
+                report = Some(std::mem::take(&mut app.message));
+                report_offset = 0;
+            }
             selecting_card = None;
+            selecting_campaign = None;
             // Menu choices depend on the committed stage; avoid retaining stale selection.
             cursor=0;
             if !matches!(app.game.as_ref().map(|g|g.stage),Some(Stage::Combat)) {target=1;}
@@ -423,5 +516,90 @@ mod p1_accessibility_tests {
         let options = choices(&app, 1);
         assert!(!options.iter().any(|(_, action)|action == "choose 1"));
         assert!(options.iter().any(|(_, action)|action == "choose 2"));
+    }
+}
+
+
+#[cfg(test)]
+mod expanded_keyboard_regressions {
+    use super::*;
+    use crate::{Profile, Theme};
+    use three_kingdoms_spire_reborn::{Action, Game, Node, map};
+
+    fn app(game: Option<Game>) -> App {
+        App { game, profile: Profile::new(), theme: Theme::Dark,
+            dir: std::path::PathBuf::new(), use_ansi: false, message: String::new() }
+    }
+
+    #[test]
+    fn all_five_new_run_choices_open_exactly_three_new_difficulties() {
+        let heroes = choices(&app(None), 1);
+        assert_eq!(heroes.len(), 5);
+        for (_, command) in heroes {
+            let hero = command.strip_prefix("@campaign ").unwrap();
+            let tiers = campaign_tier_choices(hero);
+            assert_eq!(tiers.len(), 4);
+            for (index, difficulty) in Difficulty::ALL.into_iter().enumerate() {
+                assert_eq!(tiers[index].1, format!("campaign {hero} auto {}", difficulty.id()));
+                assert!(tiers[index].0.contains(difficulty.name()));
+            }
+            assert_eq!(tiers[3].1, "@cancel");
+        }
+    }
+
+    #[test]
+    fn keyboard_siege_assault_is_a_real_legal_player_action() {
+        // Deliberate fourth-floor checkpoint; not a natural-route claim.
+        let mut game = Game::new_with_campaign_difficulty(
+            Hero::GuanYu, 7, Difficulty::Warlords, "keyboard-siege".into(),
+        );
+        game.floor = 3;
+        game.act_map = Some(map::ActMap::generate_expanded(|_| 0, 0));
+        game.route = vec![Node::Battle];
+        game.route_lanes = vec![0];
+        game.apply(Action::Choose { index: 1 }).unwrap();
+        let menu = choices(&app(Some(game.clone())), 1);
+        assert!(menu.iter().any(|(_, command)| command == "assault"));
+        let before = game.battle.as_ref().unwrap().siege_gate_hp.unwrap();
+        let mut restored = Game::from_json(&game.to_json().unwrap()).unwrap();
+        game.apply(Action::AssaultGate).unwrap();
+        restored.apply(Action::AssaultGate).unwrap();
+        assert!(game.battle.as_ref().unwrap().siege_gate_hp.unwrap() < before);
+        assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
+        assert!(!choices(&app(Some(game)), 1).iter().any(|(_, command)| command == "assault"));
+    }
+
+    #[test]
+    fn keyboard_discard_consumes_a_real_token_and_hides_exhausted_action() {
+        let mut game = Game::new_with_campaign_difficulty(
+            Hero::SunShangxiang, 814, Difficulty::Warlords, "keyboard-discard".into(),
+        );
+        game.apply(Action::Choose { index: 1 }).unwrap();
+        // Controlled token boundary: the action itself is authoritative.
+        let b = game.battle.as_mut().unwrap();
+        b.discard_tokens = 1;
+        assert!(!b.hand.is_empty());
+        assert!(choices(&app(Some(game.clone())), 1).iter()
+            .any(|(_, command)| command == "discard 1"));
+        let mut restored = Game::from_json(&game.to_json().unwrap()).unwrap();
+        game.apply(Action::Discard { index: 1 }).unwrap();
+        restored.apply(Action::Discard { index: 1 }).unwrap();
+        assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
+        assert_eq!(game.battle.as_ref().unwrap().discard_tokens, 0);
+        assert!(!choices(&app(Some(game)), 1).iter()
+            .any(|(_, command)| command.starts_with("discard ")));
+    }
+
+    #[test]
+    fn dead_target_is_automatically_replaced_without_mutating_game() {
+        let mut game = Game::new(Hero::GuanYu, 7);
+        game.apply(Action::Choose { index: 1 }).unwrap();
+        let battle = game.battle.as_mut().unwrap();
+        if battle.foes.len() == 1 { battle.foes.push(battle.foes[0].clone()); }
+        battle.foes[0].hp = 0;
+        let before = game.to_json().unwrap();
+        assert_eq!(live_target(Some(&game), 1), 2);
+        assert_eq!(live_target(Some(&game), 2), 2);
+        assert_eq!(game.to_json().unwrap(), before);
     }
 }

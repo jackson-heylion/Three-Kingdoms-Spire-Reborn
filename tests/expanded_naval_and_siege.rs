@@ -506,27 +506,62 @@ fn siege_rebate_never_decreases_energy_from_an_existing_above_cap_pool() {
 }
 
 #[test]
-fn passive_troop_damage_can_break_ambush_armor_but_never_earn_player_weakening() {
-    let mut game = isolated_battle_for(Hero::CaoCao, 3);
-    game.apply(Action::Choose { index: 1 }).unwrap();
-    {
-        let b = game.battle.as_mut().unwrap();
-        b.foes[0].block = 1;
-        b.foes[0].max_hp = b.foes[0].max_hp.max(50);
-        b.foes[0].hp = b.foes[0].max_hp;
-        b.troops_hp = 12;
-        b.troops_attack = 2;
+fn passive_troop_damage_obeys_saved_ambush_reward_epoch_without_player_weakening() {
+    // Controlled floor checkpoint, not a natural route claim. Exercise both
+    // the original saved rules and the new player-led counter rules.
+    for legacy in [true, false] {
+        let mut game = isolated_battle_for(Hero::CaoCao, 3);
+        if legacy {
+            // Epoch zero is the shipped expanded save format. Change only
+            // the fixture's rules identity, before any committed action.
+            let mut raw: serde_json::Value = serde_json::from_str(&game.to_json().unwrap()).unwrap();
+            raw.as_object_mut().unwrap().remove("expanded_rules_revision");
+            raw["campaign_history"][0]["state"]["identity"].as_object_mut().unwrap()
+                .remove("expanded_rules_revision");
+            game = Game::from_json(&raw.to_string()).expect("restore epoch-zero fixture");
+        }
+        game.apply(Action::Choose { index: 1 }).unwrap();
+        {
+            let b = game.battle.as_mut().unwrap();
+            b.foes[0].block = 1;
+            b.foes[0].max_hp = b.foes[0].max_hp.max(50);
+            b.foes[0].hp = b.foes[0].max_hp;
+            b.troops_hp = 12;
+            b.troops_attack = 2;
+        }
+        let saved = game.to_json().unwrap();
+        let mut loaded = Game::from_json(&saved).unwrap();
+        let result = game.apply(Action::EndTurn).expect("passive troop attack against ambush shield");
+        assert_eq!(result, loaded.apply(Action::EndTurn).unwrap());
+        assert_eq!(game.to_json().unwrap(), loaded.to_json().unwrap());
+        let battle = game.battle.as_ref().unwrap();
+        assert_eq!(battle.ambush_armor_broken, legacy,
+            "epoch zero retains allied breach bounty; epoch one requires a real player break");
+        assert!(!battle.events.iter().any(|event|
+            event.source == "ambush_vanguard_reeling"),
+            "paid-player-only weakening must not arise from passive troop damage");
+
+        // Controlled finishing boundary: no new armor to break. Verify the
+        // actual reward payout rather than treating a flag as settlement.
+        let index = {
+            let b = game.battle.as_mut().unwrap();
+            b.foes.truncate(1);
+            b.foes[0].hp = 1;
+            b.foes[0].block = 0;
+            b.energy = b.energy.max(1);
+            b.hand.push(Card::new("strike"));
+            b.hand.len()
+        };
+        let mut restored = Game::from_json(&game.to_json().unwrap()).unwrap();
+        let result = game.apply(Action::Play { index, target: 1 }).unwrap();
+        assert_eq!(result, restored.apply(Action::Play { index, target: 1 }).unwrap());
+        assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
+        assert_eq!(game.stage, Stage::Reward);
+        assert_eq!(result.join("；").contains("伏击反制成功，额外获得16金"), legacy);
+        let gold = game.gold;
+        game.apply(Action::Choose { index: 0 }).unwrap();
+        assert_eq!(game.gold, gold, "reward selection cannot pay twice");
     }
-    let saved = game.to_json().unwrap();
-    let mut loaded = Game::from_json(&saved).unwrap();
-    let result = game.apply(Action::EndTurn).expect("passive troop attack against ambush shield");
-    assert_eq!(result, loaded.apply(Action::EndTurn).unwrap());
-    assert_eq!(game.to_json().unwrap(), loaded.to_json().unwrap());
-    assert!(game.battle.as_ref().unwrap().ambush_armor_broken,
-        "existing armor-breach bounty remains available to legitimate allied help");
-    assert!(!game.battle.as_ref().unwrap().events.iter().any(|event|
-        event.source == "ambush_vanguard_reeling"),
-        "paid-player-only counter must not arise from passive troop damage");
 }
 
 

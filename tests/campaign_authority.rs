@@ -201,3 +201,127 @@ fn legacy_identity_free_journal_remains_projectable_after_multiple_real_actions(
     // the original action trace still records the unmodified modern journal.
     assert!(reloaded.verify_action_replay().is_err());
 }
+
+
+#[test]
+fn historical_decision_ledger_is_conservative_and_replay_stable() {
+    let mut legacy = Game::new(Hero::GuanYu, 20261124);
+    legacy.apply(Action::Choose { index: 1 }).unwrap();
+    let journal = legacy.campaign_history.as_ref().unwrap();
+    assert!(campaign_authority::historical_decisions(journal).unwrap().is_empty());
+    let saved = legacy.to_json().unwrap();
+    let restored = Game::from_json(&saved).unwrap();
+    assert_eq!(
+        campaign_authority::historical_decisions(journal).unwrap(),
+        campaign_authority::historical_decisions(restored.campaign_history.as_ref().unwrap()).unwrap()
+    );
+    let mut forged = journal.clone();
+    forged.push(CampaignEvent::Changed { revision: 1, state: None });
+    assert!(campaign_authority::historical_decisions(&forged).is_err());
+}
+
+#[test]
+fn historical_decisions_count_first_tactical_choice_not_later_resolution() {
+    use three_kingdoms_spire_reborn::{WuchaoPlan, difficulty::Difficulty};
+    let game = Game::new(Hero::CaoCao, 20261124);
+    let mut initial = CampaignState::current(&game);
+    initial.identity.as_mut().unwrap().difficulty = Some(Difficulty::Warlords);
+    let mut council = initial.clone();
+    council.floor = 10;
+    council.stage = Stage::Story;
+    council.wuchao_plan = Some(WuchaoPlan::Council);
+    let mut pending = council.clone();
+    pending.stage = Stage::Map;
+    pending.wuchao_plan = Some(WuchaoPlan::RaidPending);
+    let mut resolved = pending.clone();
+    resolved.wuchao_plan = Some(WuchaoPlan::RaidResolved);
+    let mut alternate = resolved.clone();
+    alternate.wuchao_plan = Some(WuchaoPlan::FortifyResolved);
+    let events = vec![
+        CampaignEvent::Started { state: initial.clone() },
+        campaign_authority::transition(&initial, &council, 1).unwrap(),
+        campaign_authority::transition(&council, &pending, 2).unwrap(),
+        campaign_authority::transition(&pending, &resolved, 3).unwrap(),
+        campaign_authority::transition(&resolved, &alternate, 4).unwrap(),
+    ];
+    let decisions = campaign_authority::historical_decisions(&events).unwrap();
+    assert_eq!(decisions.len(), 1);
+    assert_eq!(decisions[0].revision, 2);
+    assert_eq!(decisions[0].kind, "wuchao");
+    assert_eq!(decisions[0].id, format!("{}:wuchao:2", game.run_id));
+    let no_council = vec![
+        CampaignEvent::Started { state: initial.clone() },
+        campaign_authority::transition(&initial, &pending, 1).unwrap(),
+    ];
+    assert!(campaign_authority::historical_decisions(&no_council).unwrap().is_empty());
+}
+
+#[test]
+fn historical_decisions_ignore_council_placeholder_until_player_commits() {
+    use three_kingdoms_spire_reborn::{WuchaoPlan, difficulty::Difficulty};
+    let game = Game::new(Hero::CaoCao, 20261124);
+    let mut initial = CampaignState::current(&game);
+    initial.identity.as_mut().unwrap().difficulty = Some(Difficulty::Warlords);
+    let mut council = initial.clone();
+    council.floor = 10;
+    council.stage = Stage::Story;
+    council.wuchao_plan = Some(WuchaoPlan::Council);
+    let mut committed = council.clone();
+    committed.stage = Stage::Map;
+    committed.wuchao_plan = Some(WuchaoPlan::RaidPending);
+    let events = vec![
+        CampaignEvent::Started { state: initial.clone() },
+        campaign_authority::transition(&initial, &council, 1).unwrap(),
+        campaign_authority::transition(&council, &committed, 2).unwrap(),
+    ];
+    let decisions = campaign_authority::historical_decisions(&events).unwrap();
+    assert_eq!(decisions.len(), 1);
+    assert_eq!(decisions[0].revision, 2);
+}
+
+#[test]
+fn historical_decisions_do_not_misclassify_settlement_only_journal_changes() {
+    use three_kingdoms_spire_reborn::{WuchaoPlan, ChibiPlan, JietingPlan, difficulty::Difficulty};
+    let game = Game::new(Hero::ZhugeLiang, 20261124);
+    let mut initial = CampaignState::current(&game);
+    initial.identity.as_mut().unwrap().difficulty = Some(Difficulty::Warlords);
+    initial.floor = 25;
+    let mut settled = initial.clone();
+    settled.wuchao_plan = Some(WuchaoPlan::RaidResolved);
+    settled.chibi_plan = Some(ChibiPlan::FireSettled);
+    settled.jieting_plan = Some(JietingPlan::WaterSettled);
+    let events = vec![
+        CampaignEvent::Started { state: {
+            let mut start = initial.clone();
+            start.floor = 0;
+            start
+        } },
+        campaign_authority::transition(&{
+            let mut start = initial.clone();
+            start.floor = 0;
+            start
+        }, &initial, 1).unwrap(),
+        campaign_authority::transition(&initial, &settled, 2).unwrap(),
+    ];
+    assert!(campaign_authority::historical_decisions(&events).unwrap().is_empty(),
+        "a settlement without a committed pending choice cannot count as player interaction");
+}
+
+
+#[test]
+fn historical_effect_receipts_do_not_count_normal_combat_or_forged_archive_entries() {
+    use three_kingdoms_spire_reborn::difficulty::Difficulty;
+    let mut game = Game::new_with_campaign_difficulty(
+        Hero::CaoCao, 20261124, Difficulty::Warlords, "receipt-boundary".into(),
+    );
+    game.apply(Action::Choose { index: 1 }).unwrap();
+    assert!(game.historical_effect_receipts().unwrap().is_empty());
+    let restored = Game::from_json(&game.to_json().unwrap()).unwrap();
+    assert_eq!(game.historical_effect_receipts().unwrap(),
+        restored.historical_effect_receipts().unwrap());
+    let mut forged = restored;
+    let record = forged.event_history.as_mut().unwrap().first_mut().unwrap();
+    record.event.source = "wuchao_tyrant_raid".into();
+    record.event.amount = 8;
+    assert!(forged.historical_effect_receipts().is_err());
+}

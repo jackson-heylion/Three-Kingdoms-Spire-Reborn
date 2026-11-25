@@ -11,6 +11,7 @@ use crate::{
 impl Game {
     /// Rejected actions leave live state, RNG, revision and all journals intact.
     pub fn apply(&mut self, action: Action) -> Result<Vec<String>, String> {
+        self.verify_rules_epoch_anchor()?;
         // apply_unchecked uses a saturating revision increment. Never allow a
         // successful action to reuse the previous revision at u64::MAX.
         if self.revision == u64::MAX {

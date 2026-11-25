@@ -82,12 +82,20 @@ def main() -> None:
         try:
             # A pipe-only fallback would not emit the full-screen TUI clear sequence.
             await_condition(lambda: b"\x1b[2J\x1b[H" in output, "first full-screen TUI render")
-            # Arrow down moves selection from Guan Yu to Zhuge Liang; Enter starts.
+            # The new standard campaign asks for hero, then one of three tiers.
+            # Selecting a hero alone must not overwrite or create a save.
+            os.write(master, b"\x1b[B\r")
+            await_condition(
+                lambda: "新制难度（三档）".encode() in output,
+                "three-tier difficulty menu",
+            )
+            assert not current_snapshot(), "selecting hero must not start the game"
             os.write(master, b"\x1b[B\r")
             await_condition(
                 lambda: current_snapshot().get("hero") == "zhuge_liang"
+                and current_snapshot().get("difficulty") == "conqueror"
                 and current_snapshot().get("stage") == "map",
-                "arrow-selected Zhuge Liang campaign saved",
+                "arrow-selected Zhuge Liang conqueror campaign saved",
             )
             first = current_snapshot()
             assert first["revision"] == 0, first
@@ -100,6 +108,16 @@ def main() -> None:
             )
             played = current_snapshot()
             assert played["hero"] == "zhuge_liang"
+            # Read the complete map in the scrollable report, then return.
+            # The report must never commit a gameplay action or quit the game.
+            os.write(master, b":map\r")
+            await_condition(lambda: "档案与详情".encode() in output, "read-only map viewer")
+            assert current_snapshot() == played
+            frames = output.count(b"\x1b[2J\x1b[H")
+            os.write(master, b"q")
+            await_condition(lambda: output.count(b"\x1b[2J\x1b[H") > frames,
+                "return from map viewer to campaign")
+            assert current_snapshot() == played
             # Exercise the raw-mode colon command input, then checked quit.
             os.write(master, b":help\r")
             await_condition(

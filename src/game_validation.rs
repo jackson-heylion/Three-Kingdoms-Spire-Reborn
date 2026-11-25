@@ -10,6 +10,11 @@ impl Game {
         {
             return Err("存档属性无效".into());
         }
+        if self.expanded_rules_revision > EXPANDED_RULES_REVISION
+            || (self.expanded_rules_revision != 0 && self.difficulty.is_none())
+        {
+            return Err("存档规则版本不受支持".into());
+        }
         if self.difficulty.is_some() && (self.ascension != 0 || self.mode != RunMode::Standard) {
             return Err("新制难度不能混用旧飞升或自由/每日模式".into());
         }

@@ -70,6 +70,50 @@ fn heading(out: &mut Vec<String>, app: &App, title: &str, columns: usize) {
     line(out, app, &line_text, columns, Tone::Muted);
 }
 
+/// Wrap Unicode text without dropping the rest of a long archive line.
+pub(super) fn report_lines(text: &str, columns: usize) -> Vec<String> {
+    let columns = columns.clamp(28, 120);
+    let mut result = Vec::new();
+    for raw in text.lines() {
+        let mut line = String::new();
+        let mut cells = 0;
+        for ch in raw.chars().filter(|ch| !ch.is_control()) {
+            let width = UnicodeWidthChar::width(ch).unwrap_or(0);
+            if cells + width > columns {
+                result.push(std::mem::take(&mut line));
+                cells = 0;
+            }
+            line.push(ch);
+            cells += width;
+        }
+        result.push(line);
+    }
+    if result.is_empty() { result.push("暂无档案内容".into()); }
+    result
+}
+
+pub(super) fn report_page_size(rows: usize) -> usize {
+    rows.max(16) - 3
+}
+
+pub(super) fn render_report(app: &App, columns: usize, rows: usize,
+    lines: &[String], offset: usize) -> String
+{
+    let columns = columns.clamp(28, 120);
+    let page = report_page_size(rows);
+    let start = offset.min(lines.len().saturating_sub(page));
+    let end = start.saturating_add(page).min(lines.len());
+    let mut out = Vec::new();
+    heading(&mut out, app, "档案与详情（只读）", columns);
+    for content in &lines[start..end] {
+        line(&mut out, app, content, columns, Tone::Normal);
+    }
+    line(&mut out, app, &format!("{}–{} / {} 行",
+        start + usize::from(!lines.is_empty()), end, lines.len()), columns, Tone::Muted);
+    line(&mut out, app, "↑↓ / jk 滚动  fb 翻页  q/Enter 返回", columns, Tone::Accent);
+    format!("{}\n", out.join("\n"))
+}
+
 fn menu_label(label: &str, combat: bool, details: bool) -> &str {
     if combat && !details { label.split_once(" · ").map_or(label, |(name, _)| name) }
     else { label }
@@ -101,10 +145,12 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
     if let Some(g) = &app.game {
         let act = (g.floor.saturating_sub(1) / g.campaign_rows() + 1)
             .min(g.campaign_max_floor() / g.campaign_rows());
+        let hero_label = g.difficulty.map_or_else(|| g.hero.name().to_owned(),
+            |tier| format!("{}·{}", g.hero.name(), tier.name()));
         let hp_tone = if g.hp * 4 <= g.max_hp { Tone::Danger }
             else if g.hp * 2 <= g.max_hp { Tone::Warning } else { Tone::Good };
         if columns < 48 {
-            line(&mut out, app, &format!("{} · 第{}幕·{}层", g.hero.name(), act, g.floor),
+            line(&mut out, app, &format!("{hero_label} · 第{act}幕·{}层", g.floor),
                 columns, Tone::Accent);
             pieces(&mut out, app, columns, &[
                 (&format!("生命 {}/{}  ", g.hp, g.max_hp), hp_tone),
@@ -112,7 +158,7 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
             ]);
         } else {
             pieces(&mut out, app, columns, &[
-                (&format!("{}  第{}幕·{}层  ", g.hero.name(), act, g.floor), Tone::Accent),
+                (&format!("{hero_label}  第{act}幕·{}层  ", g.floor), Tone::Accent),
                 (&format!("生命 {}/{}  ", g.hp, g.max_hp), hp_tone),
                 (&format!("金 {}  药 {}", g.gold, g.potions), Tone::Muted),
             ]);
@@ -121,6 +167,9 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
             line(&mut out, app, &format!("{:?} A{} · {} · 战法：{}",
                 g.mode, g.ascension, g.act_name(),
                 g.doctrine.map_or("自动", |d| d.label())), columns, Tone::Muted);
+            if let Some(cap) = g.victory_recovery_cap() {
+                line(&mut out, app, &format!("本幕战后被动回血上限 {cap}"), columns, Tone::Muted);
+            }
         }
         if let Some(b) = g.battle.as_ref().filter(|_| g.stage == Stage::Combat) {
             combat = true;
@@ -131,6 +180,9 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
                 (&format!("武勇 {}  虚弱 {}  易伤 {}", b.strength, b.weak, b.vulnerable),
                     if b.weak > 0 || b.vulnerable > 0 { Tone::Warning } else { Tone::Muted }),
             ]);
+            if let Some(objective) = g.tactical_objective() {
+                line(&mut out, app, &format!("关卡目标：{objective}"), columns, Tone::Warning);
+            }
             heading(&mut out, app, "敌军（t 切换目标）", columns);
             for (i, enemy) in b.foes.iter().enumerate() {
                 if out.len() + 5 >= rows { break; }
@@ -143,6 +195,9 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
                 line(&mut out, app, &label, columns,
                     if enemy.hp == 0 { Tone::Muted }
                     else if active { Tone::Warning } else { Tone::Danger });
+                if out.len() + 6 < rows && let Some(warning) = g.phase_transition_hint(i) {
+                    line(&mut out, app, &format!("变阵预告：{warning}"), columns, Tone::Warning);
+                }
             }
             // Surface only relevant resources by default; diagnostics live in detail mode.
             let resources = [
@@ -188,6 +243,14 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
                 Stage::Combat => "战斗中",
             };
             line(&mut out, app, scene, columns, Tone::Accent);
+            if g.stage == Stage::Map
+                && let Some(index) = options.get(cursor).and_then(|(_, command)|
+                    command.strip_prefix("choose ")).and_then(|n| n.parse::<usize>().ok())
+                && let Some(node) = index.checked_sub(1).and_then(|i| g.route.get(i))
+                && let Some(hint) = g.route_objective_hint(*node)
+            {
+                line(&mut out, app, &format!("所选路线风险：{hint}"), columns, Tone::Warning);
+            }
         }
     } else {
         line(&mut out, app, "尚未出征 · 选择武将开始征程", columns, Tone::Muted);
@@ -208,6 +271,8 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
         } else {
             format!("手牌与行动  {}/{}", cursor + 1, options.len())
         }
+    } else if options.iter().any(|(_, command)| command.starts_with("campaign ")) {
+        format!("新制难度（三档）  {}/{}", cursor + 1, options.len())
     } else if app.game.is_some() {
         format!("行动选择  {}/{}", cursor + usize::from(!options.is_empty()), options.len())
     } else {
@@ -399,6 +464,61 @@ mod compact_hud_tests {
                 assert!(screen.lines().all(|line| width(line) <= cols), "{screen}");
                 assert!(screen.contains("查看战斗事件审计"), "{screen}");
             }
+        }
+    }
+}
+
+
+#[cfg(test)]
+mod expanded_objective_hud_regression {
+    use super::*;
+    use crate::{Profile, Theme, tui};
+    use three_kingdoms_spire_reborn::{Action, Difficulty, Game, content::Hero};
+
+    #[test]
+    fn map_and_combat_hud_show_authoritative_objective_without_mutation() {
+        let game = Game::new_with_campaign_difficulty(
+            Hero::GuanYu, 16, Difficulty::Warlords, "hud-objective".into(),
+        );
+        let mut app = App { game: Some(game), profile: Profile::new(), theme: Theme::Dark,
+            dir: std::path::PathBuf::new(), use_ansi: false, message: String::new() };
+        let before = app.game.as_ref().unwrap().to_json().unwrap();
+        let menu = tui::choices(&app, 1);
+        let screen = render(&app, 100, 30, 1, &menu, 0);
+        assert!(screen.contains("所选路线风险") && screen.contains("突围"));
+        assert!(screen.contains("群雄逐鹿"));
+        assert_eq!(app.game.as_ref().unwrap().to_json().unwrap(), before);
+        app.game.as_mut().unwrap().apply(Action::Choose { index: 1 }).unwrap();
+        let before = app.game.as_ref().unwrap().to_json().unwrap();
+        let menu = tui::choices(&app, 1);
+        let screen = render(&app, 100, 30, 1, &menu, 0);
+        assert!(screen.contains("关卡目标") && screen.contains("突围"));
+        assert_eq!(app.game.as_ref().unwrap().to_json().unwrap(), before);
+    }
+}
+
+
+#[cfg(test)]
+mod report_view_tests {
+    use super::*;
+    use crate::{Profile, Theme};
+
+    #[test]
+    fn long_cjk_archive_wraps_without_losing_text_and_scrolls_to_end() {
+        let text = "街亭守水责任跨幕兑现，保留真实战场后果。".repeat(45);
+        let lines = report_lines(&text, 28);
+        assert_eq!(lines.concat(), text);
+        assert!(lines.iter().all(|line| width(line) <= 28));
+        let app = App { game: None, profile: Profile::new(), theme: Theme::Dark,
+            dir: std::path::PathBuf::new(), use_ansi: false, message: String::new() };
+        let first = render_report(&app, 28, 16, &lines, 0);
+        let last = render_report(&app, 28, 16, &lines, usize::MAX);
+        assert!(first.contains("档案与详情"));
+        assert_ne!(first, last);
+        assert!(last.contains(lines.last().unwrap()));
+        for screen in [first, last] {
+            assert!(screen.lines().count() <= 16);
+            assert!(screen.lines().all(|line| width(line) <= 28));
         }
     }
 }
