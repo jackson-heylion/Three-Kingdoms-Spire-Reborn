@@ -433,7 +433,7 @@ impl App {
                     )),
                 }
             }
-            "help" | "h" => Ok("campaign [武将] [seed] [warlords|conqueror|destiny] 新三档五幕40层战役；new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 旧三幕兼容；variants5 0|1 0|1 0|1 0|1 0|1 新制五幕独立选择；daily YYYY-MM-DD；load/save；choose N；play N [目标] [副选牌编号]；selections N 查可选副牌；discard N 弃换；end；use [药剂号] [目标]（火/毒指定存活目标，弱化影响全体） ；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看路径与评分；inventory 背包；achievements 成就；codex 图鉴；relics；lore 看纪事；history-audit 查看新制战史档案（完整动作重放）；bonds 看人物羁绊；chapter 1-120 回目索引；powers 持续能力/监听器；react-remove ID 注销监听；react <ID> <weak|vulnerable|poison|damage:来源|damage:foe:N|power:军略ID> <hero|foe:0..3> <cancel|reduce|replace> [数值] [优先级] [次数]（仅自由战斗）；events [游标] [条数1-80] 分页审计当前战斗事件；eventsource 查看跨战斗记录；verify-events 重建校验全量战斗事件；metrics 战役统计；verify 回放检验；history 最近操作；doctrine 查看流派 / doctrine auto|代码 选择；builds 查看3套候选构筑及反制；chronicle；timeline 战功时间线；modifier 查看挑战 / modifier 代码 on|off；theme dark|light|highcontrast；status；quit。".into()),
+            "help" | "h" => Ok("campaign [武将] [seed] [warlords|conqueror|destiny] 新三档五幕40层战役；new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 旧三幕兼容；variants5 0|1 0|1 0|1 0|1 0|1 新制五幕独立选择；daily YYYY-MM-DD；load/save；choose N；play N [目标] [副选牌编号]；selections N 查可选副牌；discard N 弃换；end；use [药剂号] [目标]（火/毒指定存活目标，弱化影响全体） ；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看路径与评分；inventory 背包；achievements 成就；codex 图鉴；relics；lore 看纪事；history-audit 查看新制战史档案（完整动作重放）；history-audit json 导出匿名历史触动统计；bonds 看人物羁绊；chapter 1-120 回目索引；powers 持续能力/监听器；react-remove ID 注销监听；react <ID> <weak|vulnerable|poison|damage:来源|damage:foe:N|power:军略ID> <hero|foe:0..3> <cancel|reduce|replace> [数值] [优先级] [次数]（仅自由战斗）；events [游标] [条数1-80] 分页审计当前战斗事件；eventsource 查看跨战斗记录；verify-events 重建校验全量战斗事件；metrics 战役统计；verify 回放检验；history 最近操作；doctrine 查看流派 / doctrine auto|代码 选择；builds 查看3套候选构筑及反制；chronicle；timeline 战功时间线；modifier 查看挑战 / modifier 代码 on|off；theme dark|light|highcontrast；status；quit。".into()),
             "campaign" => (|| -> Result<String, String> {
                 if args.len() > 4 {
                     return Err("用法：campaign [武将] [seed|auto] [warlords|conqueror|destiny]".into());
@@ -556,9 +556,14 @@ impl App {
                             .collect::<Vec<_>>().join("\n")))
             })),
             "history-audit" => {
-                if args.len() != 1 { Err("用法：history-audit".into()) }
-                else { self.game.as_ref().ok_or_else(||"请先开局".to_owned())
-                    .and_then(Game::historical_archive_report) }
+                match args.as_slice() {
+                    [_] => self.game.as_ref().ok_or_else(||"请先开局".to_owned())
+                        .and_then(Game::historical_archive_report),
+                    [_, "json"] => self.game.as_ref().ok_or_else(||"请先开局".to_owned())
+                        .and_then(Game::historical_density_report)
+                        .and_then(|report| serde_json::to_string_pretty(&report).map_err(|e| e.to_string())),
+                    _ => Err("用法：history-audit [json]".into()),
+                }
             }
             "verify-events" => self.game.as_ref().ok_or_else(||"请先开局".to_owned())
                 .and_then(|g|g.reconstruct_event_history().map(|events|
@@ -1463,6 +1468,15 @@ mod historical_archive_cli_regression {
         assert!(app.message.contains("动作重放已核对"), "{}", app.message);
         assert!(app.message.contains("不等于完整12–18次"), "{}", app.message);
         assert!(app.message.contains("0项战术选择"), "{}", app.message);
+        assert_eq!(app.game.as_ref().unwrap().to_json().unwrap(), before);
+        assert_eq!(fs::read_to_string(save_path(&directory)).unwrap(), saved);
+        assert!(app.command("history-audit json"));
+        let report: serde_json::Value = serde_json::from_str(&app.message).unwrap();
+        assert_eq!(report["schema_version"], 1);
+        assert_eq!(report["covered_lower_bound"], 0);
+        assert_eq!(report["complete_campaign"], false);
+        assert_eq!(report["interactions"].as_array().unwrap().len(), 0);
+        assert!(report.get("run_id").is_none());
         assert_eq!(app.game.as_ref().unwrap().to_json().unwrap(), before);
         assert_eq!(fs::read_to_string(save_path(&directory)).unwrap(), saved);
         assert!(app.command("history-audit extra"));

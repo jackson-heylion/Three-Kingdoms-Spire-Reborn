@@ -10,8 +10,11 @@ use three_kingdoms_spire_reborn::{
 // checkpoint. Different receipts from one choice must never inflate density.
 fn verify_history_observation(game: &Game, restored: &Game) {
     let snapshot = game.to_json().unwrap();
-    let observations = game.historical_interactions().expect("verified historical interactions");
-    assert_eq!(observations, restored.historical_interactions().unwrap());
+    let density = game.historical_density_report().expect("verified historical interactions");
+    assert_eq!(density, restored.historical_density_report().unwrap());
+    assert_eq!(density.complete_campaign, game.stage == Stage::Won && game.floor == 40);
+    assert_eq!(density.covered_lower_bound, density.interactions.len());
+    let observations = density.interactions;
     let keys: std::collections::HashSet<_> = observations.iter().map(|r| &r.key).collect();
     assert_eq!(keys.len(), observations.len());
     assert!(observations.iter().all(|r| r.revision > 0 && r.floor <= game.floor));

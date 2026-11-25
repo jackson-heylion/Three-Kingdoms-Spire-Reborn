@@ -321,6 +321,47 @@ pub struct HistoricalInteraction {
     pub battle_source: Option<String>,
 }
 
+/// Replay-derived measurement for one expanded journey. A partial or lost
+/// journey remains visible, but is not a completed forty-floor sample.
+/// Counts describe the covered subset only; they do not certify SPEC density.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct HistoricalDensityReport {
+    pub schema_version: u8,
+    pub hero: Hero,
+    pub difficulty: Difficulty,
+    pub seed: u64,
+    pub floor: u8,
+    pub stage: Stage,
+    pub complete_campaign: bool,
+    pub covered_lower_bound: usize,
+    pub resource_or_deck: usize,
+    pub map_effect: usize,
+    pub battle_effect: usize,
+    pub cross_act_effect: usize,
+    pub interactions: Vec<HistoricalInteraction>,
+}
+
+impl HistoricalDensityReport {
+    fn from_verified(game: &Game, difficulty: Difficulty, interactions: Vec<HistoricalInteraction>) -> Self {
+        Self {
+            schema_version: 1,
+            hero: game.hero,
+            difficulty,
+            seed: game.seed,
+            floor: game.floor,
+            stage: game.stage,
+            complete_campaign: game.stage == Stage::Won && game.floor == EXPANDED_MAX_FLOOR,
+            covered_lower_bound: interactions.len(),
+            resource_or_deck: interactions.iter().filter(|r|
+                r.hp_delta != 0 || r.max_hp_delta != 0 || r.gold_delta != 0 || r.deck_changed).count(),
+            map_effect: interactions.iter().filter(|r| r.map_receipts > 0).count(),
+            battle_effect: interactions.iter().filter(|r| r.battlefield_receipts > 0).count(),
+            cross_act_effect: interactions.iter().filter(|r| r.cross_act_receipts > 0).count(),
+            interactions,
+        }
+    }
+}
+
 /// Compare the committed map options with the original seeded topology.
 /// A pending plan or a map preview alone is not an effect. Count only a
 /// real change in a reachable lane's node, preserving the original graph.
@@ -514,6 +555,15 @@ impl Game {
         self.interactions_from_verified_receipts(&receipts, &trace)
     }
 
+    /// Structured, anonymous observation for offline aggregation. Fail closed
+    /// on missing or inconsistent action evidence; never manufacture a zero
+    /// density measurement for a legacy campaign.
+    pub fn historical_density_report(&self) -> Result<HistoricalDensityReport, String> {
+        let difficulty = self.difficulty.ok_or("旧制战役不适用新制历史触动统计")?;
+        let interactions = self.historical_interactions()?;
+        Ok(HistoricalDensityReport::from_verified(self, difficulty, interactions))
+    }
+
     fn interactions_from_verified_receipts(
         &self, receipts: &[HistoricalEffectReceipt], trace: &[crate::replay::ActionEventTrace],
     ) -> Result<Vec<HistoricalInteraction>, String> {
@@ -604,17 +654,16 @@ impl Game {
         let effective = receipts.iter().map(|r| r.decision_id.as_str())
             .collect::<HashSet<_>>().len();
         let interactions = self.interactions_from_verified_receipts(&receipts, &trace)?;
-        let immediate = interactions.iter().filter(|r|
-            r.hp_delta != 0 || r.max_hp_delta != 0 || r.gold_delta != 0 || r.deck_changed).count();
-        let battle = interactions.iter().filter(|r| r.battlefield_receipts > 0).count();
-        let cross_act = interactions.iter().filter(|r| r.cross_act_receipts > 0).count();
-        let map = interactions.iter().filter(|r| r.map_receipts > 0).count();
+        let density = HistoricalDensityReport::from_verified(self, self.difficulty.expect("expanded campaign"), interactions);
+        let interactions = &density.interactions;
+        let (immediate, battle, cross_act, map) =
+            (density.resource_or_deck, density.battle_effect, density.cross_act_effect, density.map_effect);
         let mut lines = vec![format!(
             "战史档案（动作重放已核对）：已记录{}项战术选择，{}项选择有实际战场后果，共{}个去重后的战场兑现点。",
             decisions.len(), effective, receipts.len()
         ), "仅统计已覆盖的历史选择及战术；不等于完整12–18次有效触动指标。小说章回为文学背景，战术数值与反制属于游戏原创推演。".into()];
         lines.push(format!("有效历史触动保守下界：{}次；即时资源/牌组变化{}次、地图变化{}次、战场兑现{}次、跨幕兑现{}次（类别重叠，不相加）。", interactions.len(), immediate, map, battle, cross_act));
-        for interaction in &interactions {
+        for interaction in interactions {
             if let Some(source) = interaction.battle_source.as_ref() {
                 let (title, chapter) = if interaction.key == "battle:guandu_escort" {
                     ("官渡断援", 30)
