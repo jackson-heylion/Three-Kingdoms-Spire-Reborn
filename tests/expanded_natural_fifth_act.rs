@@ -6,6 +6,28 @@ use three_kingdoms_spire_reborn::{
 
 // Only the alternate-boss probe opts into this supply-aware policy. Keep
 // previously verified natural journeys on their original player policy.
+// All observations are derived from the real action replay, not a seeded
+// checkpoint. Different receipts from one choice must never inflate density.
+fn verify_history_observation(game: &Game, restored: &Game) {
+    let snapshot = game.to_json().unwrap();
+    let observations = game.historical_interactions().expect("verified historical interactions");
+    assert_eq!(observations, restored.historical_interactions().unwrap());
+    let keys: std::collections::HashSet<_> = observations.iter().map(|r| &r.key).collect();
+    assert_eq!(keys.len(), observations.len());
+    assert!(observations.iter().all(|r| r.revision > 0 && r.floor <= game.floor));
+    let report = game.historical_archive_report().unwrap();
+    assert!(report.contains(&format!("有效历史触动保守下界：{}次", observations.len())));
+    assert_eq!(report, restored.historical_archive_report().unwrap());
+    for observation in &observations {
+        if let Some(beat) = observation.key.strip_prefix("scene:")
+            .and_then(three_kingdoms_spire_reborn::lore::beat)
+        {
+            assert!(report.contains(&format!("【{}】文学背景：毛评演义第{:03}回", beat.title, beat.chapter)));
+        }
+    }
+    assert_eq!(game.to_json().unwrap(), snapshot);
+}
+
 fn fight(game: &mut Game) -> Result<(), String> {
     fight_with_supplies(game, false)
 }
@@ -323,6 +345,7 @@ fn natural_fifth_act_requires_four_boss_victories_and_full_campaign_win() {
             let restored = Game::from_json(&json).expect("act-five restore");
             assert_eq!(restored.to_json().unwrap(), json);
             restored.verify_action_replay().expect("restored act-five replay");
+            verify_history_observation(&game, &restored);
             assert_eq!(game.floor, 40);
             assert_eq!(game.stage, Stage::Won);
             assert_eq!(game.last_node, Some(Node::Boss));
@@ -562,6 +585,8 @@ fn verify_natural_wuchao_choice(choice: usize) {
                 loaded.verify_action_replay().expect("restored wuchao replay");
                 let receipts = game.historical_effect_receipts().expect("natural Wuchao receipts");
                 assert_eq!(receipts, loaded.historical_effect_receipts().unwrap());
+                verify_history_observation(&game, &loaded);
+                assert_eq!(game.historical_interactions().unwrap().iter().filter(|r| r.key == "council:wuchao").count(), 1);
                 let source = match choice {
                     1 => "wuchao_act_three_raid",
                     2 => "wuchao_act_three_fortify",
@@ -669,6 +694,8 @@ fn natural_chibi_east_wind_three_choices_replay_through_fourth_act() {
                     let restored = Game::from_json(&snapshot).expect("Chibi fourth-act restore");
                     assert_eq!(restored.to_json().unwrap(), snapshot);
                     restored.verify_action_replay().expect("restored Chibi action replay");
+                    verify_history_observation(&game, &restored);
+                    assert_eq!(game.historical_interactions().unwrap().iter().filter(|r| r.key == "council:chibi").count(), 1);
                     let receipts = game.historical_effect_receipts().expect("natural Chibi receipts");
                     assert_eq!(receipts, restored.historical_effect_receipts().unwrap());
                     let first_source = match choice {
@@ -791,6 +818,8 @@ fn natural_jieting_three_choices_replay_into_fifth_act() {
                     let restored = Game::from_json(&saved).expect("fifth-act restore");
                     assert_eq!(restored.to_json().unwrap(), saved);
                     restored.verify_action_replay().expect("restored fifth-act replay");
+                    verify_history_observation(&game, &restored);
+                    assert_eq!(game.historical_interactions().unwrap().iter().filter(|r| r.key == "council:jieting").count(), 1);
                     let receipts = game.historical_effect_receipts().expect("natural Jieting receipts");
                     assert_eq!(receipts, restored.historical_effect_receipts().unwrap());
                     let first_source = match choice {

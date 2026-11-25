@@ -378,24 +378,28 @@ fn historical_effect_site(source: &str) -> Option<(&'static str, &'static str)> 
         "wuchao_coalition_raid" | "wuchao_coalition_fortified" | "wuchao_coalition_unchecked" =>
             Some(("wuchao", "guandu")),
         "wuchao_tyrant_raid" | "wuchao_tyrant_fortified" | "wuchao_tyrant_unchecked"
-        | "wuchao_tyrant_supply_saved" => Some(("wuchao", "dongzhuo")),
+            => Some(("wuchao", "dongzhuo")),
+        "wuchao_tyrant_supply_saved" => Some(("wuchao", "dongzhuo_counter")),
         "wuchao_naval_raid_disruption" | "wuchao_naval_supply_screen"
-        | "wuchao_naval_supply_shortage" | "wuchao_naval_raid_countered" =>
-            Some(("wuchao", "naval")),
+        | "wuchao_naval_supply_shortage" => Some(("wuchao", "naval")),
+        "wuchao_naval_raid_countered" => Some(("wuchao", "naval_counter")),
         "chibi_naval_fleet_screen" | "chibi_naval_fire_spread"
-        | "chibi_naval_declined_cover" | "chibi_naval_fire_contained" =>
-            Some(("chibi", "naval")),
+        | "chibi_naval_declined_cover" => Some(("chibi", "naval")),
+        "chibi_naval_fire_contained" => Some(("chibi", "naval_counter")),
         "chibi_fourth_act_fire" | "chibi_fourth_act_fleet" | "chibi_fourth_act_declined"
-        | "chibi_luxun_firebreak" | "chibi_lumeng_counterattack" =>
-            Some(("chibi", "fourth_act_boss")),
-        "jieting_hill_abandons_wells" | "jieting_hill_suppression"
-        | "jieting_hill_recaptured_wells" | "jieting_water_wells_repaired"
-        | "jieting_retreat_water_salvaged" => Some(("jieting", "water")),
+            => Some(("chibi", "fourth_act_boss")),
+        "chibi_luxun_firebreak" | "chibi_lumeng_counterattack" =>
+            Some(("chibi", "fourth_act_boss_counter")),
+        "jieting_hill_abandons_wells" => Some(("jieting", "water")),
+        "jieting_hill_suppression" | "jieting_hill_recaptured_wells"
+        | "jieting_water_wells_repaired" | "jieting_retreat_water_salvaged" =>
+            Some(("jieting", "water_counter")),
         "jieting_jiangwei_wells" | "jieting_jiangwei_hills" | "jieting_jiangwei_retreat" =>
             Some(("jieting", "jiangwei")),
         "jieting_yinping_wells" | "jieting_yinping_hills" | "jieting_yinping_retreat"
-        | "jieting_late_water_settlement" | "jieting_yinping_water_screen"
-        | "jieting_yinping_retreat_command" => Some(("jieting", "yinping")),
+        | "jieting_late_water_settlement" => Some(("jieting", "yinping")),
+        "jieting_yinping_water_screen" | "jieting_yinping_retreat_command" =>
+            Some(("jieting", "yinping_counter")),
         "mist_arrows_naval_counter" => Some(("mist_arrows", "naval")),
         "empty_city_scheme_countered" => Some(("empty_city", "third_act_boss")),
         "jingzhou_vigilance_countered" => Some(("jingzhou_warning", "fourth_act_boss")),
@@ -623,6 +627,10 @@ impl Game {
                 interaction.key, interaction.floor, interaction.revision, interaction.choice,
                 interaction.hp_delta, interaction.max_hp_delta, interaction.gold_delta,
                 if interaction.deck_changed { "有" } else { "无" }, interaction.battlefield_receipts));
+            if let Some(beat) = interaction.key.strip_prefix("scene:").and_then(crate::lore::beat) {
+                lines.push(format!("    【{}】文学背景：毛评演义第{:03}回 {}；游戏选择及资源变化为原创推演。",
+                    beat.title, beat.chapter, crate::lore::provenance_url(beat.chapter)));
+            }
             if let Some(floor) = interaction.first_map_effect_floor {
                 lines.push(format!("    街亭水源责任实际改变{}层的可选路线，首次第{floor}层；同一军议不重复计数。",
                     interaction.map_receipts));
@@ -633,7 +641,10 @@ impl Game {
                 "wuchao" => (30, "官渡乌巢"),
                 "chibi" => (49, "赤壁东风"),
                 "jieting" => (95, "街亭军议"),
-                flag => crate::lore::BEATS.iter().find(|b| b.flag == flag)
+                flag => interactions.iter().find(|r| r.revision == decision.revision)
+                    .and_then(|r| r.key.strip_prefix("scene:"))
+                    .and_then(crate::lore::beat)
+                    .or_else(|| crate::lore::BEATS.iter().find(|b| b.flag == flag))
                     .map_or((0, "历史战术"), |b| (b.chapter, b.title)),
             };
             lines.push(format!("【{title}】第{}层／动作{}；文学背景：毛评演义第{chapter:03}回 {}",
@@ -860,5 +871,25 @@ mod standalone_counter_projection_tests {
         assert_eq!(standalone_counter_site(40, &EventKind::DamageDealt, "hero"), None);
         assert_eq!(standalone_counter_site(40, &EventKind::EnemyTechnique,
             "yinping_interception"), None);
+    }
+
+    #[test]
+    fn historical_entry_grants_do_not_mask_later_active_counter_receipts() {
+        for (entry, counter, kind) in [
+            ("wuchao_tyrant_fortified", "wuchao_tyrant_supply_saved", "wuchao"),
+            ("wuchao_naval_raid_disruption", "wuchao_naval_raid_countered", "wuchao"),
+            ("chibi_naval_fire_spread", "chibi_naval_fire_contained", "chibi"),
+            ("chibi_fourth_act_fire", "chibi_luxun_firebreak", "chibi"),
+            ("jieting_hill_abandons_wells", "jieting_hill_recaptured_wells", "jieting"),
+            ("jieting_yinping_wells", "jieting_yinping_water_screen", "jieting"),
+        ] {
+            let first = historical_effect_site(entry).unwrap();
+            let later = historical_effect_site(counter).unwrap();
+            assert_eq!(first.0, kind);
+            assert_eq!(later.0, kind);
+            assert_ne!(first.1, later.1);
+        }
+        assert_eq!(historical_effect_site("chibi_luxun_firebreak"),
+            historical_effect_site("chibi_lumeng_counterattack"));
     }
 }
