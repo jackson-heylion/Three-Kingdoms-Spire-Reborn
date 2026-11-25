@@ -615,6 +615,9 @@ jobs:
           print("Corrupt save quarantined, backup restored and seed-exact history verified")
           PY
 
+      - name: Expanded 40-floor natural campaign, counterfactual, and backup-recovery CLI E2E
+        run: python3 tests/campaign_natural_cli_e2e.py target/release/tks
+
       - name: Seeded autoplay and snapshot stability (1000 runs)
         run: cargo run --release --bin tks-sim -- 1000
       - name: Paired balance report by hero and ascension

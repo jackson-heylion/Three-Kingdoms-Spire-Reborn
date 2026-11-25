@@ -125,7 +125,80 @@ fn build_catalog_covers_fifteen_distinct_blueprints_and_non_duplicate_core_accou
         }
         assert_eq!(plan.acquired(&dup_deck), plan.core.len());
     }
-    // Verify Story node event_id 3 (index 2: 获金) grants gold, exits cleanly, and cannot repeat.
+    // 5. Progressive Market card removal (75x3 -> 100 -> 125 -> 150 -> 175 cap), Camp drill saturation
+    //    (2x5 + 1x3 -> +0 cap), and late-act high-gold payout trim remain isolated to expanded rules.
+    let mut econ = Game::new_with_campaign_difficulty(Hero::CaoCao, 7, Difficulty::Warlords, "econ-sat".into());
+    econ.gold = 2_000;
+    while econ.deck.len() < 12 { econ.deck.push(Card::new("strike")); }
+    enter_node(&mut econ, 3, Node::Market);
+    for expected_cost in [75_i32, 75, 75, 100, 125, 150, 175, 175] {
+        assert_eq!(econ.card_removal_price(), expected_cost);
+        let gold_before = econ.gold;
+        let msgs = econ.apply(Action::Remove { index: 1 }).unwrap();
+        assert!(msgs.iter().any(|m| m.contains(&format!("{expected_cost}金"))), "expected {expected_cost}金 in {msgs:?}");
+        assert_eq!(econ.gold, gold_before - expected_cost);
+    }
+    let mut drills = Game::new_with_campaign_difficulty(Hero::GuanYu, 7, Difficulty::Warlords, "camp-sat".into());
+    for expected_gain in [2_i32, 2, 2, 2, 2, 1, 1, 1, 0, 0] {
+        assert_eq!(drills.camp_drill_hp_gain(), expected_gain);
+        let max_before = drills.max_hp;
+        enter_node(&mut drills, 2, Node::Camp);
+        drills.apply(Action::Choose { index: 3 }).unwrap();
+        assert_eq!(drills.max_hp, max_before + expected_gain);
+    }
+    let mut legacy = Game::new(Hero::GuanYu, 7);
+    legacy.gold = 2_000;
+    legacy.stage = Stage::Market;
+    assert_eq!(legacy.card_removal_price(), 75);
+    assert_eq!(legacy.camp_drill_hp_gain(), 2);
+    let legacy_gold = legacy.gold;
+    legacy.apply(Action::Remove { index: 1 }).unwrap();
+    assert_eq!(legacy.gold, legacy_gold - 75);
+    assert_eq!(legacy.card_removal_price(), 75, "legacy removal price never inflates");
+    // Late-act (floor > 24, gold >= 900) halves normal battle payout deterministically.
+    let mut rich = Game::new_with_campaign_difficulty(Hero::CaoCao, 7, Difficulty::Warlords, "gold-trim".into());
+    enter_node(&mut rich, 25, Node::Battle);
+    rich.gold = 950;
+    {
+        let b = rich.battle.as_mut().unwrap();
+        for f in &mut b.foes { f.hp = 0; }
+        b.foes[0].hp = 4;
+        b.foes[0].block = 0;
+        b.hand = vec![Card::new("strike")];
+        b.energy = 3;
+    }
+    rich.apply(Action::Play { index: 1, target: 1 }).unwrap();
+    assert!(rich.gold - 950 <= 19, "late-act hoarded gold payout should saturate below half normal ceiling");
+
+    // Negative boundaries for late-act gold saturation: <900 gold, floor<=24, or epoch-0 keep full payout.
+    let mut under_gold = Game::new_with_campaign_difficulty(Hero::CaoCao, 7, Difficulty::Warlords, "under-900".into());
+    enter_node(&mut under_gold, 25, Node::Battle);
+    under_gold.gold = 850;
+    {
+        let b = under_gold.battle.as_mut().unwrap();
+        for f in &mut b.foes { f.hp = 0; }
+        b.foes[0].hp = 4;
+        b.foes[0].block = 0;
+        b.hand = vec![Card::new("strike")];
+        b.energy = 3;
+    }
+    under_gold.apply(Action::Play { index: 1, target: 1 }).unwrap();
+    assert!(under_gold.gold - 850 >= 20, "gold < 900 must keep full battle payout");
+
+    let mut early_rich = Game::new_with_campaign_difficulty(Hero::CaoCao, 7, Difficulty::Warlords, "early-950".into());
+    enter_node(&mut early_rich, 18, Node::Battle);
+    early_rich.gold = 950;
+    {
+        let b = early_rich.battle.as_mut().unwrap();
+        for f in &mut b.foes { f.hp = 0; }
+        b.foes[0].hp = 4;
+        b.foes[0].block = 0;
+        b.hand = vec![Card::new("strike")];
+        b.energy = 3;
+    }
+    early_rich.apply(Action::Play { index: 1, target: 1 }).unwrap();
+    assert!(early_rich.gold - 950 >= 20, "floor <= 24 must keep full battle payout");
+
     let mut st = Game::new_with_campaign_difficulty(Hero::SunShangxiang, 7, Difficulty::Warlords, "story-once".into());
     enter_node(&mut st, 1, Node::Story);
     st.lore_current = None;
@@ -133,13 +206,12 @@ fn build_catalog_covers_fifteen_distinct_blueprints_and_non_duplicate_core_accou
     let gold_before = st.gold;
     st.apply(Action::Choose { index: 2 }).unwrap();
     assert_eq!(st.stage, Stage::Map);
-    assert!(st.gold > gold_before, "Story gold option must increase gold");
+    assert!(st.gold > gold_before);
     assert!(st.deck.iter().all(|c| card_spec(&c.id).is_some()));
     assert!(!st.deck.iter().any(|c| matches!(card_spec(&c.id).map(|s| s.effect), Some(Effect::Unplayable))));
-    // Choosing again on Map with empty route index is invalid (route already closed for floor 2 until chosen).
-    let pre_repeat = st.to_json().unwrap();
+    let snap = st.to_json().unwrap();
     assert!(st.apply(Action::Choose { index: 99 }).is_err());
-    assert_eq!(st.to_json().unwrap(), pre_repeat);
+    assert_eq!(st.to_json().unwrap(), snap);
 }
 
 #[test]

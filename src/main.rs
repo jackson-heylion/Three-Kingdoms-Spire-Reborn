@@ -223,7 +223,11 @@ impl App {
 
     fn save_profile(&self) -> Result<(), String> {
         let json = self.profile.to_json()?;
-        atomic_write(&profile_path(&self.dir), &json).map_err(|e| e.to_string())
+        let path = profile_path(&self.dir);
+        if fs::read_to_string(&path).is_ok_and(|disk| disk == json) {
+            return Ok(());
+        }
+        atomic_write(&path, &json).map_err(|e| e.to_string())
     }
     fn track_action(&mut self) -> Result<(), String> {
         let g = self.game.as_ref().ok_or("请先开局")?;
@@ -380,18 +384,23 @@ impl App {
                     println!("   4. 随机药剂 / 55金");
                     println!("   5. 遗物 {} / 155金",
                         g.shop_relic.as_deref().unwrap_or("已售罄"));
-                    println!("   6. 移除诅咒或基础{} / 75金",
-                        if g.market_upgrade_price().is_some() { "突刺・防牌" } else { "突刺" });
+                    println!("   6. 移除诅咒或基础{} / {}金",
+                        if g.market_upgrade_price().is_some() { "突刺・防牌" } else { "突刺" },
+                        g.card_removal_price());
                     if let Some(upgrade_cost) = g.market_upgrade_price().filter(|_| !g.market_upgraded) {
                         println!("   7. 整训升级首张可升级卡牌 / {upgrade_cost}金");
                     }
                     println!(" 输入 choose <编号> 购买，remove <牌组序号> 定向移牌，choose 0 离开");
                 }
                 Stage::Camp => {
+                    let drill_note = match g.camp_drill_hp_gain() {
+                        0 => "操练已饱和(+0)".to_string(),
+                        gain => format!("操练+{gain}生命上限"),
+                    };
                     if g.modifiers.contains(&ChallengeModifier::NoRest) {
-                        println!(" 【营寨·行军不息】休整被禁用；choose 2 升级；choose 3 操练+2生命上限");
+                        println!(" 【营寨·行军不息】休整被禁用；choose 2 升级；choose 3 {drill_note}");
                     } else {
-                        println!(" 【营寨】choose 1 休整；choose 2 升级首张牌；choose 3 操练+2生命上限");
+                        println!(" 【营寨】choose 1 休整；choose 2 升级首张牌；choose 3 {drill_note}");
                     }
                     println!(" upgrade N 定向升级；enchant N 迅捷|锐锋|护身|明悟（35金）");
                 }
@@ -405,19 +414,19 @@ impl App {
                     }
                     println!(" 输入 choose <编号>");
                 }
-                Stage::Won => println!(" 【胜利】{}，江山已平！输入 campaign [武将] [种子|auto] [warlords|conqueror|destiny]（或旧制 new）开始新征程。",
+                Stage::Won => println!(" 【胜利】{}，江山已平！输入 campaign [武将] [种子|auto] [warlords|conqueror|destiny] 开始新征程。",
                     if g.difficulty.is_some() { "五幕皆定" } else { "三幕皆定" }),
                 Stage::Lost => {
                     if let Some(diagnosis) = g.defeat_diagnosis() {
                         println!(" 【败因诊断】{diagnosis}");
                     }
-                    println!(" 【败北】胜败乃兵家常事。输入 campaign [武将] [种子|auto] [warlords|conqueror|destiny]（或旧制 new）开始新征程。");
+                    println!(" 【败北】胜败乃兵家常事。输入 campaign [武将] [种子|auto] [warlords|conqueror|destiny] 开始新征程。");
                 }
             }
             println!("────────────────────────────────────────────────────");
             for msg in g.log.iter().rev().take(3).rev() { println!(" > {msg}"); }
         } else {
-            println!(" 尚无存档。输入 campaign [guanyu|zhuge|sun|cao|lubu] [随机种子|auto] [warlords|conqueror|destiny] 开始五幕新制征程（旧制可用 new [武将] [种子] [0-10]）。");
+            println!(" 尚无存档。输入 campaign [guanyu|zhuge|sun|cao|lubu] [随机种子|auto] [warlords|conqueror|destiny] 开始五幕三档征程（旧制存档可继续 load 接续）。");
         }
         if !self.message.is_empty() { println!(" 提示：{}", self.message); }
         if self.use_ansi { print!("\x1b[0m"); }
@@ -443,7 +452,7 @@ impl App {
                     )),
                 }
             }
-            "help" | "h" => Ok("campaign [武将] [seed] [warlords|conqueror|destiny] 新三档五幕40层战役；new [武将] [seed] [已解锁难度]，custom [武将] [seed] [0-10] 自由模式；variant 0|1 0|1 0|1 旧三幕兼容；variants5 0|1 0|1 0|1 0|1 0|1 新制五幕独立选择；daily YYYY-MM-DD；load/save；choose N；play N [目标] [副选牌编号]；selections N 查可选副牌；discard N 弃换；end；use [药剂号] [目标]（火/毒指定存活目标，弱化影响全体） ；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看路径与评分；inventory 背包；achievements 成就；codex 图鉴；relics；lore 看纪事；history-audit 查看新制战史档案（完整动作重放）；history-audit json 导出匿名历史触动统计；bonds 看人物羁绊；chapter 1-120 回目索引；powers 持续能力/监听器；react-remove ID 注销监听；react <ID> <weak|vulnerable|poison|damage:来源|damage:foe:N|power:军略ID> <hero|foe:0..3> <cancel|reduce|replace> [数值] [优先级] [次数]（仅自由战斗）；events [游标] [条数1-80] 分页审计当前战斗事件；eventsource 查看跨战斗记录；verify-events 重建校验全量战斗事件；metrics 战役统计；verify 回放检验；history 最近操作；doctrine 查看流派 / doctrine auto|代码 选择；builds 查看3套候选构筑及反制；chronicle；timeline 战功时间线；modifier 查看挑战 / modifier 代码 on|off；theme dark|light|highcontrast；status；quit。".into()),
+            "help" | "h" => Ok("campaign [武将] [seed] [warlords|conqueror|destiny] 新三档五幕40层战役（兼容读档与旧制指令 load/new/custom）；variant 0|1 0|1 0|1 旧三幕兼容；variants5 0|1 0|1 0|1 0|1 0|1 新制五幕独立选择；daily YYYY-MM-DD；load/save；choose N；play N [目标] [副选牌编号]；selections N 查可选副牌；discard N 弃换；end；use [药剂号] [目标]（火/毒指定存活目标，弱化影响全体） ；upgrade N；enchant N 迅捷|锐锋|护身|明悟；remove N；deck；map 查看路径与评分；inventory 背包；achievements 成就；codex 图鉴；relics；lore 看纪事；history-audit 查看新制战史档案（完整动作重放）；history-audit json 导出匿名历史触动统计；bonds 看人物羁绊；chapter 1-120 回目索引；powers 持续能力/监听器；react-remove ID 注销监听；react <ID> <weak|vulnerable|poison|damage:来源|damage:foe:N|power:军略ID> <hero|foe:0..3> <cancel|reduce|replace> [数值] [优先级] [次数]（仅自由战斗）；events [游标] [条数1-80] 分页审计当前战斗事件；eventsource 查看跨战斗记录；verify-events 重建校验全量战斗事件；metrics 战役统计；verify 回放检验；history 最近操作；doctrine 查看流派 / doctrine auto|代码 选择；builds 查看3套候选构筑及反制；chronicle；timeline 战功时间线；modifier 查看挑战 / modifier 代码 on|off；theme dark|light|highcontrast；status；quit。".into()),
             "campaign" => (|| -> Result<String, String> {
                 if args.len() > 4 {
                     return Err("用法：campaign [武将] [seed|auto] [warlords|conqueror|destiny]".into());
@@ -545,7 +554,7 @@ impl App {
                             .collect::<Vec<_>>().join("\n"))
                 })),
             "doctrine" if args.len()==1 => Ok(self.game.as_ref()
-                .map_or("请先输入 new 开局".into(),|g|g.doctrine_status())),
+                .map_or("请先输入 campaign 开局".into(),|g|g.doctrine_status())),
             "builds" => Ok(self.game.as_ref().map_or("请先开局".into(),|g| {
                 three_kingdoms_spire_reborn::builds::for_hero(g.hero)
                     .map(|plan|format!("{}【{}】关键卡 {}/{}：{}；支援：{}。敌方反制：{}；应对：{}；风险：{}",
@@ -896,7 +905,7 @@ impl App {
                     // session until the same candidate has reached save.json.
                     let path = save_path(&self.dir);
                     let messages = apply_and_persist(
-                        self.game.as_mut().ok_or("请先输入 new 开局")?,
+                        self.game.as_mut().ok_or("请先输入 campaign 开局")?,
                         action,
                         |candidate| {
                             atomic_write(&path, &candidate.to_json()?)
@@ -953,7 +962,7 @@ fn main() {
     if (save_path(&app.dir).exists() || save_path(&app.dir).with_extension("bak").exists())
         && let Err(err) = app.load()
     {
-        app.message = format!("存档未能加载：{err}；可输入 new 开新局。");
+        app.message = format!("存档未能加载：{err}；可输入 campaign 开始新征程。");
     }
     if args.iter().any(|arg|arg=="--tui") {
         if let Err(err)=tui::run(&mut app) {

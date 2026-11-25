@@ -3,7 +3,7 @@
 //! Every .feature step must be recognized; unknown steps FAIL instead of being silently skipped.
 //! No additional runtime/test dependency is required for CLI, macOS native, or WASM builds.
 use three_kingdoms_spire_reborn::{
-    Action, BossMove, Card, Foe, Game, Intent, Node, Stage, content::{Hero, enemy_hp}, lore,
+    Action, BossMove, Card, Difficulty, Foe, Game, Intent, Node, Stage, content::{Hero, enemy_hp}, lore, map,
     combat::{EventKind, PowerId},
     progression::Profile,
     persistence::{SaveDirectoryLock, apply_and_persist, replace_run_and_persist, atomic_write, restore_primary_from_backup},
@@ -861,7 +861,7 @@ impl World {
             if !self.game()?.easter_unlocked.iter().any(|egg| egg == id) {
                 return Err(format!("hidden storyline conclusion {id} was not unlocked"));
             }
-        } else if step.starts_with("the flag \"") {
+        } else if step.starts_with("the flag \"") && (step.ends_with(" is present") || step.ends_with(" is absent")) {
             let key = quoted(step)?;
             let present = self.game()?.lore_flags.iter().any(|flag| flag == key);
             if step.ends_with(" is present") && !present {
@@ -965,6 +965,393 @@ impl World {
                 && study.contains("120回")) {
                 return Err("source study must distinguish fiction, history, and audit scope".into());
             }
+        } else if step.starts_with("an expanded \"") && step.contains("\" campaign on \"") {
+            let parts = step.split('"').collect::<Vec<_>>();
+            let hero = Hero::parse(parts.get(1).copied().ok_or("missing hero")?)
+                .ok_or("unknown hero")?;
+            let tier = Difficulty::parse(parts.get(3).copied().ok_or("missing tier")?)
+                .ok_or("unknown tier")?;
+            let seed = step.split_whitespace().last().ok_or("missing seed")?
+                .parse::<u64>().map_err(|_| "bad seed")?;
+            self.game = Some(Game::new_with_campaign_difficulty(
+                hero, seed, tier, format!("bdd-exp-{}-{seed}", tier.id()),
+            ));
+            self.before = None;
+            self.error = None;
+            self.foe_hp = None;
+            self.counter_gold = None;
+            self.event_cursor = None;
+            self.profile = None;
+        } else if step.starts_with("the expanded catalog exposes exactly 3 named tiers ") {
+            let ids: Vec<&str> = Difficulty::ALL.iter().map(|d| d.id()).collect();
+            if ids != ["warlords", "conqueror", "destiny"] {
+                return Err(format!("unexpected tiers: {ids:?}"));
+            }
+        } else if step.starts_with("the game uses expanded 40-floor rules on tier \"") {
+            let tier_id = quoted(step)?;
+            let g = self.game()?;
+            if g.difficulty.map(|d| d.id()) != Some(tier_id)
+                || !g.has_expanded_history_rules()
+                || g.victory_recovery_cap() != Some(16)
+            {
+                return Err("expanded 40-floor rules inactive".into());
+            }
+        } else if step.starts_with("I parse and fail an invalid tier \"") {
+            let bad = quoted(step)?;
+            if Difficulty::parse(bad).is_some() {
+                return Err(format!("tier {bad} unexpectedly accepted"));
+            }
+            self.error = Some(format!("unknown tier: {bad}"));
+        } else if step == "all 5 expanded act maps place bosses on row 7 with 250-seed act 1 to 4 mid-act stories" {
+            for seed in 1_u64..=250 {
+                for act in 0..5_u8 {
+                    let mut s = seed.wrapping_mul(6364136223846793005).wrapping_add(u64::from(act) + 1);
+                    let m = map::ActMap::generate_expanded(|bound| {
+                        s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                        (s as usize) % bound
+                    }, act);
+                    if m.rows.len() != 8 || !m.rows[7].iter().all(|n| *n == Node::Boss) {
+                        return Err(format!("seed {seed} act {act} boss row mismatch"));
+                    }
+                    if act >= 1 && !m.rows[2..=4].iter().any(|r| r.contains(&Node::Story)) {
+                        return Err(format!("seed {seed} act {act} missing mid-act story guarantee"));
+                    }
+                }
+            }
+        } else if step == "floor 2 convoy starts with 12/12 durability" {
+            let g = self.game_mut()?;
+            g.floor = 1;
+            g.stage = Stage::Map;
+            g.route = vec![Node::Battle];
+            g.route_lanes = vec![0];
+            g.apply(Action::Choose { index: 1 })?;
+            if g.battle.as_ref().and_then(|b| b.convoy_hp) != Some(12) {
+                return Err("expected floor 2 convoy to start with 12 durability".into());
+            }
+        } else if step == "I defeat the expanded boss on floor 40" {
+            let g = self.game_mut()?;
+            g.floor = 39;
+            g.stage = Stage::Map;
+            g.route = vec![Node::Boss];
+            g.route_lanes = vec![0];
+            g.apply(Action::Choose { index: 1 })?;
+            {
+                let b = g.battle.as_mut().unwrap();
+                for f in &mut b.foes { f.hp = 0; }
+                b.foes[0].hp = 4;
+                b.foes[0].block = 0;
+                b.hand = vec![Card::new("strike")];
+                b.energy = 3;
+            }
+            g.apply(Action::Play { index: 1, target: 1 })?;
+        } else if step == "the campaign ends in victory on floor 40" {
+            let g = self.game()?;
+            if g.stage != Stage::Won || g.floor != 40 {
+                return Err(format!("expected floor 40 Won, got {:?} on {}", g.stage, g.floor));
+            }
+        } else if step == "I play expanded floor 1 breakout past the 4-turn limit" {
+            let g = self.game_mut()?;
+            g.stage = Stage::Map;
+            g.route = vec![Node::Battle];
+            g.route_lanes = vec![0];
+            g.apply(Action::Choose { index: 1 })?;
+            g.hp = g.max_hp;
+            {
+                let b = g.battle.as_mut().unwrap();
+                b.foes[0].hp = 120;
+                b.foes[0].intent = Intent::Guard(5);
+                b.turn = 4;
+            }
+            g.apply(Action::EndTurn)?;
+        } else if step.starts_with("the campaign ends in defeat diagnosing \"") {
+            let expected = quoted(step)?;
+            let g = self.game()?;
+            let diag = g.defeat_diagnosis().ok_or("missing defeat diagnosis")?;
+            if g.stage != Stage::Lost || !diag.contains(expected) {
+                return Err(format!("expected {expected} defeat, got {:?}: {diag}", g.stage));
+            }
+        } else if step == "I assault the siege gate on floor 4 until breach" {
+            let g = self.game_mut()?;
+            g.floor = 3;
+            g.stage = Stage::Map;
+            g.act_map = Some(map::ActMap::generate_expanded(|_| 0, 0));
+            g.route = vec![Node::Battle];
+            g.route_lanes = vec![0];
+            g.apply(Action::Choose { index: 1 })?;
+            {
+                let b = g.battle.as_mut().unwrap();
+                for f in &mut b.foes { f.hp = 0; }
+                b.siege_gate_hp = Some(4);
+                b.energy = 3;
+            }
+            g.apply(Action::AssaultGate)?;
+        } else if step == "the siege gate falls cleanly into battle reward" {
+            let g = self.game()?;
+            if g.stage != Stage::Reward {
+                return Err(format!("expected Reward after breach, got {:?}", g.stage));
+            }
+        } else if step.starts_with("I trigger phase two on the act 5 boss \"") {
+            let expected_id = quoted(step)?;
+            let g = self.game_mut()?;
+            g.apply(Action::SetExpandedVariants { act1: 0, act2: 0, act3: 0, act4: 0, act5: 1 })?;
+            g.floor = 39;
+            g.stage = Stage::Map;
+            g.route = vec![Node::Boss];
+            g.route_lanes = vec![0];
+            g.apply(Action::Choose { index: 1 })?;
+            let actual = g.battle.as_ref().unwrap().foes[0].id.clone();
+            if actual != expected_id {
+                return Err(format!("expected boss {expected_id}, got {actual}"));
+            }
+            {
+                let b = g.battle.as_mut().unwrap();
+                b.foes[0].hp = (b.foes[0].max_hp / 2).max(1) + 3;
+                b.foes[0].block = 0;
+                b.foes[0].intent = Intent::Guard(1);
+                b.hand = vec![Card::new("strike")];
+                b.energy = 3;
+            }
+            g.apply(Action::Play { index: 1, target: 1 })?;
+            g.hp = g.max_hp;
+            g.apply(Action::EndTurn)?;
+        } else if step.starts_with("foe 1 is in phase ") {
+            let phase: u8 = step.split_whitespace().last().unwrap().parse().map_err(|_| "bad phase")?;
+            if self.game()?.battle.as_ref().ok_or("no battle")?.foes[0].phase != phase {
+                return Err("foe phase mismatch".into());
+            }
+        } else if step == "I open and commit wuchao council option 1 on act 2 story" {
+            let g = self.game_mut()?;
+            g.floor = 9;
+            g.stage = Stage::Map;
+            g.act_map = Some(map::ActMap::generate_expanded(|_| 0, 1));
+            g.route = vec![Node::Story];
+            g.route_lanes = vec![0];
+            g.apply(Action::Choose { index: 1 })?;
+            let open_idx = if g.story_fifth_option().is_some() { 5 } else { 4 };
+            g.apply(Action::Choose { index: open_idx })?;
+            let prev_len = g.action_history.as_ref().map_or(0, Vec::len) as i32;
+            g.apply(Action::Choose { index: 1 })?;
+            self.foe_hp = Some(prev_len);
+        } else if step == "the action history commits once" {
+            let prev = self.foe_hp.ok_or("missing prev count")? as usize;
+            let now = self.game()?.action_history.as_ref().map_or(0, Vec::len);
+            if now != prev + 1 {
+                return Err(format!("expected +1 committed action, got {prev} -> {now}"));
+            }
+        } else if step == "I enter floor 17 battle under wuchao plan" {
+            let g = self.game_mut()?;
+            g.floor = 16;
+            g.stage = Stage::Map;
+            g.act_map = Some(map::ActMap::generate_expanded(|_| 0, 2));
+            g.route = vec![Node::Battle];
+            g.route_lanes = vec![0];
+            g.apply(Action::Choose { index: 1 })?;
+        } else if step == "wuchao raid settles once on act 3 and does not duplicate on further action or reload" {
+            let g = self.game_mut()?;
+            if g.wuchao_plan != Some(three_kingdoms_spire_reborn::WuchaoPlan::RaidResolved) {
+                return Err(format!("expected RaidResolved, got {:?}", g.wuchao_plan));
+            }
+            let raids = g.battle.as_ref().ok_or("no battle")?
+                .events.iter().filter(|e| e.source == "wuchao_act_three_raid").count();
+            if raids != 1 {
+                return Err(format!("expected 1 wuchao_act_three_raid event, got {raids}"));
+            }
+            g.apply(Action::EndTurn)?;
+            let restored = Game::from_json(&g.to_json()?)?;
+            let after = restored.battle.as_ref().ok_or("no battle after reload")?
+                .events.iter().filter(|e| e.source == "wuchao_act_three_raid").count();
+            if after != 1 {
+                return Err(format!("wuchao raid duplicated after reload: {after}"));
+            }
+        } else if step == "a counterfactual \"cao\" expanded campaign declines wuchao option 3 on act 2 story and enters floor 17" {
+            let mut g = Game::new_with_campaign_difficulty(Hero::CaoCao, 406, Difficulty::Warlords, "bdd-wuchao-cf".into());
+            g.floor = 9;
+            g.stage = Stage::Map;
+            g.act_map = Some(map::ActMap::generate_expanded(|_| 0, 1));
+            g.route = vec![Node::Story];
+            g.route_lanes = vec![0];
+            g.apply(Action::Choose { index: 1 })?;
+            let open_idx = if g.story_fifth_option().is_some() { 5 } else { 4 };
+            g.apply(Action::Choose { index: open_idx })?;
+            g.apply(Action::Choose { index: 3 })?;
+            g.floor = 16;
+            g.stage = Stage::Map;
+            g.act_map = Some(map::ActMap::generate_expanded(|_| 0, 2));
+            g.route = vec![Node::Battle];
+            g.route_lanes = vec![0];
+            g.apply(Action::Choose { index: 1 })?;
+            self.game = Some(g);
+        } else if step == "wuchao decline settles without triggering raid" {
+            let g = self.game()?;
+            if g.wuchao_plan != Some(three_kingdoms_spire_reborn::WuchaoPlan::DeclineResolved) {
+                return Err(format!("expected DeclineResolved, got {:?}", g.wuchao_plan));
+            }
+            let events = &g.battle.as_ref().ok_or("no battle")?.events;
+            if events.iter().any(|e| e.source == "wuchao_act_three_raid")
+                || events.iter().filter(|e| e.source == "wuchao_act_three_decline").count() != 1
+            {
+                return Err("counterfactual wuchao decline events mismatch".into());
+            }
+        } else if step.starts_with("Sun completes the \"") && step.ends_with("\" vow choice cleanly") {
+            let beat_id = quoted(step)?;
+            let beat = lore::beat(beat_id).ok_or("unknown beat")?;
+            let g = self.game_mut()?;
+            g.apply(Action::SetExpandedVariants { act1: 0, act2: 0, act3: 0, act4: 1, act5: 0 })?;
+            g.floor = 17;
+            g.stage = Stage::Map;
+            g.route = vec![Node::Story];
+            g.route_lanes = vec![0];
+            g.apply(Action::Choose { index: 1 })?;
+            g.lore_current = Some(beat.id.into());
+            g.apply(Action::Choose { index: 1 })?;
+            if !g.lore_flags.iter().any(|f| f == beat.flag) {
+                return Err(format!("story vow did not plant {}", beat.flag));
+            }
+        } else if step == "I play two real defend cards on Turn 1 against floor 32 boss \"lumeng\" and end turn" {
+            fn play_lumeng_turn1(g: &mut Game) -> Result<(), String> {
+                g.floor = 31;
+                g.stage = Stage::Map;
+                g.route = vec![Node::Boss];
+                g.route_lanes = vec![0];
+                g.apply(Action::Choose { index: 1 })?;
+                {
+                    let b = g.battle.as_mut().unwrap();
+                    b.turn = 1;
+                    b.hand = vec![Card::new("defend"), Card::new("defend")];
+                    b.energy = 3;
+                }
+                g.apply(Action::Play { index: 1, target: 1 })?;
+                g.apply(Action::Play { index: 1, target: 1 })?;
+                g.apply(Action::EndTurn)?;
+                Ok(())
+            }
+            play_lumeng_turn1(self.game_mut()?)?;
+        } else if step.starts_with("combat event source \"") && step.ends_with(" is emitted") {
+            let source = quoted(step)?;
+            if !self.game()?.battle.as_ref().unwrap().events.iter().any(|e| e.source == source) {
+                return Err(format!("missing expected echo event {source}"));
+            }
+        } else if step == "the same setup runs on an epoch-zero expanded save" {
+            fn run_epoch0_lumeng(g: &mut Game) -> Result<(), String> {
+                g.apply(Action::SetExpandedVariants { act1: 0, act2: 0, act3: 0, act4: 1, act5: 0 })?;
+                g.floor = 17;
+                g.stage = Stage::Map;
+                g.route = vec![Node::Story];
+                g.route_lanes = vec![0];
+                g.apply(Action::Choose { index: 1 })?;
+                g.lore_current = Some("south_wilds".into());
+                g.apply(Action::Choose { index: 1 })?;
+                g.floor = 31;
+                g.stage = Stage::Map;
+                g.route = vec![Node::Boss];
+                g.route_lanes = vec![0];
+                g.apply(Action::Choose { index: 1 })?;
+                {
+                    let b = g.battle.as_mut().unwrap();
+                    b.turn = 1;
+                    b.hand = vec![Card::new("defend"), Card::new("defend")];
+                    b.energy = 3;
+                }
+                g.apply(Action::Play { index: 1, target: 1 })?;
+                g.apply(Action::Play { index: 1, target: 1 })?;
+                g.apply(Action::EndTurn)?;
+                Ok(())
+            }
+            let base = Game::new_with_campaign_difficulty(Hero::SunShangxiang, 407, Difficulty::Warlords, "bdd-epoch0".into());
+            let mut raw: serde_json::Value = serde_json::from_str(&base.to_json()?).unwrap();
+            raw.as_object_mut().unwrap().remove("expanded_rules_revision");
+            raw["campaign_history"][0]["state"]["identity"].as_object_mut().unwrap().remove("expanded_rules_revision");
+            let mut g = Game::from_json(&raw.to_string())?;
+            run_epoch0_lumeng(&mut g)?;
+            self.game = Some(g);
+        } else if step.starts_with("combat event source \"") && step.ends_with(" is suppressed") {
+            let source = quoted(step)?;
+            if self.game()?.battle.as_ref().unwrap().events.iter().any(|e| e.source == source) {
+                return Err(format!("unexpectedly emitted suppressed source {source}"));
+            }
+        } else if step == "victory recovery caps step down across all 5 acts as 16, 14, 12, 10, 8" {
+            let g = self.game_mut()?;
+            for (floor, cap) in [(1, 16), (9, 14), (17, 12), (25, 10), (33, 8)] {
+                g.floor = floor;
+                if g.victory_recovery_cap() != Some(cap) {
+                    return Err(format!("floor {floor} expected cap {cap}, got {:?}", g.victory_recovery_cap()));
+                }
+            }
+        } else if step == "progressive market card removals rise from 75 to 175 via real Market actions without changing legacy 75 cost" {
+            let mut g = self.game()?.clone();
+            g.gold = 2_000;
+            while g.deck.len() < 12 { g.deck.push(Card::new("strike")); }
+            g.stage = Stage::Market;
+            let mut paid = Vec::new();
+            for _ in 0..7 {
+                let gold_before = g.gold;
+                g.apply(Action::Remove { index: 1 })?;
+                paid.push(gold_before - g.gold);
+            }
+            if paid != [75, 75, 75, 100, 125, 150, 175] {
+                return Err(format!("unexpected real Market removal prices: {paid:?}"));
+            }
+            let mut legacy = Game::new(Hero::GuanYu, 408);
+            let lg = legacy.gold;
+            legacy.stage = Stage::Market;
+            legacy.apply(Action::Remove { index: 1 })?;
+            if lg - legacy.gold != 75 || legacy.card_removal_price() != 75 {
+                return Err("legacy removal price drifted".into());
+            }
+        } else if step == "camp drill max hp gains saturate at 0 after 8 real Camp actions" {
+            let mut g = self.game()?.clone();
+            let mut gains = Vec::new();
+            for _ in 0..10 {
+                let before = g.max_hp;
+                g.stage = Stage::Camp;
+                g.apply(Action::Choose { index: 3 })?;
+                gains.push(g.max_hp - before);
+            }
+            if gains != [2, 2, 2, 2, 2, 1, 1, 1, 0, 0] {
+                return Err(format!("unexpected real Camp drill gains: {gains:?}"));
+            }
+        } else if step == "expanded herb garden grants 2 potions instead of 3" {
+            let mut g = self.game()?.clone();
+            g.potion_bag.clear();
+            g.potions = 0;
+            g.stage = Stage::Ancient;
+            g.boon_choices = vec!["herb_garden".into()];
+            g.apply(Action::Choose { index: 1 })?;
+            if g.potion_bag.len() != 2 {
+                return Err(format!("expected 2 potions, got {}", g.potion_bag.len()));
+            }
+        } else if step == "an expanded battle stalls past turn 40 with 100 block" {
+            let g = self.game_mut()?;
+            g.floor = 15;
+            g.stage = Stage::Map;
+            g.route = vec![Node::Boss];
+            g.route_lanes = vec![0];
+            g.apply(Action::Choose { index: 1 })?;
+            g.hp = 12;
+            {
+                let b = g.battle.as_mut().unwrap();
+                b.turn = 40;
+                b.foes[0].intent = Intent::Guard(10);
+            }
+            let mut steps = 0;
+            while g.stage == Stage::Combat && steps < 20 {
+                let b = g.battle.as_mut().unwrap();
+                b.block = 100;
+                b.foes[0].intent = Intent::Guard(10);
+                g.apply(Action::EndTurn)?;
+                steps += 1;
+            }
+        } else if step == "the game uses legacy 21-floor rules with no recovery cap and 75-gold removal" {
+            let g = self.game()?;
+            if g.has_expanded_history_rules()
+                || g.victory_recovery_cap().is_some()
+                || g.card_removal_price() != 75
+                || g.campaign_max_floor() != 21
+            {
+                return Err("legacy 21-floor invariants violated".into());
+            }
+        } else if step == "deterministic action replay verifies cleanly" {
+            self.game()?.verify_action_replay()?;
         } else {
             return Err(format!("UNIMPLEMENTED BDD STEP: {step}"));
         }
@@ -1034,10 +1421,11 @@ fn gherkin_bdd_acceptance_suite() {
         ("features/profile_reconciliation.feature", include_str!("../features/profile_reconciliation.feature")),
         ("features/novel_provenance.feature", include_str!("../features/novel_provenance.feature")),
         ("features/dynamic_reactions.feature", include_str!("../features/dynamic_reactions.feature")),
+        ("features/gameplay_expansion.feature", include_str!("../features/gameplay_expansion.feature")),
     ];
     let scenarios: usize = documents.iter().map(|(name,text)|
         run_feature(text,name).unwrap_or_else(|error|panic!("{error}"))).sum();
-    assert!(scenarios >= 68, "BDD suite lost scenarios: {scenarios}");
+    assert!(scenarios >= 75, "BDD suite lost scenarios: {scenarios}");
     println!("Verified {scenarios} executable Given/When/Then acceptance scenarios");
 }
 

@@ -185,7 +185,8 @@ pub(super) fn render_mode(app: &App, columns: usize, rows: usize, target: usize,
             line(&mut out, app, &format!("{mode_label} · {} · 战法：{}",
                 g.act_name(), g.doctrine.map_or("自动", |d| d.label())), columns, Tone::Muted);
             if let Some(cap) = g.victory_recovery_cap() {
-                line(&mut out, app, &format!("本幕战后被动回血上限 {cap}"), columns, Tone::Muted);
+                let tier_hint = g.difficulty.map_or("", |d| d.rules_summary());
+                line(&mut out, app, &format!("本幕战后被动回血上限 {cap} · {tier_hint}"), columns, Tone::Muted);
             }
         }
         if let Some(b) = g.battle.as_ref().filter(|_| g.stage == Stage::Combat) {

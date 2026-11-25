@@ -140,6 +140,9 @@ impl Game {
         if self.market_upgraded && (!self.has_expanded_history_rules() || self.stage != Stage::Market) {
             return Err("军市整训状态无效".into());
         }
+        if (self.card_removals > 0 || self.camp_drills > 0) && !self.has_expanded_history_rules() {
+            return Err("旧制存档不能包含五幕经济累进计数".into());
+        }
         for boon in self.boons.iter().chain(self.boon_choices.iter()) {
             if !items::BOONS.iter().any(|(id,_)| id == boon) { return Err(format!("未知赐福: {boon}")); }
         }
