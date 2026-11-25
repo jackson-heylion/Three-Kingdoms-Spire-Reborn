@@ -1156,7 +1156,9 @@ fn expanded_matrix_fixed_seed_all_cells_settle_and_replay() {
     assert_eq!(runs.len(), 30);
     assert_eq!(cells.len(), 15);
     expanded_matrix_integrity(&runs).expect("all natural runs must settle and replay");
-    for (cell, pair) in cells.iter().zip(runs.chunks_exact(2)) {
+    let (pairs, remainder) = runs.as_chunks::<2>();
+    assert!(remainder.is_empty());
+    for (cell, pair) in cells.iter().zip(pairs) {
         assert_eq!(pair[0].seed, pair[1].seed);
         assert_eq!(pair[0].policy, "first_playable");
         assert_eq!(pair[1].policy, "tactical");
