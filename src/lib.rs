@@ -718,11 +718,15 @@ impl Game {
         {
             let effect = match self.chibi_plan {
                 Some(ChibiPlan::FireBattleResolved | ChibiPlan::FireSettled) =>
-                    if self.has_expanded_history_rules() {
+                    if self.has_expanded_history_rules() && self.battle.as_ref()
+                        .is_some_and(|b| b.foes.first().is_some_and(|f| f.id == "luxun"))
+                    {
                         "赤壁火攻：敌统帅入阵虚弱2层；陆逊焚营前实际出牌并保持12点护甲可少引燃1层火势"
                     } else { "赤壁火攻：敌统帅入阵虚弱2层，抓住反击窗口" },
                 Some(ChibiPlan::FleetBattleResolved | ChibiPlan::FleetSettled) =>
-                    if self.has_expanded_history_rules() {
+                    if self.has_expanded_history_rules() && self.battle.as_ref()
+                        .is_some_and(|b| b.foes.first().is_some_and(|f| f.id == "lumeng"))
+                    {
                         "赤壁稳守：我军入阵护甲+8且多1点军令；吕蒙潜袭前实际出牌且保持12护甲可额外反击4点"
                     } else { "赤壁稳守：我军入阵护甲+8且多1点军令" },
                 Some(ChibiPlan::DeclineBattleResolved | ChibiPlan::DeclineSettled) =>
@@ -772,18 +776,20 @@ impl Game {
         {
             return Some("乌巢固守粮道：董卓暴政结算前实际出牌且保持12点护甲，可令本次军资掠夺减半；护甲仍承受其攻击。".into());
         }
-        if self.stage == Stage::Combat && self.floor == 40
-            && self.hero == Hero::ZhugeLiang
-            && self.battle.as_ref().is_some_and(|b|
-                b.foes.first().is_some_and(|f| f.id == "dengai"))
+        if self.stage == Stage::Combat && self.difficulty.is_some() && self.floor == 40
+            && let Some(battle) = self.battle.as_ref()
+            && battle.foes.first().is_some_and(|f| f.id == "dengai")
         {
+            let free = self.yinping_free_water_cover(battle);
+            let first_threshold = 10 + free;
+            let second_threshold = 12 + free;
             let jieting = match self.jieting_plan {
                 Some(JietingPlan::WaterSettled) => "街亭守水军需兑现：入阵获10护甲、邓艾虚弱2层；亲自击败山道援军可夺回4点护甲",
                 Some(JietingPlan::HillSettled) => "街亭据山旧债兑现：邓艾武勇+2与护甲+10，我军武勇+1；亲自击败山道援军可反击8点",
                 Some(JietingPlan::RetreatSettled) => "街亭撤退先机兑现：额外军令+1、邓艾护甲+6；成功截击阴平偷渡额外反击2点；亲自击败山道援军并伤及邓艾可回收1点军令（至多5点）",
                 _ => "未携带街亭军议后果",
             };
-            return Some(format!("阴平史诗关底：回合末出牌至少3/4张或护甲达10/12可截击；第二阶段护甲达12且未凑够4牌可截击并压制援军；若仅有10护甲，仍可牵制已有援军、削弱其当回合协同护阵并阻止追加掠金，但邓艾基础掠金仍生效；未牵制的存活援军会额外掠金至多5；存活援军在偶数回合会预告协同护阵，玩家可优先击杀；击败真实援军可截断山道并重创邓艾。{jieting}。"));
+            return Some(format!("阴平史诗关底：回合末出牌至少3/4张或护甲达{first_threshold}/{second_threshold}可截击（本回合街亭免费护甲排除{free}点）；第二阶段护甲达{second_threshold}且未凑够4牌可截击并压制援军；未满足截击条件但护甲至少10，仍可牵制已有援军、削弱其当回合协同护阵并阻止追加掠金，但邓艾基础掠金仍生效；未牵制的存活援军会额外掠金至多5；存活援军在偶数回合会预告协同护阵，玩家可优先击杀；击败真实援军可截断山道并重创邓艾。{jieting}。"));
         }
         if self.stage == Stage::Combat && let Some(hp) = self.battle.as_ref().and_then(|b| b.siege_gate_hp) {
             let turn = self.battle.as_ref().expect("battle").turn;
@@ -3339,6 +3345,34 @@ impl Game {
             if disrupted { "；援军遭虚弱牵制，护阵减弱" } else { "" })
     }
 
+    // The visible interception threshold and authoritative settlement share
+    // the same exclusion of first-turn historical armor.
+    fn yinping_free_water_cover(&self, b: &Battle) -> i32 {
+        if self.hero == Hero::ZhugeLiang
+            && self.floor == 40
+            && self.jieting_plan == Some(JietingPlan::WaterSettled)
+            && b.turn == 1
+        {
+            // The recent-event ring can evict the opening receipt
+            // during a long first-turn combo. Prefer the durable
+            // encounter archive; older snapshots without it retain
+            // their existing ring-based fallback.
+            let late_grant = if !self.has_expanded_history_rules() { 0 }
+            else if let Some(history) = &self.event_history {
+                let encounter = self.telemetry.totals.battles_started;
+                history.iter().filter(|record|
+                    record.encounter == encounter
+                    && record.event.source == "jieting_late_water_settlement")
+                    .map(|record| record.event.amount).sum::<i32>()
+            } else {
+                b.events.iter().filter(|event|
+                    event.source == "jieting_late_water_settlement")
+                    .map(|event| event.amount).sum::<i32>()
+            };
+            10 + late_grant
+        } else { 0 }
+    }
+
     fn boss_signature(&mut self, idx: usize, technique: BossMove) -> String {
         let (id,phase) = {
             let foe = &self.battle.as_ref().expect("battle").foes[idx];
@@ -3548,29 +3582,7 @@ impl Game {
                 // turn exclude it from the defense-only threshold; later turns use
                 // the full player-held block after the normal end-turn reset.
                 let guarded = self.battle.as_ref().is_some_and(|b| {
-                    let free_water_cover = if self.hero == Hero::ZhugeLiang
-                        && self.floor == 40
-                        && self.jieting_plan == Some(JietingPlan::WaterSettled)
-                        && b.turn == 1
-                    {
-                        // The recent-event ring can evict the opening receipt
-                        // during a long first-turn combo. Prefer the durable
-                        // encounter archive; older snapshots without it retain
-                        // their existing ring-based fallback.
-                        let late_grant = if !self.has_expanded_history_rules() { 0 }
-                        else if let Some(history) = &self.event_history {
-                            let encounter = self.telemetry.totals.battles_started;
-                            history.iter().filter(|record|
-                                record.encounter == encounter
-                                && record.event.source == "jieting_late_water_settlement")
-                                .map(|record| record.event.amount).sum::<i32>()
-                        } else {
-                            b.events.iter().filter(|event|
-                                event.source == "jieting_late_water_settlement")
-                                .map(|event| event.amount).sum::<i32>()
-                        };
-                        10 + late_grant
-                    } else { 0 };
+                    let free_water_cover = self.yinping_free_water_cover(b);
                     b.block >= 10 + 2 * i32::from(phase) + free_water_cover
                 });
                 if played >= required || guarded {
@@ -3789,11 +3801,14 @@ impl Game {
         let foe = battle.foes.get(index)?;
         if foe.hp <= 0 || foe.phase != 0 || !foe.has_second_phase() { return None; }
         let change = match foe.id.as_str() {
+            "zhangjiao" if battle.foes.len() >= 4 => "战场编制已满，无法召黄巾援军",
             "zhangjiao" => "召黄巾援军（下回合才行动）",
             "yuanshao" if self.floor == 16
                 && !battle.foes.iter().any(|f| f.id == "officer" && f.hp > 0) =>
                 "亲卫已亡，无法召援",
+            "yuanshao" if battle.foes.len() >= 4 => "战场编制已满，无法召亲卫援军",
             "yuanshao" => "召亲卫援军（先歼亲卫可断援；下回合才行动）",
+            "zuoci" if battle.foes.len() >= 4 => "回复至多18体力；战场编制已满，无法召援",
             "zuoci" => "回复至多18体力并召援（下回合才行动）",
             "sunjian" => "武勇+4、护甲+8，虎袭升级为三段",
             "dongzhuo" => "武勇+3、我军虚弱2层并损失至多30金",
@@ -8268,6 +8283,11 @@ mod expanded_active_rule_regression {
         assert!(!battle.events.iter().any(|e| e.source == "jieting_late_water_settlement"));
         assert!(game.event_history.as_ref().unwrap().iter().any(|record|
             record.event.source == "jieting_late_water_settlement"));
+        let before = game.to_json().unwrap();
+        let hint = game.tactical_objective().unwrap();
+        assert!(hint.contains("护甲达28/30"), "{hint}");
+        assert!(hint.contains("免费护甲排除18点"), "{hint}");
+        assert_eq!(game.to_json().unwrap(), before);
         assert!(!game.boss_signature(0, BossMove::YinpingFlank(0)).contains("阴平偷渡被截击"));
     }
 }

@@ -415,7 +415,11 @@ fn natural_fifth_act_deng_ai_entry_and_victory_survive_action_replay() {
                 assert_eq!(foe.id, "dengai", "alternate fifth act must not reuse Zuoci");
                 found_deng_ai = true;
                 let saved = game.to_json().expect("natural final boss save");
+                let objective = game.tactical_objective().expect("Deng Ai objective for non-Zhuge hero");
+                assert!(objective.contains("护甲达10/12"), "{objective}");
+                assert_eq!(game.to_json().unwrap(), saved);
                 let mut restored = Game::from_json(&saved).expect("restore real boss encounter");
+                assert_eq!(restored.tactical_objective().as_deref(), Some(objective.as_str()));
                 assert_eq!(restored.to_json().unwrap(), saved);
                 restored.verify_action_replay().expect("replay natural Deng Ai entry");
                 // Prove that the same legal policy can resolve the new
