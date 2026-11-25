@@ -438,14 +438,13 @@ impl Game {
         // Act-IV's independent Jieting decision is still observable at the
         // *alternative* fifth-act commander. This is a read-only route warning:
         // simply inspecting the map never advances RNG or commits an effect.
-        if node == Node::Boss && self.floor == 39 && self.hero == Hero::ZhugeLiang
-            && self.act_variant(4) == 1
+        if node == Node::Boss && self.floor == 39 && self.act_variant(4) == 1
         {
             return match self.yinping_entry_plan() {
                 Some(JietingPlan::WaterResolved | JietingPlan::WaterSettled) => Some("邓艾·阴平：街亭守水责任延续；入阵我军护甲+10，邓艾虚弱2层（回合末衰减）；亲自击败山道援军可夺回4点护甲"),
                 Some(JietingPlan::HillResolved | JietingPlan::HillSettled) => Some("邓艾·阴平：街亭据山暴露山道；邓艾武勇+2、护甲+10，我军武勇+1；亲自击败山道援军可反击8点"),
                 Some(JietingPlan::RetreatResolved | JietingPlan::RetreatSettled) => Some("邓艾·阴平：街亭撤退保全先机；入阵军令+1，邓艾护甲+6；成功截击阴平偷渡额外反击2点；亲自击败山道援军并伤及邓艾可回收1点军令（至多5点）"),
-                _ => None,
+                _ => Some("邓艾·阴平：偷渡可用合法出牌3/4张或实际护甲10/12反制；未截击将掠夺军资，第二阶段首次失守召援"),
             };
         }
         if self.has_expanded_history_rules() && node == Node::Boss && self.floor == 23 && self.act_variant(2) == 0
@@ -465,8 +464,7 @@ impl Game {
         }
         // The other fifth-act commander must also honor Zhuge Liang's
         // act-IV Jieting choice; it is not a Deng-Ai-only hidden fixture.
-        if node == Node::Boss && self.floor == 39 && self.hero == Hero::ZhugeLiang
-            && self.act_variant(4) == 0
+        if node == Node::Boss && self.floor == 39 && self.act_variant(4) == 0
         {
             return match self.jieting_plan {
                 Some(JietingPlan::WaterResolved | JietingPlan::WaterSettled) =>
@@ -475,9 +473,10 @@ impl Game {
                     Some("姜维·北伐：街亭据山导致姜维武勇+2、护甲+8，我军也获武勇+1；需预留反制牌突破封锁"),
                 Some(JietingPlan::RetreatResolved | JietingPlan::RetreatSettled) =>
                     Some("姜维·北伐：街亭撤退保留机动，入阵额外军令+1、护甲+4，但姜维护甲+6；需把军令投入对抗断粮"),
-                _ if self.has_expanded_history_rules() && self.lore_flags.iter().any(|flag| flag == "star_lantern") =>
+                _ if self.has_expanded_history_rules() && self.hero == Hero::ZhugeLiang
+                    && self.lore_flags.iter().any(|flag| flag == "star_lantern") =>
                     Some("姜维·北伐：五丈原军心旧策；首回合实际出牌至少2张并保持8护甲，守住断粮可回复至多6体力"),
-                _ => None,
+                _ => Some("姜维·北伐：守粮需护甲8/10点，失败将封锁下回合军令并混入军心涣散；守住则暴露阵线"),
             };
         }
         // The act-II alternate commander is a coalition, not a solo
@@ -517,11 +516,11 @@ impl Game {
         {
             return match self.chibi_plan {
                 Some(ChibiPlan::FireBattleResolved | ChibiPlan::FireSettled) =>
-                    Some(if self.has_expanded_history_rules() {
-                        "赤壁火攻余波：第四幕关底敌统帅开场虚弱2层；若遇陆逊焚营，实际出牌并保持12点护甲可少引燃1层火势；仍承担此前后勤债务"
+                    Some(if self.has_expanded_history_rules() && self.act_variant(3) == 0 {
+                        "赤壁火攻余波：第四幕关底敌统帅开场虚弱2层；陆逊焚营前实际出牌并保持12点护甲可少引燃1层火势；仍承担此前后勤债务"
                     } else { "赤壁火攻余波：第四幕关底敌统帅开场虚弱2层，可乘势突击；该效果不抵销此前火攻后勤债务" }),
                 Some(ChibiPlan::FleetBattleResolved | ChibiPlan::FleetSettled) =>
-                    Some(if self.has_expanded_history_rules() {
+                    Some(if self.has_expanded_history_rules() && self.act_variant(3) == 1 {
                         "赤壁稳守旧部：第四幕关底我军开场护甲+8、军令+1；吕蒙白衣渡江前实际出牌且保持12护甲，额外反击4点无视护甲伤害"
                     } else { "赤壁稳守旧部：第四幕关底我军开场护甲+8、军令+1，护阵可以反制关底致命意图" }),
                 Some(ChibiPlan::DeclineBattleResolved | ChibiPlan::DeclineSettled) =>
@@ -694,7 +693,6 @@ impl Game {
         }
         if self.stage == Stage::Combat && self.difficulty.is_some()
             && self.floor == 40 && self.last_node == Some(Node::Boss)
-            && self.hero == Hero::ZhugeLiang
             && self.battle.as_ref().is_some_and(|b|
                 b.foes.first().is_some_and(|f| f.id == "jiangwei"))
         {
@@ -707,7 +705,8 @@ impl Game {
                     "街亭撤退：军令+1、护甲+4，姜维护甲+6",
                 _ => "未有街亭下游责任",
             };
-            let lantern = if self.has_expanded_history_rules() && self.lore_flags.iter().any(|flag| flag == "star_lantern") {
+            let lantern = if self.has_expanded_history_rules() && self.hero == Hero::ZhugeLiang
+                && self.lore_flags.iter().any(|flag| flag == "star_lantern") {
                 "；五丈原旧策：首回合实际出牌至少2张并守住断粮可恢复至多6体力"
             } else { "" };
             return Some(format!("北伐史诗关底：{history}；姜维的预告断粮需护甲8/10点反制，失败将损失下一回合军令并混入军心涣散{lantern}。"));
@@ -8698,5 +8697,65 @@ mod expanded_phase_forecast_regression {
         assert_eq!(game.to_json().unwrap(), restored.to_json().unwrap());
         assert_eq!(game.battle.as_ref().unwrap().foes[0].phase, 1);
         assert!(game.phase_transition_hint(0).is_none());
+    }
+}
+
+
+#[cfg(test)]
+mod expanded_boss_preview_boundaries {
+    use super::*;
+
+    #[test]
+    fn fourth_act_forecast_only_offers_counter_available_against_selected_boss() {
+        // Controlled entry fixture; no claim of a natural cross-act journey.
+        for variant in [0, 1] {
+            for plan in [ChibiPlan::FireSettled, ChibiPlan::FleetSettled] {
+                let mut game = Game::new_with_campaign_difficulty(
+                    Hero::SunShangxiang, 7, Difficulty::Warlords, "boss-preview".into(),
+                );
+                game.apply(Action::SetExpandedVariants {
+                    act1: 0, act2: 0, act3: 0, act4: variant, act5: 0,
+                }).unwrap();
+                game.floor = 31;
+                game.chibi_plan = Some(plan);
+                let before = game.to_json().unwrap();
+                let route = game.route_objective_hint(Node::Boss).unwrap();
+                assert_eq!(game.to_json().unwrap(), before);
+                assert_eq!(route.contains("少引燃1层"), variant == 0 && plan == ChibiPlan::FireSettled);
+                assert_eq!(route.contains("额外反击4点"), variant == 1 && plan == ChibiPlan::FleetSettled);
+                game.floor = 32;
+                game.last_node = Some(Node::Boss);
+                game.start_battle(Node::Boss);
+                let before = game.to_json().unwrap();
+                let combat = game.tactical_objective().unwrap();
+                assert_eq!(game.to_json().unwrap(), before);
+                assert_eq!(combat.contains("少引燃1层"), variant == 0 && plan == ChibiPlan::FireSettled);
+                assert_eq!(combat.contains("额外反击4点"), variant == 1 && plan == ChibiPlan::FleetSettled);
+            }
+        }
+    }
+
+    #[test]
+    fn final_boss_route_and_objective_are_available_without_jieting_for_other_heroes() {
+        for variant in [0, 1] {
+            let mut game = Game::new_with_campaign_difficulty(
+                Hero::LuBu, 7, Difficulty::Warlords, "final-preview".into(),
+            );
+            game.apply(Action::SetExpandedVariants {
+                act1: 0, act2: 0, act3: 0, act4: 0, act5: variant,
+            }).unwrap();
+            game.floor = 39;
+            let raw = game.to_json().unwrap();
+            let route = game.route_objective_hint(Node::Boss).unwrap();
+            assert!(route.contains(if variant == 0 { "姜维" } else { "邓艾" }));
+            assert_eq!(game.to_json().unwrap(), raw);
+            game.floor = 40;
+            game.last_node = Some(Node::Boss);
+            game.start_battle(Node::Boss);
+            let raw = game.to_json().unwrap();
+            let objective = game.tactical_objective().unwrap();
+            assert!(objective.contains(if variant == 0 { "护甲8/10" } else { "护甲达10/12" }));
+            assert_eq!(game.to_json().unwrap(), raw);
+        }
     }
 }
