@@ -634,14 +634,14 @@ jobs:
           groups = collections.defaultdict(list)
           for row in rows:
               assert row['error'] is None and row['replay_verified'] and row['chronicle_verified']
-              assert row['terminal'] in ('Won', 'Lost')
+              assert row['terminal'] in ('won', 'lost')
               assert row['actions'] > 0
               assert row['seed'] in (247510, 247511)
               assert row['policy'] in ('first_playable', 'tactical')
               assert all(a['floor'] < b['floor'] for a, b in zip(row['floors'], row['floors'][1:]))
               end = row['final_sample']
               assert end['stage'] == row['terminal'] and 1 <= end['floor'] <= 40
-              if row['terminal'] == 'Won':
+              if row['terminal'] == 'won':
                   assert end['floor'] == 40
                   assert [floor for floor, _ in row['bosses_entered']] == [8, 16, 24, 32, 40]
               groups[row['hero'], row['difficulty']].append(row)
@@ -659,14 +659,14 @@ jobs:
               assert totals['incomplete_pairs'] == 0
               outcomes = collections.Counter()
               for seed in (247510, 247511):
-                  pair = {r['policy']: r['terminal'] == 'Won' for r in group if r['seed'] == seed}
+                  pair = {r['policy']: r['terminal'] == 'won' for r in group if r['seed'] == seed}
                   outcomes[('both_won' if pair['tactical'] else 'first_only_won') if pair['first_playable'] else ('tactical_only_won' if pair['tactical'] else 'both_lost')] += 1
               for field in ('both_won', 'first_only_won', 'tactical_only_won', 'both_lost'):
                   assert totals[field] == outcomes[field]
               for policy in ('first_playable', 'tactical'):
                   cohort = [r for r in group if r['policy'] == policy]
                   t = totals[policy]
-                  wins = sum(r['terminal'] == 'Won' for r in cohort)
+                  wins = sum(r['terminal'] == 'won' for r in cohort)
                   assert t['observed'] == 2 and t['wins'] == wins and t['losses'] == 2 - wins and t['incomplete'] == 0
                   for field, sample in [('terminal_floor_sum', 'floor'), ('terminal_gold_sum', 'gold'), ('terminal_deck_size_sum', 'cards'), ('terminal_relic_count_sum', 'relics'), ('terminal_turns_sum', 'turns_completed')]:
                       assert t[field] == sum(r['final_sample'][sample] for r in cohort)
