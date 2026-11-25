@@ -242,15 +242,15 @@ pub struct HistoricalDecision {
     pub kind: String,
 }
 
+const TACTICAL_LORE_FLAGS: &[&str] = &[
+    "taoyuan_oath", "huarong_mercy", "longzhong_plan", "sun_father_dispatch",
+    "jiangdong_covenant", "river_divide", "xu_capital", "sevenstar_vow",
+    "guandu_grain", "red_hare", "phoenix_pavilion", "halberd_shot",
+    "mist_arrows", "empty_city", "jingzhou_warning", "fancheng_flood_record", "star_lantern",
+];
+
 fn tactical_lore_kind(flag: &str) -> Option<&'static str> {
-    match flag {
-        "mist_arrows" => Some("mist_arrows"),
-        "empty_city" => Some("empty_city"),
-        "jingzhou_warning" => Some("jingzhou_warning"),
-        "fancheng_flood_record" => Some("fancheng_flood_record"),
-        "star_lantern" => Some("star_lantern"),
-        _ => None,
-    }
+    TACTICAL_LORE_FLAGS.iter().copied().find(|&known| known == flag)
 }
 
 pub fn historical_decisions(events: &[CampaignEvent]) -> Result<Vec<HistoricalDecision>, String> {
@@ -512,6 +512,18 @@ fn historical_effect_site(source: &str) -> Option<(&'static str, &'static str)> 
         "fancheng_flood_counter" | "fancheng_flood_exposure" =>
             Some(("fancheng_flood_record", "fancheng_flood")),
         "wuzhang_morale_recovered" => Some(("star_lantern", "northern_expedition")),
+        "taoyuan_oath_wall" => Some(("taoyuan_oath", "first_act_boss")),
+        "longzhong_plan_foresight" => Some(("longzhong_plan", "first_act_boss")),
+        "sun_father_vanguard_echo" => Some(("sun_father_dispatch", "first_act_boss")),
+        "xu_capital_court_command" => Some(("xu_capital", "first_act_boss")),
+        "red_hare_charge_impact" => Some(("red_hare", "first_act_boss")),
+        "huarong_mercy_release" => Some(("huarong_mercy", "second_act_boss")),
+        "sevenstar_assassination_strike" => Some(("sevenstar_vow", "second_act_boss")),
+        "guandu_grain_reserve_receipt" => Some(("guandu_grain", "second_act_boss")),
+        "phoenix_pavilion_intrigue" => Some(("phoenix_pavilion", "second_act_boss")),
+        "jiangdong_covenant_volleys" => Some(("jiangdong_covenant", "third_act_crossing")),
+        "halberd_shot_deterrence" => Some(("halberd_shot", "late_act_boss")),
+        "river_divide_interception" => Some(("river_divide", "fourth_act_boss")),
         _ => None,
     }
 }
@@ -679,64 +691,117 @@ impl Game {
             if decision.kind == "jieting" && !jieting_map_effect_floors(history, decision.revision)?.is_empty() {
                 continue;
             }
-            let (category, reason) = match decision.kind.as_str() {
-                "empty_city" => {
-                    if self.floor >= 24 && self.act_variant(2) != 0 {
-                        ("alternate_boss_branch", "第三幕选用替代关底左慈，未对阵司马懿")
-                    } else if self.floor < 24 {
-                        ("target_not_reached", "尚未推进至第24层司马懿关底")
-                    } else {
-                        ("counter_condition_unmet", "对阵司马懿时未满足出牌1–2张且保持10护甲条件")
+            let window_max = match decision.kind.as_str() {
+                "taoyuan_oath" | "longzhong_plan" | "sun_father_dispatch" | "xu_capital" | "red_hare" => Some(8),
+                "huarong_mercy" | "sevenstar_vow" | "guandu_grain" | "phoenix_pavilion" => Some(16),
+                "mist_arrows" => Some(19),
+                "empty_city" | "jiangdong_covenant" => Some(24),
+                "fancheng_flood_record" => Some(27),
+                "jingzhou_warning" | "halberd_shot" | "river_divide" => Some(32),
+                "star_lantern" => Some(40),
+                _ => None,
+            };
+            let (category, reason) = if window_max.is_some_and(|max_f| decision.floor > max_f) {
+                ("target_not_reached", "获得该史事时对应战场窗口已过")
+            } else {
+                match decision.kind.as_str() {
+                    "empty_city" => {
+                        if self.floor >= 24 && self.act_variant(2) != 0 {
+                            ("alternate_boss_branch", "第三幕选用替代关底左慈，未对阵司马懿")
+                        } else if self.floor < 24 {
+                            ("target_not_reached", "尚未推进至第24层司马懿关底")
+                        } else {
+                            ("counter_condition_unmet", "对阵司马懿时未满足出牌1–2张且保持10护甲条件")
+                        }
                     }
-                }
-                "mist_arrows" => {
-                    if self.floor < 19 {
-                        ("target_not_reached", "尚未推进至第19层水陆阵战")
-                    } else if !visited_battles.contains(&19) {
-                        ("route_avoided_site", "行军路线未进入第19层水陆阵战节点")
-                    } else {
-                        ("counter_condition_unmet", "第19层水陆阵战偶数回合未满足出牌且至少4点掩护条件")
+                    "mist_arrows" => {
+                        if self.floor < 19 {
+                            ("target_not_reached", "尚未推进至第19层水陆阵战")
+                        } else if !visited_battles.contains(&19) {
+                            ("route_avoided_site", "行军路线未进入第19层水陆阵战节点")
+                        } else {
+                            ("counter_condition_unmet", "第19层水陆阵战偶数回合未满足出牌且至少4点掩护条件")
+                        }
                     }
-                }
-                "fancheng_flood_record" => {
-                    if self.floor < 27 {
-                        ("target_not_reached", "尚未推进至第27层樊城水势战场")
-                    } else if !visited_battles.contains(&27) {
-                        ("route_avoided_site", "行军路线未进入第27层樊城野战节点")
-                    } else {
-                        ("counter_condition_unmet", "第27层偶数回合未触发或未满足8护甲水势反制条件")
+                    "fancheng_flood_record" => {
+                        if self.floor < 27 {
+                            ("target_not_reached", "尚未推进至第27层樊城水势战场")
+                        } else if !visited_battles.contains(&27) {
+                            ("route_avoided_site", "行军路线未进入第27层樊城野战节点")
+                        } else {
+                            ("counter_condition_unmet", "第27层偶数回合未触发或未满足8护甲水势反制条件")
+                        }
                     }
-                }
-                "jingzhou_warning" => {
-                    if self.floor >= 32 && self.act_variant(3) != 1 {
-                        ("alternate_boss_branch", "第四幕选用替代关底陆逊，未对阵吕蒙")
-                    } else if self.floor < 32 {
-                        ("target_not_reached", "尚未推进至第32层吕蒙关底")
-                    } else {
-                        ("counter_condition_unmet", "对阵吕蒙时未满足出牌且至少8护甲条件")
+                    "jingzhou_warning" => {
+                        if self.floor >= 32 && self.act_variant(3) != 1 {
+                            ("alternate_boss_branch", "第四幕选用替代关底陆逊，未对阵吕蒙")
+                        } else if self.floor < 32 {
+                            ("target_not_reached", "尚未推进至第32层吕蒙关底")
+                        } else {
+                            ("counter_condition_unmet", "对阵吕蒙时未满足出牌且至少8护甲条件")
+                        }
                     }
-                }
-                "star_lantern" => {
-                    if self.floor >= 40 && self.act_variant(4) != 0 {
-                        ("alternate_boss_branch", "第五幕选用替代关底邓艾，未对阵姜维")
-                    } else if self.floor < 40 {
-                        ("target_not_reached", "尚未推进至第40层姜维关底")
-                    } else {
-                        ("counter_condition_unmet", "对阵姜维首回合未满足出牌至少2张并守住断粮")
+                    "star_lantern" => {
+                        if self.floor >= 40 && self.act_variant(4) != 0 {
+                            ("alternate_boss_branch", "第五幕选用替代关底邓艾，未对阵姜维")
+                        } else if self.floor < 40 {
+                            ("target_not_reached", "尚未推进至第40层姜维关底")
+                        } else {
+                            ("counter_condition_unmet", "对阵姜维首回合未满足出牌至少2张并守住断粮")
+                        }
                     }
-                }
-                kind => {
-                    let min_site_floor = match kind {
-                        "wuchao" => 16,
-                        "chibi" => 19,
-                        "jieting" => 26,
-                        "xiapi" | "xiangfan" => decision.floor.saturating_add(1),
-                        _ => decision.floor.saturating_add(1),
-                    };
-                    if self.floor < min_site_floor {
-                        ("target_not_reached", "作出军议后尚未推进至对应的兑现战场或关底")
-                    } else {
-                        ("counter_condition_unmet", "已到达军议生效窗口但未触发已核验的正面兑现事件")
+                    "taoyuan_oath" | "longzhong_plan" | "sun_father_dispatch"
+                    | "xu_capital" | "red_hare" => {
+                        if self.floor < 8 {
+                            ("target_not_reached", "尚未推进至第8层第一幕关底")
+                        } else {
+                            ("counter_condition_unmet", "第一幕关底首回合未满足相应出牌或护甲条件")
+                        }
+                    }
+                    "huarong_mercy" | "sevenstar_vow" | "guandu_grain"
+                    | "phoenix_pavilion" => {
+                        if self.floor < 16 {
+                            ("target_not_reached", "尚未推进至第16层第二幕关底")
+                        } else {
+                            ("counter_condition_unmet", "第二幕关底首回合未满足相应出牌或护甲条件")
+                        }
+                    }
+                    "jiangdong_covenant" => {
+                        if self.floor < 19 {
+                            ("target_not_reached", "尚未推进至第19层水陆阵战或第24层关底")
+                        } else if self.floor < 24 {
+                            ("target_not_reached", "尚未推进至第24层第三幕关底")
+                        } else {
+                            ("counter_condition_unmet", "第19层/第24层首回合未满足出牌且保持6护甲或4掩护条件")
+                        }
+                    }
+                    "halberd_shot" => {
+                        if self.floor < 24 {
+                            ("target_not_reached", "尚未推进至第24层或第32层关底")
+                        } else {
+                            ("counter_condition_unmet", "第24层或第32层关底首回合未满足出牌或6怒气条件")
+                        }
+                    }
+                    "river_divide" => {
+                        if self.floor < 32 {
+                            ("target_not_reached", "尚未推进至第32层第四幕关底")
+                        } else {
+                            ("counter_condition_unmet", "第32层关底首回合未满足出牌2张且保持8护甲条件")
+                        }
+                    }
+                    kind => {
+                        let min_site_floor = match kind {
+                            "wuchao" => 16,
+                            "chibi" => 19,
+                            "jieting" => 26,
+                            "xiapi" | "xiangfan" => decision.floor.saturating_add(1),
+                            _ => decision.floor.saturating_add(1),
+                        };
+                        if self.floor < min_site_floor {
+                            ("target_not_reached", "作出军议后尚未推进至对应的兑现战场或关底")
+                        } else {
+                            ("counter_condition_unmet", "已到达军议生效窗口但未触发已核验的正面兑现事件")
+                        }
                     }
                 }
             };
@@ -1219,6 +1284,7 @@ mod untriggered_density_reason_tests {
             HistoricalDecision { id: "d1".into(), revision: 2, floor: 17, kind: "empty_city".into() },
             HistoricalDecision { id: "d2".into(), revision: 3, floor: 33, kind: "star_lantern".into() },
             HistoricalDecision { id: "d3".into(), revision: 4, floor: 10, kind: "mist_arrows".into() },
+            HistoricalDecision { id: "d4".into(), revision: 5, floor: 25, kind: "taoyuan_oath".into() },
         ];
         let reasons = branch_game.collect_untriggered_reasons(&decisions, &[], &[]).unwrap();
         assert!(reasons.iter().any(|r| r.key == "council:chibi" && r.category == "missed_council"));
@@ -1226,6 +1292,7 @@ mod untriggered_density_reason_tests {
         assert!(reasons.iter().any(|r| r.key == "decision:empty_city" && r.category == "alternate_boss_branch"));
         assert!(reasons.iter().any(|r| r.key == "decision:star_lantern" && r.category == "alternate_boss_branch"));
         assert!(reasons.iter().any(|r| r.key == "decision:mist_arrows" && r.category == "route_avoided_site"));
+        assert!(reasons.iter().any(|r| r.key == "decision:taoyuan_oath" && r.category == "target_not_reached"));
 
         // When history visited floor-19 Battle, mist_arrows explains counter_condition_unmet.
         let mut s0 = CampaignState::current(&branch_game);

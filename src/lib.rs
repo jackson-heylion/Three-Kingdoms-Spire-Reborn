@@ -439,6 +439,22 @@ pub enum Action {
     UnregisterReaction { id: String },
 }
 
+struct ExpandedEchoRule {
+    flag: &'static str,
+    source: &'static str,
+    hero: Hero,
+    floors: &'static [u8],
+    node: Node,
+    active: bool,
+    weak: i32,
+    vuln: i32,
+    pierce: i32,
+    cover_gain: u8,
+    route_note: &'static str,
+    combat_note: &'static str,
+    trigger_msg: &'static str,
+}
+
 impl Game {
     pub(crate) fn has_expanded_history_rules(&self) -> bool {
         self.difficulty.is_some() && self.expanded_rules_revision == EXPANDED_RULES_REVISION
@@ -507,6 +523,243 @@ impl Game {
         }
     }
 
+    /// Unopened historical council available within the current expanded act.
+    pub fn uncommitted_council_hint(&self) -> Option<&'static str> {
+        let target_floor = self.floor + u8::from(self.stage == Stage::Map);
+        if self.difficulty.is_none() || self.stage == Stage::Won || self.stage == Stage::Lost {
+            return None;
+        }
+        match self.hero {
+            Hero::CaoCao if (9..=15).contains(&target_floor) && self.wuchao_plan.is_none() =>
+                Some("驿道军议待启：可于本幕驿道召开乌巢战术军议，影响第16层关底与第19层水陆战"),
+            Hero::ZhugeLiang if (17..=23).contains(&target_floor) && self.chibi_plan.is_none() =>
+                Some("驿道军议待启：可于本幕驿道议定赤壁东风与水军部署，影响第19层与第32层"),
+            Hero::ZhugeLiang if (25..=30).contains(&target_floor) && self.jieting_plan.is_none() =>
+                Some("驿道军议待启：可于本幕驿道召开街亭供水与退路军议，影响第四/五幕战场"),
+            Hero::SunShangxiang if (17..=23).contains(&target_floor) && self.chibi_plan.is_none() =>
+                Some("驿道军议待启：可于本幕驿道议定赤壁东风与水军部署，影响第19层与第32层"),
+            Hero::LuBu if self.has_expanded_history_rules() && (17..=31).contains(&target_floor)
+                && self.xiapi_plan.is_none() =>
+                Some("驿道军议待启：可于驿道召开下邳破围军议，提供下战及关底余波"),
+            Hero::GuanYu if self.has_expanded_history_rules() && (25..=31).contains(&target_floor)
+                && self.xiangfan_plan.is_none() =>
+                Some("驿道军议待启：可于驿道议定襄樊水防军议，影响第四幕战局"),
+            _ => None,
+        }
+    }
+
+    /// True when the active Story scene can directly open an expanded tactical council.
+    pub fn can_open_expanded_council(&self) -> bool {
+        self.can_open_wuchao_council()
+            || self.can_open_chibi_council()
+            || self.can_open_jieting_council()
+            || self.can_open_xiapi_council()
+            || self.can_open_xiangfan_council()
+    }
+
+    fn hero_echo_rules(&self, played: u8, block: i32, fury: i32, cover: u8) -> Vec<ExpandedEchoRule> {
+        vec![
+            ExpandedEchoRule {
+                flag: "taoyuan_oath", source: "taoyuan_oath_wall",
+                hero: Hero::GuanYu, floors: &[8], node: Node::Boss,
+                active: played >= 2 && block >= 6,
+                weak: 0, vuln: 0, pierce: 4, cover_gain: 0,
+                route_note: "史事回响·桃园旧誓：首回合实打2牌并守6甲，回合末穿透敌将4点",
+                combat_note: "史事回响·桃园旧誓：首回合实打2牌且保持6护甲，回合末穿透4点",
+                trigger_msg: "桃园旧誓：连贯布防反击，穿透敌将4点",
+            },
+            ExpandedEchoRule {
+                flag: "longzhong_plan", source: "longzhong_plan_foresight",
+                hero: Hero::ZhugeLiang, floors: &[8], node: Node::Boss,
+                active: played >= 2 && block >= 6,
+                weak: 0, vuln: 2, pierce: 4, cover_gain: 0,
+                route_note: "史事回响·隆中对策：首回合实打2牌并守6甲，令敌易伤2层并穿透4点",
+                combat_note: "史事回响·隆中对策：首回合实打2牌且保持6护甲，令敌易伤2层并穿透4点",
+                trigger_msg: "隆中对策：先算制敌，令其易伤2层并穿透4点",
+            },
+            ExpandedEchoRule {
+                flag: "sun_father_dispatch", source: "sun_father_vanguard_echo",
+                hero: Hero::SunShangxiang, floors: &[8], node: Node::Boss,
+                active: played >= 2 && block >= 6,
+                weak: 0, vuln: 0, pierce: 4, cover_gain: 0,
+                route_note: "史事回响·江东遣将：首回合实打2牌并守6甲，穿透敌将4点",
+                combat_note: "史事回响·江东遣将：首回合实打2牌且保持6护甲，穿透敌将4点",
+                trigger_msg: "江东遣将：连贯布阵反击，穿透敌将4点",
+            },
+            ExpandedEchoRule {
+                flag: "xu_capital", source: "xu_capital_court_command",
+                hero: Hero::CaoCao, floors: &[8], node: Node::Boss,
+                active: played >= 2 && block >= 6,
+                weak: 2, vuln: 0, pierce: 4, cover_gain: 0,
+                route_note: "史事回响·许都号令：首回合实打2牌并守6甲，令敌虚弱2层并穿透4点",
+                combat_note: "史事回响·许都号令：首回合实打2牌且保持6护甲，令敌虚弱2层并穿透4点",
+                trigger_msg: "许都号令：先声夺人，令其虚弱2层并穿透4点",
+            },
+            ExpandedEchoRule {
+                flag: "red_hare", source: "red_hare_charge_impact",
+                hero: Hero::LuBu, floors: &[8], node: Node::Boss,
+                active: played >= 2,
+                weak: 0, vuln: 0, pierce: 4, cover_gain: 0,
+                route_note: "史事回响·赤兔飞将：首回合实打2牌，回合末穿透敌将4点",
+                combat_note: "史事回响·赤兔飞将：首回合实打2牌，回合末穿透敌将4点",
+                trigger_msg: "赤兔飞将：连携冲阵，穿透敌将4点",
+            },
+            ExpandedEchoRule {
+                flag: "sevenstar_vow", source: "sevenstar_assassination_strike",
+                hero: Hero::CaoCao, floors: &[16], node: Node::Boss,
+                active: played >= 2,
+                weak: 0, vuln: 0, pierce: 5, cover_gain: 0,
+                route_note: "史事回响·七星宝刀：首回合实打2牌，可穿透敌首领5点",
+                combat_note: "史事回响·七星宝刀：首回合实打2牌，回合末穿透敌首领5点",
+                trigger_msg: "七星宝刀：首回合伺机突刺敌首领5点",
+            },
+            ExpandedEchoRule {
+                flag: "guandu_grain", source: "guandu_grain_reserve_receipt",
+                hero: Hero::CaoCao, floors: &[16], node: Node::Boss,
+                active: played >= 2,
+                weak: 2, vuln: 0, pierce: 4, cover_gain: 0,
+                route_note: "史事回响·官渡筹粮：首回合实打2牌，令敌首领虚弱2层并穿透4点",
+                combat_note: "史事回响·官渡筹粮：首回合实打2牌，令敌首领虚弱2层并穿透4点",
+                trigger_msg: "官渡筹粮：削弱敌首领2层并穿透4点",
+            },
+            ExpandedEchoRule {
+                flag: "huarong_mercy", source: "huarong_mercy_release",
+                hero: Hero::GuanYu, floors: &[16], node: Node::Boss,
+                active: played >= 2 && block >= 8,
+                weak: 2, vuln: 0, pierce: 4, cover_gain: 0,
+                route_note: "史事回响·华容旧义：首回合实打2牌并守8甲，令敌首领虚弱2层并穿透4点",
+                combat_note: "史事回响·华容旧义：首回合实打2牌且保持8护甲，令敌虚弱2层并穿透4点",
+                trigger_msg: "华容旧义：稳守8甲慑敌，虚弱2层并穿透4点",
+            },
+            ExpandedEchoRule {
+                flag: "phoenix_pavilion", source: "phoenix_pavilion_intrigue",
+                hero: Hero::LuBu, floors: &[16], node: Node::Boss,
+                active: played >= 2,
+                weak: 2, vuln: 0, pierce: 0, cover_gain: 0,
+                route_note: "史事回响·凤仪旧隙：首回合实打2牌，令敌首领虚弱2层",
+                combat_note: "史事回响·凤仪旧隙：首回合实打2牌，令敌首领虚弱2层",
+                trigger_msg: "凤仪旧隙：动摇敌首领军心，令其虚弱2层",
+            },
+            ExpandedEchoRule {
+                flag: "jiangdong_covenant", source: "jiangdong_covenant_volleys",
+                hero: Hero::SunShangxiang, floors: &[19], node: Node::Battle,
+                active: played >= 2 && (block >= 6 || cover >= 4),
+                weak: 0, vuln: 0, pierce: 5, cover_gain: 2,
+                route_note: "史事回响·江东盟约：首回合实打2牌且守6甲或4掩护，穿透前锋5点并额外稳固2掩护",
+                combat_note: "史事回响·江东盟约：首回合实打2牌且守6甲或4掩护，穿透前锋5点并稳固2掩护",
+                trigger_msg: "江东盟约：矢石齐发，穿透前锋5点并稳固2点掩护",
+            },
+            ExpandedEchoRule {
+                flag: "jiangdong_covenant", source: "jiangdong_covenant_volleys",
+                hero: Hero::SunShangxiang, floors: &[24], node: Node::Boss,
+                active: played >= 2 && block >= 6,
+                weak: 0, vuln: 0, pierce: 5, cover_gain: 0,
+                route_note: "史事回响·江东盟约：首回合实打2牌并守6甲，穿透关底5点",
+                combat_note: "史事回响·江东盟约：首回合实打2牌且保持6护甲，穿透关底5点",
+                trigger_msg: "江东盟约：矢石齐发，穿透关底5点",
+            },
+            ExpandedEchoRule {
+                flag: "halberd_shot", source: "halberd_shot_deterrence",
+                hero: Hero::LuBu, floors: &[24, 32], node: Node::Boss,
+                active: played >= 1 && (played >= 2 || fury >= 6),
+                weak: 0, vuln: 0, pierce: 6, cover_gain: 0,
+                route_note: "史事回响·辕门射戟：首回合实打2牌（或实打1牌且6怒气），穿透首领6点",
+                combat_note: "史事回响·辕门射戟：首回合实打2牌（或实打1牌且6怒气），穿透首领6点",
+                trigger_msg: "辕门射戟：威慑强攻，穿透首领6点",
+            },
+            ExpandedEchoRule {
+                flag: "river_divide", source: "river_divide_interception",
+                hero: Hero::SunShangxiang, floors: &[32], node: Node::Boss,
+                active: played >= 2 && block >= 8,
+                weak: 2, vuln: 0, pierce: 5, cover_gain: 0,
+                route_note: "史事回响·江淮分水：首回合实打2牌并守8甲，令关底虚弱2层并穿透5点",
+                combat_note: "史事回响·江淮分水：首回合实打2牌且保持8护甲，令关底虚弱2层并穿透5点",
+                trigger_msg: "江淮分水：守备8甲反制关底，虚弱2层并穿透5点",
+            },
+        ]
+    }
+
+    fn hero_echo_route_notes(&self, node: Node) -> Vec<&'static str> {
+        if !self.has_expanded_history_rules() || self.stage != Stage::Map {
+            return Vec::new();
+        }
+        let next_floor = self.floor.saturating_add(1);
+        self.hero_echo_rules(0, 0, 0, 0)
+            .into_iter()
+            .filter(|rule| rule.hero == self.hero
+                && rule.node == node
+                && rule.floors.contains(&next_floor)
+                && self.lore_flags.iter().any(|entry| entry == rule.flag))
+            .map(|rule| rule.route_note)
+            .collect()
+    }
+
+    /// Read-only structured diagnosis of why a campaign ended in defeat.
+    pub fn defeat_diagnosis(&self) -> Option<String> {
+        if self.stage != Stage::Lost {
+            return None;
+        }
+        let mode_label = self.difficulty.map_or("旧制", Difficulty::name);
+        let floor = self.floor.max(1);
+        let mut last_encounter = Vec::new();
+        if let Some(history) = self.event_history.as_deref() {
+            let final_enc = history.last().map(|r| r.encounter);
+            for record in history {
+                if Some(record.encounter) == final_enc {
+                    last_encounter.push(&record.event);
+                }
+            }
+        }
+        let last_was_defeat = last_encounter.iter()
+            .any(|e| e.kind == EventKind::BattleEnded && e.source == "defeat");
+        let cause = if self.hp > 0 {
+            if last_encounter.iter().any(|e| e.source == "breakout_timeout") {
+                format!("第{floor}层突围超时：第4回合末未击退围军，亦未以3牌+12护甲结阵脱围")
+            } else if last_encounter.iter().any(|e| e.source == "water_raided") {
+                format!("第{floor}层街亭水源失守：水源耐久被敌军劫尽")
+            } else if last_encounter.iter().any(|e| e.source == "naval_hull_raided") {
+                format!("第{floor}层水陆阵战失利：战船耐久耗尽覆没")
+            } else if last_encounter.iter().any(|e| e.source == "convoy_raided") {
+                format!("第{floor}层粮道失守：粮车耐久被劫尽")
+            } else if self.difficulty.is_some() && self.floor == 4 && self.last_node == Some(Node::Battle) {
+                "第4层攻城超时：第5回合仍未能破除城门".to_string()
+            } else {
+                format!("第{floor}层特殊战局目标失败")
+            }
+        } else if self.last_node == Some(Node::Story) {
+            format!("第{floor}层驿道抉择消耗体力至归零")
+        } else {
+            let fatal_hit = if last_was_defeat {
+                last_encounter.iter().rev()
+                    .find(|e| e.kind == EventKind::DamageReceived && e.amount > 0)
+            } else {
+                None
+            };
+            match fatal_hit {
+                Some(hit) if hit.source == "supply_exhaustion" =>
+                    format!("第{floor}层持久战粮尽（第40+回合耗损{}点体力）", hit.amount),
+                Some(hit) if hit.source == "burning_camp" =>
+                    format!("第{floor}层焚营火势灼烧致死（{}点）", hit.amount),
+                Some(hit) if hit.source == "fancheng_flood_exposure" =>
+                    format!("第{floor}层樊城水势未足8护甲抵御（{}点）", hit.amount),
+                Some(hit) if hit.source.starts_with("foe:") =>
+                    format!("第{floor}层遭敌军致命打击{}点", hit.amount),
+                _ => format!("第{floor}层战役体力归零"),
+            }
+        };
+        Some(format!(
+            "【{}·{}】{}｜终局：第{}层｜残余{}金 · 药{} · {}牌 · 史事{}则",
+            self.hero.name(),
+            mode_label,
+            cause,
+            floor,
+            self.gold,
+            self.potions,
+            self.deck.len(),
+            self.lore_seen.len()
+        ))
+    }
+
     /// Visible objective for the first new-tier encounter. Derived entirely
     /// from committed campaign/battle state, so saves and replay need no new schema.
     /// Read-only convoy warning before committing to a route.
@@ -530,6 +783,7 @@ impl Game {
             }
             parts.push("邓艾·阴平：偷渡可用合法出牌3/4张或实际护甲10/12（街亭开场免费护甲不计入10/12门槛）反制；未截击将掠夺军资，第二阶段首次失守召援");
             if let Some(xiapi) = self.xiapi_route_hint(node) { parts.push(xiapi); }
+            parts.extend(self.hero_echo_route_notes(node));
             return Some(parts.join("\n"));
         }
         if node == Node::Boss && self.floor == 39 && self.act_variant(4) == 0 {
@@ -549,6 +803,7 @@ impl Game {
             }
             parts.push("姜维·北伐：守粮需护甲8/10点，失败将封锁下回合军令并混入军心涣散；守住则暴露阵线");
             if let Some(xiapi) = self.xiapi_route_hint(node) { parts.push(xiapi); }
+            parts.extend(self.hero_echo_route_notes(node));
             return Some(parts.join("\n"));
         }
         if node == Node::Boss && self.floor == 23 {
@@ -558,6 +813,7 @@ impl Game {
                 parts.push("司马懿关底：空城旧策可反制暗度陈仓；回合内实际出牌1–2张并保持10护甲，可抵消军令封锁与诅咒");
             }
             if let Some(xiapi) = self.xiapi_route_hint(node) { parts.push(xiapi); }
+            parts.extend(self.hero_echo_route_notes(node));
             return (!parts.is_empty()).then(|| parts.join("\n"));
         }
         if node == Node::Boss && self.floor == 31 {
@@ -597,29 +853,40 @@ impl Game {
             }
             if let Some(xiangfan) = self.xiangfan_route_hint(node) { parts.push(xiangfan); }
             if let Some(xiapi) = self.xiapi_route_hint(node) { parts.push(xiapi); }
+            parts.extend(self.hero_echo_route_notes(node));
             return (!parts.is_empty()).then(|| parts.join("\n"));
         }
         // The act-II alternate commander is a coalition, not a solo
         // armor sponge. A visible officer can shield Yuan Shao and restrict
         // next-turn command, but can be eliminated by actual player attacks.
         if node == Node::Boss && self.floor == 15 && self.act_variant(1) == 1 {
-            return Some(match self.wuchao_plan {
+            parts.push(match self.wuchao_plan {
                 Some(WuchaoPlan::RaidPending) => "官渡关底：袁绍亲卫军官护阵；乌巢夜袭将削弱亲卫并损其体力，优先击败军官可断援、破统帅护阵及下回合军令封锁",
                 Some(WuchaoPlan::FortifyPending) => "官渡关底：袁绍亲卫军官护阵；乌巢守粮令我军进场获得10点护甲，击败亲卫可断援和军令封锁",
                 Some(WuchaoPlan::DeclinePending) => "官渡关底：袁绍亲卫军官护阵；未干预乌巢会强化敌方军官武勇与护甲，击败亲卫可断援和军令封锁",
                 _ => "官渡关底：袁绍携亲卫军官护阵并可压制下回合军令；先击败军官能削弱统帅并断绝第二阶段援军",
-            }.into());
+            });
+            parts.extend(self.hero_echo_route_notes(node));
+            return Some(parts.join("\n"));
         }
         // The other act-II commander must not discard the optional Wuchao decision.
         if self.has_expanded_history_rules() && node == Node::Boss && self.floor == 15 && self.hero == Hero::CaoCao
             && self.act_variant(1) == 0
         {
-            return match self.wuchao_plan {
-                Some(WuchaoPlan::RaidPending) => Some("董卓关底：乌巢夜袭破坏敌方补给，董卓入阵损失8体力并虚弱2层；第三幕夜袭效果仍保留".into()),
-                Some(WuchaoPlan::FortifyPending) => Some("董卓关底：乌巢固守粮道，我军开场获得10护甲；暴政造成伤害前实际出牌且保持至少12护甲，掠金至多减半".into()),
-                Some(WuchaoPlan::DeclinePending) => Some("董卓关底：未干预粮道，董卓入阵武勇+2、护甲+8；第三幕失机后果仍保留".into()),
-                _ => None,
-            };
+            match self.wuchao_plan {
+                Some(WuchaoPlan::RaidPending) => parts.push("董卓关底：乌巢夜袭破坏敌方补给，董卓入阵损失8体力并虚弱2层；第三幕夜袭效果仍保留"),
+                Some(WuchaoPlan::FortifyPending) => parts.push("董卓关底：乌巢固守粮道，我军开场获得10护甲；暴政造成伤害前实际出牌且保持至少12护甲，掠金至多减半"),
+                Some(WuchaoPlan::DeclinePending) => parts.push("董卓关底：未干预粮道，董卓入阵武勇+2、护甲+8；第三幕失机后果仍保留"),
+                _ => {}
+            }
+            parts.extend(self.hero_echo_route_notes(node));
+            return (!parts.is_empty()).then(|| parts.join("\n"));
+        }
+        if node == Node::Boss && self.floor == 15 {
+            parts.extend(self.hero_echo_route_notes(node));
+            if !parts.is_empty() {
+                return Some(parts.join("\n"));
+            }
         }
         // A pending Jieting plan must have the same water objective when
         // the first encounter is an elite instead of a regular battle.
@@ -634,6 +901,11 @@ impl Game {
             }
         }
         if node != Node::Battle {
+            if node == Node::Story
+                && let Some(council) = self.uncommitted_council_hint()
+            {
+                parts.push(council);
+            }
             if self.has_expanded_history_rules() && self.hero == Hero::ZhugeLiang
                 && (25..=30).contains(&self.floor)
                 && matches!(node, Node::Camp | Node::Market | Node::Story)
@@ -644,6 +916,7 @@ impl Game {
             }
             if let Some(xiangfan) = self.xiangfan_route_hint(node) { parts.push(xiangfan); }
             if let Some(xiapi) = self.xiapi_route_hint(node) { parts.push(xiapi); }
+            parts.extend(self.hero_echo_route_notes(node));
             return (!parts.is_empty()).then(|| parts.join("\n"));
         }
         // The optional act-II Wuchao bargain is paid again in the act-III
@@ -683,6 +956,7 @@ impl Game {
             }
             parts.push("水陆阵战：下一层护送12点耐久的战船；敌军回合末劫船，偶数回合逆流随难度加压2/4/6点。出防御牌可掩护4点，主动攻击造成实际伤害可掩护2点；亲自击败敌人可抢修2点船身。歼敌胜利，或坚守至第4回合劫船结算后战船仍有至少6点耐久且本回合建立有效掩护，即可完成护航");
             if let Some(xiapi) = self.xiapi_route_hint(node) { parts.push(xiapi); }
+            parts.extend(self.hero_echo_route_notes(node));
             return Some(parts.join("\n"));
         }
         if self.has_expanded_history_rules() && self.floor == 26 && self.hero == Hero::GuanYu
@@ -710,6 +984,7 @@ impl Game {
         }
         if let Some(xiangfan) = self.xiangfan_route_hint(node) { parts.push(xiangfan); }
         if let Some(xiapi) = self.xiapi_route_hint(node) { parts.push(xiapi); }
+        parts.extend(self.hero_echo_route_notes(node));
         (!parts.is_empty()).then(|| parts.join("\n"))
     }
 
@@ -785,7 +1060,10 @@ impl Game {
 
     pub fn tactical_objective(&self) -> Option<String> {
         let mut out = self.tactical_objective_core();
-        for note in [self.xiangfan_combat_note(), self.xiapi_combat_note()].into_iter().flatten() {
+        let mut notes: Vec<&str> = [self.xiangfan_combat_note(), self.xiapi_combat_note()]
+            .into_iter().flatten().collect();
+        notes.extend(self.hero_echo_combat_notes());
+        for note in notes {
             match &mut out {
                 Some(existing) if !existing.contains(note) => {
                     existing.push('\n');
@@ -796,6 +1074,25 @@ impl Game {
             }
         }
         out
+    }
+
+    fn hero_echo_combat_notes(&self) -> Vec<&'static str> {
+        if self.stage != Stage::Combat || !self.has_expanded_history_rules() {
+            return Vec::new();
+        }
+        let Some(b) = self.battle.as_ref() else { return Vec::new(); };
+        if b.turn != 1 {
+            return Vec::new();
+        }
+        let Some(node) = self.last_node else { return Vec::new(); };
+        self.hero_echo_rules(0, 0, 0, 0)
+            .into_iter()
+            .filter(|rule| rule.hero == self.hero
+                && rule.node == node
+                && rule.floors.contains(&self.floor)
+                && self.lore_flags.iter().any(|entry| entry == rule.flag))
+            .map(|rule| rule.combat_note)
+            .collect()
     }
 
     fn tactical_objective_core(&self) -> Option<String> {
@@ -4212,6 +4509,56 @@ impl Game {
         }
         messages
     }
+    fn apply_expanded_historical_echo(&mut self) -> Vec<String> {
+        if !self.has_expanded_history_rules() {
+            return Vec::new();
+        }
+        let Some((turn, played, block, fury, cover)) = self.battle.as_ref().map(|b| {
+            (b.turn, b.played_this_turn, b.block, b.fury, b.convoy_cover.unwrap_or(0))
+        }) else {
+            return Vec::new();
+        };
+        if turn != 1 {
+            return Vec::new();
+        }
+        let Some(current_node) = self.last_node else {
+            return Vec::new();
+        };
+        let rules = self.hero_echo_rules(played, block, fury, cover);
+        let mut messages = Vec::new();
+        for spec in rules {
+            if spec.hero != self.hero
+                || spec.node != current_node
+                || !spec.floors.contains(&self.floor)
+                || !spec.active
+                || !self.lore_flags.iter().any(|entry| entry == spec.flag)
+            {
+                continue;
+            }
+            let already_fired = self.battle.as_ref().is_some_and(|b|
+                b.events.iter().any(|event| event.source == spec.source));
+            let Some(idx) = self.battle.as_ref().and_then(|b| b.foes.iter().position(|f| f.hp > 0)) else {
+                break;
+            };
+            if already_fired {
+                continue;
+            }
+            self.combat_event(EventKind::PowerTriggered, spec.source,
+                (spec.weak + spec.vuln + spec.pierce).max(1), Some("hero".into()));
+            if spec.weak > 0 { self.apply_foe_status(idx, "weak", spec.weak); }
+            if spec.vuln > 0 { self.apply_foe_status(idx, "vulnerable", spec.vuln); }
+            if spec.pierce > 0 { self.deal_enemy_damage_unblockable(idx, spec.pierce, "pierce"); }
+            if spec.cover_gain > 0
+                && let Some(b) = self.battle.as_mut()
+                && let Some(existing) = b.convoy_cover.as_mut()
+            {
+                *existing = existing.saturating_add(spec.cover_gain).min(8);
+            }
+            messages.push(spec.trigger_msg.to_string());
+        }
+        messages
+    }
+
     fn end_turn(&mut self) -> Result<String, String> {
         if self.stage != Stage::Combat { return Err("当前不在战斗中".into()); }
         self.combat_event(EventKind::TurnEnded, "hero", 0, None);
@@ -4299,12 +4646,21 @@ impl Game {
         }
         // Never execute a newly summoned foe's intent before the player has
         // seen that intent on the next turn. Existing foes act normally.
+        let echo_messages = self.apply_expanded_historical_echo();
+        if self.defeated() {
+            return Ok(if echo_messages.is_empty() {
+                self.win_battle()
+            } else {
+                format!("{}。{}", echo_messages.join("；"), self.win_battle())
+            });
+        }
         let existing_foes = self.battle.as_ref().expect("battle").foes.len();
         let phase_messages = self.boss_phase_transitions();
         let intents: Vec<(usize, Intent)> = self.battle.as_ref().expect("battle").foes.iter()
             .enumerate().filter(|(idx, f)| *idx < existing_foes && f.hp > 0)
             .map(|(i, f)| (i, f.intent.clone())).collect();
-        let mut messages = phase_messages;
+        let mut messages = echo_messages;
+        messages.extend(phase_messages);
         for (i, intent) in intents {
             if self.battle.as_ref().is_some_and(|b| b.foes[i].hp == 0) { continue; }
             let name = self.battle.as_ref().expect("battle").foes[i].name().to_string();

@@ -95,6 +95,16 @@ impl ActMap {
             rows.push(choices);
             terrain.push(ground);
         }
+        // Guarantee expanded Acts II-V always include at least one unclosed mid-act
+        // Story node (rows 2..=4) so heroes can revisit missed councils even when row 0
+        // Story is spent on another event or branch. Legacy 7-row and Act-I maps stay untouched.
+        if row_count == EXPANDED_ROWS && act >= 1
+            && !(2..=4).any(|r| (0..3).any(|l|
+                terrain[r][l] != Terrain::Closed && rows[r][l] == Node::Story))
+        {
+            terrain[3][1] = Terrain::Road;
+            rows[3][1] = Node::Story;
+        }
         rows.push([Node::Boss;3]);
         terrain.push([Terrain::Road;3]);
         let mut edges=Vec::with_capacity(row_count-1);
@@ -116,7 +126,45 @@ impl ActMap {
             }
             edges.push(transitions);
         }
+        if row_count == EXPANDED_ROWS && act >= 1 {
+            let reach = Self::reachable_rows(&terrain, &edges);
+            let has_mid_story = (2..=4).any(|r| (0..3).any(|l|
+                reach[r][l] && rows[r][l] == Node::Story
+                    && terrain[r][l] != Terrain::Closed));
+            if !has_mid_story {
+                terrain[3][1] = Terrain::Road;
+                rows[3][1] = Node::Story;
+                if let Some(from) = (0..3).find(|&l| reach[2][l] && terrain[2][l] != Terrain::Closed) {
+                    edges[2][from] |= 1u8 << 1;
+                }
+                if edges[3][1] == 0
+                    && let Some(to) = (0..3).find(|&l| terrain[4][l] != Terrain::Closed)
+                {
+                    edges[3][1] |= 1u8 << to;
+                }
+            }
+        }
         Self {act,rows,edges,terrain}
+    }
+    fn reachable_rows(terrain: &[[Terrain; 3]], edges: &[[u8; 3]]) -> Vec<[bool; 3]> {
+        let mut reachable = vec![[false; 3]; terrain.len()];
+        for (lane, slot) in reachable[0].iter_mut().enumerate() {
+            *slot = terrain[0][lane] != Terrain::Closed;
+        }
+        for row in 0..edges.len() {
+            let prev_row = reachable[row];
+            for (from, &is_reach) in prev_row.iter().enumerate() {
+                if !is_reach || terrain[row][from] == Terrain::Closed { continue; }
+                for (to, dst_reach) in reachable[row + 1].iter_mut().enumerate() {
+                    if (edges[row][from] & (1u8 << to)) != 0
+                        && terrain[row + 1][to] != Terrain::Closed
+                    {
+                        *dst_reach = true;
+                    }
+                }
+            }
+        }
+        reachable
     }
     pub fn terrain_at(&self,row:usize,lane:u8)->Terrain {
         self.terrain.get(row).map_or(Terrain::Road,|r|r[usize::from(lane.min(2))])
@@ -374,5 +422,38 @@ mod tests {
         let healthy=map.score_route(1,0,80,80,0);
         let weak=map.score_route(1,0,20,80,0);
         assert!(healthy>weak);
+    }
+
+    #[test]
+    fn expanded_acts_two_through_five_guarantee_reachable_mid_act_story() {
+        for seed in 1..=120u64 {
+            for act in 1..EXPANDED_ACTS {
+                let mut state = seed.wrapping_mul(1597334677).wrapping_add(u64::from(act));
+                let map = ActMap::generate_expanded(|n| {
+                    state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+                    ((state >> 32) as usize) % n
+                }, act);
+                assert!(map.is_valid(), "act={act} seed={seed}");
+                assert_eq!(map.rows[0][1], Node::Story, "act={act} seed={seed}");
+                let mut reach = [[false; 3]; EXPANDED_ROWS];
+                for lane in 0..LANES {
+                    reach[0][usize::from(lane)] = map.terrain_at(0, lane) != Terrain::Closed;
+                }
+                for row in 0..EXPANDED_ROWS - 1 {
+                    for from in 0..LANES {
+                        if !reach[row][usize::from(from)] { continue; }
+                        for (to, _) in map.routes(row + 1, Some(from)) {
+                            reach[row + 1][usize::from(to)] = true;
+                        }
+                    }
+                }
+                assert!(
+                    (2..=4).any(|r| (0..3).any(|l|
+                        reach[r][l] && map.rows[r][l] == Node::Story
+                            && map.terrain_at(r, l as u8) != Terrain::Closed)),
+                    "act={act} seed={seed} lacked reachable mid-act Story"
+                );
+            }
+        }
     }
 }

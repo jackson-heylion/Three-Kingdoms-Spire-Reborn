@@ -407,7 +407,12 @@ impl App {
                 }
                 Stage::Won => println!(" 【胜利】{}，江山已平！输入 campaign [武将] [种子|auto] [warlords|conqueror|destiny]（或旧制 new）开始新征程。",
                     if g.difficulty.is_some() { "五幕皆定" } else { "三幕皆定" }),
-                Stage::Lost => println!(" 【败北】胜败乃兵家常事。输入 campaign [武将] [种子|auto] [warlords|conqueror|destiny]（或旧制 new）开始新征程。"),
+                Stage::Lost => {
+                    if let Some(diagnosis) = g.defeat_diagnosis() {
+                        println!(" 【败因诊断】{diagnosis}");
+                    }
+                    println!(" 【败北】胜败乃兵家常事。输入 campaign [武将] [种子|auto] [warlords|conqueror|destiny]（或旧制 new）开始新征程。");
+                }
             }
             println!("────────────────────────────────────────────────────");
             for msg in g.log.iter().rev().take(3).rev() { println!(" > {msg}"); }
